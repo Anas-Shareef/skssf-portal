@@ -78,7 +78,7 @@ const mapLoanFromApi = (l: any, usersByNumericId: Map<number, any>) => {
   const user = l.user_id ? usersByNumericId.get(Number(l.user_id)) : null;
   const approvals = l.request?.approvals || [];
   const assignedReviewers = l.request?.assignedReviewers || l.request?.assigned_reviewers || [];
-  return {
+  const mapped = {
     id: l.loan_no || l.id,
     memId: user?.code || '',
     applicant_id: user?.code || '',
@@ -104,6 +104,8 @@ const mapLoanFromApi = (l: any, usersByNumericId: Map<number, any>) => {
     approvals,
     assignedReviewers,
     audit: l.audit || [],
+    total_paid: 0,
+    remaining_balance: 0
   };
   
   // Financial Integrity Audit: Ensure 'paid' flags match approved requests
@@ -658,7 +660,7 @@ export const localDb = {
           action: 'Payment Verified',
           by: adminBy || 'System',
           date: new Date().toLocaleString(),
-          note: `Installment #${monthIdx + 1} approved for ₹${actualPaid.toLocaleString()}.`,
+          note: `Installment #${monthIdx + 1} approved for ₹${finalAmt.toLocaleString()}.`,
           category: 'repayment'
         });
       }
@@ -1264,21 +1266,6 @@ export const localDb = {
     }
     emitDataChanged();
     return true;
-  },
-
-  updateProduct: (productId: string, updates: any) => {
-    const products = localDb.getProducts();
-    const idx = products.findIndex((p: any) => p.id === productId);
-    if (idx > -1) {
-      products[idx] = { ...products[idx], ...updates };
-      backendCacheStorage.setItem('db_products', JSON.stringify(products));
-      if (hasBackendSession()) {
-        syncLater(api.patch(`/inventory/products/${productId}`, updates).then(() => syncFromBackend()));
-      }
-      emitDataChanged();
-      return true;
-    }
-    return false;
   },
 
   updateUnit: (unitId: string, updates: any) => {

@@ -12,6 +12,7 @@ export type Profile = {
   unit?: string;
   occupation?: string;
   avatar?: string;
+  branch?: string;
 };
 
 type AuthContextType = {
