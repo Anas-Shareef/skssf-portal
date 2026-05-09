@@ -210,7 +210,7 @@ export default function LoanManagement() {
           {toast.t === 's' ? '✅' : '❌'} {toast.m}
         </div>
       )}
-      <div className="pg-hd">
+      <div className="pg-hd" style={{ flexWrap: 'wrap', gap: 16 }}>
         <div>
           <div className="pg-title">💰 Loan Management</div>
           <div className="pg-sub">
@@ -218,45 +218,45 @@ export default function LoanManagement() {
           </div>
         </div>
         {isMember && (
-          <div className="pg-acts">
-            <button className="bsm s" onClick={() => navigate('/dashboard/apply')}>+ Apply for Loan</button>
+          <div className="pg-acts" style={{ marginLeft: 'auto' }}>
+            <button className="bsm s" style={{ height: 48, padding: '0 24px', borderRadius: 14 }} onClick={() => navigate('/dashboard/apply')}>+ Apply for Loan</button>
           </div>
         )}
       </div>
 
       {/* ── STATS PIPELINE ── */}
-      <div className="pipeline loan-pipeline-grid fu" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
-        <div className="ps"><div className="ps-dot" style={{ background: 'var(--blue)' }}></div><div className="ps-n">{isMember ? myTotal : loans.length}</div><div className="ps-l">Total {isMember ? 'My' : ''} Requests</div></div>
-        <div className="ps"><div className="ps-dot" style={{ background: 'var(--amber)' }}></div><div className="ps-n">{isMember ? myPending : allPending}</div><div className="ps-l">Pending Approvals</div></div>
-        <div className="ps"><div className="ps-dot" style={{ background: 'var(--green)' }}></div><div className="ps-n">{isMember ? myApproved : allApproved}</div><div className="ps-l">Approved Loans</div></div>
-        <div className="ps"><div className="ps-dot" style={{ background: 'var(--red)' }}></div><div className="ps-n">{isMember ? myRejected : allRejected}</div><div className="ps-l">Rejected Loans</div></div>
+      <div className="pipeline loan-pipeline-grid fu" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12 }}>
+        <div className="ps"><div className="ps-dot" style={{ background: 'var(--blue)' }}></div><div className="ps-n">{isMember ? myTotal : loans.length}</div><div className="ps-l">Total Requests</div></div>
+        <div className="ps"><div className="ps-dot" style={{ background: 'var(--amber)' }}></div><div className="ps-n">{isMember ? myPending : allPending}</div><div className="ps-l">Pending</div></div>
+        <div className="ps"><div className="ps-dot" style={{ background: 'var(--green)' }}></div><div className="ps-n">{isMember ? myApproved : allApproved}</div><div className="ps-l">Approved</div></div>
+        <div className="ps"><div className="ps-dot" style={{ background: 'var(--red)' }}></div><div className="ps-n">{isMember ? myRejected : allRejected}</div><div className="ps-l">Rejected</div></div>
       </div>
 
       {/* ── LOAN TABLE CARD ── */}
       <div className="card fu">
 
         {/* CARD HEADER */}
-        <div className="card-hd">
+        <div className="card-hd inv-ctrls" style={{ flexWrap: 'wrap', gap: 16 }}>
           <div className="card-title">Loan Pipeline ({filteredLoans.length}/{scopedLoans.length})</div>
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-            <div className="fiw" style={{ maxWidth: '200px' }}>
+          <div className="inv-actions-group" style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <div className="fiw" style={{ maxWidth: '240px', flex: 1 }}>
               <span className="fic">🔍</span>
               <input
                 className="fi"
                 placeholder="Quick search…"
                 value={search}
                 onChange={e => { setSearch(e.target.value); setSelectedIds([]); }}
-                style={{ padding: '7px 10px 7px 36px', fontSize: '13px' }}
+                style={{ padding: '0 10px 0 36px', fontSize: '13px', height: 44, borderRadius: 12 }}
               />
             </div>
             <button
               className={`bsm ${showFilters ? 's' : 'g'}`}
-              style={{ fontSize: '12px', padding: '7px 14px' }}
+              style={{ fontSize: '12px', height: 44, padding: '0 16px', borderRadius: 12 }}
               onClick={() => setShowFilters(v => !v)}
             >
               🔎 Filters {activeFilterCount > 0 && <span style={{ background: 'var(--red)', color: '#fff', borderRadius: '10px', fontSize: '10px', padding: '1px 6px', marginLeft: '4px' }}>{activeFilterCount}</span>}
             </button>
-            <button className="bsm g" style={{ fontSize: '12px' }} onClick={() => setConfirmExport(true)}>⬇ Export CSV</button>
+            <button className="bsm g" style={{ fontSize: '12px', height: 44, padding: '0 16px', borderRadius: 12 }} onClick={() => setConfirmExport(true)}>⬇ Export CSV</button>
           </div>
         </div>
 
@@ -382,7 +382,7 @@ export default function LoanManagement() {
       {/* ── REVIEW MODAL ── */}
       {showReview && selectedLoan && (
         <div className="ov" onClick={e => { if ((e.target as HTMLElement).classList.contains('ov')) setShowReview(false); }}>
-          <div className="modal review-modal-grid" style={{ maxWidth: '980px', height: '90vh', maxHeight: '90vh', display: 'grid', gridTemplateColumns: 'minmax(0,1.2fr) minmax(0,1fr)', overflow: 'hidden', padding: 0 }}>
+          <div className="modal review-modal-grid loan-review-container" style={{ maxWidth: '980px', height: '90vh', maxHeight: '90vh', display: 'grid', gridTemplateColumns: '1.2fr 1fr', overflow: 'hidden', padding: 0 }}>
 
             {/* LEFT — Original Application */}
             <div style={{ background: 'var(--bg)', borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
@@ -704,6 +704,87 @@ export default function LoanManagement() {
         onConfirm={() => { doExportCSV(); setConfirmExport(false); }}
         onCancel={() => setConfirmExport(false)}
       />
+      <style>{`
+        @media (max-width: 1024px) {
+          .pg-hd {
+            flex-direction: column !important;
+            align-items: flex-start !important;
+          }
+          .pg-acts {
+            width: 100%;
+            margin-left: 0 !important;
+          }
+          .pg-acts button {
+            width: 100%;
+          }
+          .inv-ctrls {
+            flex-direction: column !important;
+            align-items: stretch !important;
+          }
+          .inv-actions-group {
+            width: 100%;
+            justify-content: space-between;
+          }
+          .inv-actions-group > div {
+            max-width: 100% !important;
+          }
+        }
+
+        @media (max-width: 768px) {
+          .loan-review-container {
+            grid-template-columns: 1fr !important;
+            height: 95vh !important;
+            max-height: 95vh !important;
+          }
+          .amt-hero {
+            flex-direction: column !important;
+            gap: 15px !important;
+            padding: 20px !important;
+          }
+          .ah-r {
+            text-align: left !important;
+            border-left: none !important;
+            border-top: 1px solid rgba(255,255,255,0.1);
+            padding-top: 15px;
+            width: 100%;
+          }
+          .rv-row {
+            flex-direction: column !important;
+            gap: 4px !important;
+            align-items: flex-start !important;
+          }
+          .rv-v {
+            text-align: left !important;
+            width: 100%;
+            font-weight: 800 !important;
+          }
+          .wit-tbl {
+            display: block;
+            overflow-x: auto;
+            white-space: nowrap;
+          }
+          .review-modal-grid > div:first-child {
+            border-right: none !important;
+            border-bottom: 2px solid var(--border);
+          }
+        }
+
+        @media (max-width: 480px) {
+          .card-hd .card-title {
+            width: 100%;
+            text-align: center;
+            margin-bottom: 10px;
+          }
+          .inv-actions-group {
+            display: grid !important;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px !important;
+          }
+          .inv-actions-group > div:first-child {
+            grid-column: 1 / -1;
+          }
+        }
+      `}</style>
     </>
   );
 }

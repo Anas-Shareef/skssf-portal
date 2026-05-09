@@ -1558,21 +1558,21 @@ export default function Inventory() {
                 )}
               </div>
 
-              <div style={{ padding: '16px 24px', background: '#fff', borderTop: '1.5px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div style={{ fontSize: 13, color: 'var(--muted)' }}>
+              <div className="inv-ctrls" style={{ padding: '16px 24px', background: '#fff', borderTop: '1.5px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
+                <div style={{ fontSize: 13, color: 'var(--muted)', flex: 1 }}>
                   {totalSelected > 0
                     ? <><b style={{ color: 'var(--teal)', fontSize: 15 }}>{totalSelected}</b> unit{totalSelected > 1 ? 's' : ''} selected</>
                     : 'Select items to bundle into this kit'}
                 </div>
-                <div style={{ display: 'flex', gap: 10 }}>
-                  <button className="bsm g" onClick={() => { setIsKitting(false); setEditingKit(null); setKitName(''); setKitSelections({}); }}>Cancel</button>
+                <div className="inv-actions-group" style={{ display: 'flex', gap: 10 }}>
+                  <button className="bsm g" style={{ height: 44, padding: '0 20px', borderRadius: 12 }} onClick={() => { setIsKitting(false); setEditingKit(null); setKitName(''); setKitSelections({}); }}>Cancel</button>
                   <button
                     onClick={handleSaveKit}
                     disabled={!kitName.trim() || totalSelected === 0}
                     style={{
                       background: (!kitName.trim() || totalSelected === 0) ? '#e2e8f0' : 'var(--teal)',
                       color: (!kitName.trim() || totalSelected === 0) ? '#94a3b8' : '#fff',
-                      padding: '9px 20px', borderRadius: 50, border: 'none',
+                      padding: '0 20px', borderRadius: 12, border: 'none', height: 44,
                       fontWeight: 800, fontSize: 13, cursor: (!kitName.trim() || totalSelected === 0) ? 'not-allowed' : 'pointer'
                     }}
                   >
