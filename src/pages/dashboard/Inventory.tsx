@@ -1893,6 +1893,7 @@ export default function Inventory() {
         }}>
           {toast.m}
         </div>
+      )}
       {/* ─── GLOBAL RESPONSIVE STYLES ─── */}
       <style>{`
         @media (max-width: 1024px) {
