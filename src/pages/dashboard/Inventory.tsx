@@ -715,7 +715,6 @@ export default function Inventory() {
         {/* ══ MISSIONS VIEW ══ */}
         {view === 'missions' && (
           <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
             <div className="inv-ctrls" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24, gap: 16 }}>
                <h2 className="pg-title-mini" style={{ fontSize: 24, fontWeight: 900, color: '#0f172a', margin: 0 }}>Mission Control Center</h2>
                <div className="inv-actions-group" style={{ display: 'flex', gap: 12, flex: 1, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
