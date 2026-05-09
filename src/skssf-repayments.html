@@ -1,0 +1,1318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>SKSSF — Repayment Management</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;0,900;1,400&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --teal:#0D7377;--teal2:#14A085;--teal3:#1BB89A;
+  --teal-pale:rgba(13,115,119,.08);--teal-pale2:rgba(13,115,119,.18);
+  --amber:#F0A500;--amber2:#D4920A;--amber-pale:rgba(240,165,0,.10);--amber-pale2:rgba(240,165,0,.20);
+  --red:#EF4444;--red-pale:rgba(239,68,68,.08);--red-pale2:rgba(239,68,68,.18);
+  --green:#16A34A;--green-pale:rgba(22,163,74,.08);--green-pale2:rgba(22,163,74,.18);
+  --blue:#3B82F6;--blue-pale:rgba(59,130,246,.08);
+  --bg:#F0EDE6;--bg2:#E6E2DA;--bg3:#DEDAD0;--white:#FFFFFF;
+  --dark:#1A1F2E;--dark2:#2D3344;--dark3:#3D4460;
+  --muted:#6B7280;--muted2:#9CA3AF;
+  --border:#E2DED6;--border2:#D4D0C8;
+  --shadow:0 2px 12px rgba(13,115,119,.07);
+  --shadow-md:0 8px 32px rgba(13,115,119,.12);
+  --shadow-lg:0 20px 60px rgba(13,115,119,.18);
+  --shadow-xl:0 32px 80px rgba(13,115,119,.22);
+  --r:20px;--r-sm:12px;--r-xs:8px;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--dark);font-size:14px;min-height:100vh;}
+input,select,textarea,button{font-family:'DM Sans',sans-serif;}
+::-webkit-scrollbar{width:5px;height:5px;}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:10px;}
+
+/* ── ANIMATIONS ── */
+@keyframes fadeUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.05)}}
+@keyframes shimmer{0%{background-position:-400px 0}100%{background-position:400px 0}}
+@keyframes slideRight{from{width:0}to{width:var(--target-w)}}
+@keyframes confetti{0%{transform:translateY(0) rotate(0deg);opacity:1}100%{transform:translateY(-80px) rotate(360deg);opacity:0}}
+@keyframes checkPop{0%{transform:scale(0)}60%{transform:scale(1.2)}100%{transform:scale(1)}}
+@keyframes ringPulse{0%{box-shadow:0 0 0 0 rgba(13,115,119,.4)}70%{box-shadow:0 0 0 12px rgba(13,115,119,0)}100%{box-shadow:0 0 0 0 rgba(13,115,119,0)}}
+
+.fu{animation:fadeUp .45s ease both;}
+.fu1{animation-delay:.06s;opacity:0}
+.fu2{animation-delay:.12s;opacity:0}
+.fu3{animation-delay:.18s;opacity:0}
+.fu4{animation-delay:.24s;opacity:0}
+.fu5{animation-delay:.30s;opacity:0}
+
+/* ── LAYOUT ── */
+.app{display:flex;min-height:100vh;}
+.sidebar{width:260px;background:var(--dark);display:flex;flex-direction:column;flex-shrink:0;position:sticky;top:0;height:100vh;overflow-y:auto;}
+.sb-head{padding:26px 22px 18px;border-bottom:1px solid rgba(255,255,255,.08);}
+.sb-logo{display:flex;align-items:center;gap:12px;margin-bottom:20px;}
+.sb-logo-ic{width:38px;height:38px;background:var(--teal);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;}
+.sb-logo-txt{font-family:'Playfair Display',serif;font-size:15px;font-weight:700;color:#fff;}
+.sb-logo-sub{font-size:9.5px;color:rgba(255,255,255,.35);}
+.sb-user{display:flex;align-items:center;gap:10px;}
+.sb-av{width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#fff;flex-shrink:0;animation:ringPulse 2s infinite;}
+.sb-uname{font-size:13px;font-weight:600;color:#fff;}
+.sb-uemail{font-size:10.5px;color:rgba(255,255,255,.35);margin-top:1px;}
+.sb-badge{display:inline-block;font-size:9px;font-weight:700;padding:2px 8px;border-radius:50px;letter-spacing:.5px;margin-top:4px;background:rgba(13,115,119,.3);color:var(--teal3);}
+.sb-nav{padding:14px 10px;flex:1;}
+.sb-sec{font-size:9px;font-weight:700;color:rgba(255,255,255,.2);letter-spacing:1px;text-transform:uppercase;padding:10px 11px 5px;}
+.ni{display:flex;align-items:center;gap:11px;padding:10px 11px;border-radius:10px;cursor:pointer;transition:all .18s;color:rgba(255,255,255,.5);font-size:13px;font-weight:500;margin-bottom:1px;}
+.ni:hover{background:rgba(255,255,255,.07);color:#fff;}
+.ni.on{background:rgba(13,115,119,.28);color:#fff;}
+.ni.on .ni-ic{color:var(--teal3);}
+.ni-ic{font-size:17px;width:22px;text-align:center;}
+.ni-b{margin-left:auto;font-size:9.5px;font-weight:700;padding:2px 7px;border-radius:50px;color:#fff;background:var(--red);}
+.sb-foot{padding:12px 10px;border-top:1px solid rgba(255,255,255,.07);}
+.ni.logout{color:rgba(255,100,100,.6);}
+
+.main-wrap{flex:1;display:flex;flex-direction:column;overflow:hidden;}
+.top-bar{background:var(--white);border-bottom:1.5px solid var(--border);padding:14px 30px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:40;}
+.tb-title{font-family:'Playfair Display',serif;font-size:18px;font-weight:700;}
+.tb-right{display:flex;align-items:center;gap:10px;}
+.role-toggle{display:flex;background:var(--bg2);border-radius:50px;padding:3px;gap:2px;}
+.rt-btn{padding:7px 16px;border-radius:50px;border:none;background:transparent;font-size:12.5px;font-weight:600;color:var(--muted);cursor:pointer;transition:all .2s;}
+.rt-btn.on{background:var(--teal);color:#fff;box-shadow:0 2px 8px rgba(13,115,119,.25);}
+.main{flex:1;overflow-y:auto;background:var(--bg);}
+.mp{padding:28px 32px;max-width:1100px;}
+
+/* ── BUTTONS ── */
+.bsm{padding:9px 18px;border-radius:50px;font-size:13px;font-weight:600;cursor:pointer;border:none;transition:all .22s;font-family:'DM Sans',sans-serif;display:inline-flex;align-items:center;gap:7px;}
+.bsm.s{background:var(--teal);color:#fff;}
+.bsm.s:hover{background:var(--teal2);transform:translateY(-1px);box-shadow:0 4px 16px rgba(13,115,119,.25);}
+.bsm.g{background:var(--white);color:var(--dark);border:1.5px solid var(--border);}
+.bsm.g:hover{border-color:var(--teal);color:var(--teal);}
+.bsm.r{background:var(--red-pale);color:var(--red);border:1.5px solid var(--red-pale2);}
+.bsm.r:hover{background:rgba(239,68,68,.14);}
+.bsm.gr{background:var(--green-pale);color:var(--green);border:1.5px solid var(--green-pale2);}
+.bsm.gr:hover{background:rgba(22,163,74,.14);}
+.bsm.am{background:var(--amber-pale);color:var(--amber2);border:1.5px solid var(--amber-pale2);}
+
+/* ── MODAL ── */
+.ov{position:fixed;inset:0;background:rgba(26,31,46,.6);z-index:100;display:flex;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(6px);}
+.modal{background:var(--white);border-radius:24px;width:100%;max-width:580px;max-height:92vh;overflow-y:auto;box-shadow:var(--shadow-xl);}
+.modal.wide{max-width:720px;}
+.modal.img-modal{max-width:860px;background:rgba(26,31,46,.95);}
+.mh{padding:22px 26px 18px;border-bottom:1.5px solid var(--border);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:var(--white);z-index:2;border-radius:24px 24px 0 0;}
+.mh-title{font-family:'Playfair Display',serif;font-size:20px;font-weight:700;}
+.mh-close{width:32px;height:32px;border-radius:50%;border:1.5px solid var(--border);background:transparent;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:16px;transition:all .2s;}
+.mh-close:hover{background:var(--red-pale);border-color:var(--red);color:var(--red);}
+.mb{padding:22px 26px;}
+.mf{padding:16px 26px 22px;border-top:1.5px solid var(--border);display:flex;gap:9px;justify-content:flex-end;position:sticky;bottom:0;background:var(--white);}
+
+/* ── FORM ── */
+.fg{margin-bottom:15px;}
+.fl{font-size:12.5px;font-weight:600;color:var(--dark2);margin-bottom:6px;display:block;}
+.fi{width:100%;padding:11px 13px;border:1.5px solid var(--border);border-radius:11px;font-size:13.5px;color:var(--dark);background:var(--bg);outline:none;transition:all .2s;}
+.fi:focus{border-color:var(--teal);box-shadow:0 0 0 3px rgba(13,115,119,.09);background:var(--white);}
+.fi::placeholder{color:var(--muted2);}
+.fi.ic-l{padding-left:40px;}
+.fir{position:relative;}
+.fic{position:absolute;left:13px;top:50%;transform:translateY(-50%);font-size:15px;color:var(--muted2);}
+.fgrid{display:grid;grid-template-columns:1fr 1fr;gap:13px;}
+.full{grid-column:1/-1;}
+.sel{width:100%;padding:11px 13px;border:1.5px solid var(--border);border-radius:11px;font-size:13.5px;color:var(--dark);background:var(--bg);outline:none;appearance:none;transition:all .2s;}
+.sel:focus{border-color:var(--teal);}
+.ta{width:100%;padding:11px 13px;border:1.5px solid var(--border);border-radius:11px;font-size:13.5px;color:var(--dark);background:var(--bg);outline:none;resize:vertical;min-height:72px;transition:all .2s;font-family:'DM Sans',sans-serif;}
+.ta:focus{border-color:var(--teal);}
+
+/* ── UPLOAD BOX ── */
+.upload-box{border:2px dashed var(--border2);border-radius:13px;padding:24px;text-align:center;cursor:pointer;transition:all .25s;position:relative;background:var(--bg);}
+.upload-box:hover{border-color:var(--teal);background:var(--teal-pale);}
+.upload-box.has{border-color:var(--green);background:var(--green-pale);border-style:solid;}
+.upload-box input{position:absolute;inset:0;opacity:0;cursor:pointer;}
+.ub-icon{font-size:32px;margin-bottom:8px;}
+.ub-title{font-size:14px;font-weight:600;color:var(--dark2);margin-bottom:3px;}
+.ub-sub{font-size:12px;color:var(--muted);}
+.ub-preview{width:100%;max-height:180px;object-fit:contain;border-radius:9px;margin-top:10px;display:none;}
+
+/* ── REPAYMENT OVERVIEW CARD ── */
+.loan-overview{background:var(--white);border-radius:var(--r);border:1.5px solid var(--border);overflow:hidden;margin-bottom:20px;box-shadow:var(--shadow);}
+.lo-header{background:linear-gradient(135deg,var(--teal) 0%,#0A5E62 45%,var(--teal2) 100%);padding:22px 26px;position:relative;overflow:hidden;}
+.lo-header::before{content:'';position:absolute;width:300px;height:300px;border-radius:50%;background:rgba(255,255,255,.05);top:-100px;right:-80px;}
+.lo-header::after{content:'';position:absolute;width:200px;height:200px;border-radius:50%;background:rgba(255,255,255,.04);bottom:-60px;left:-40px;}
+.lo-top{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:16px;position:relative;z-index:1;}
+.lo-loan-id{font-size:11.5px;color:rgba(255,255,255,.6);margin-bottom:4px;letter-spacing:.4px;}
+.lo-name{font-family:'Playfair Display',serif;font-size:21px;font-weight:700;color:#fff;margin-bottom:3px;}
+.lo-purpose{font-size:12.5px;color:rgba(255,255,255,.6);}
+.lo-amount{text-align:right;}
+.lo-amount-lbl{font-size:11px;color:rgba(255,255,255,.55);margin-bottom:2px;}
+.lo-amount-num{font-family:'Playfair Display',serif;font-size:28px;font-weight:900;color:#fff;}
+.lo-progress{position:relative;z-index:1;}
+.lo-prog-labels{display:flex;justify-content:space-between;margin-bottom:6px;}
+.lo-prog-label{font-size:12px;color:rgba(255,255,255,.7);}
+.lo-prog-bar-wrap{background:rgba(255,255,255,.15);border-radius:50px;height:10px;overflow:hidden;margin-bottom:6px;}
+.lo-prog-bar{height:100%;background:linear-gradient(90deg,rgba(255,255,255,.9),rgba(255,255,255,.7));border-radius:50px;transition:width 1s cubic-bezier(.34,1.56,.64,1);}
+.lo-prog-pct{font-family:'Playfair Display',serif;font-size:13px;font-weight:700;color:rgba(255,255,255,.8);}
+.lo-body{padding:22px 26px;}
+.lo-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:0;border-bottom:1.5px solid var(--border);margin-bottom:18px;}
+.lo-stat{padding:14px 0;text-align:center;border-right:1.5px solid var(--border);}
+.lo-stat:last-child{border-right:none;}
+.lo-stat-n{font-family:'Playfair Display',serif;font-size:20px;font-weight:700;margin-bottom:2px;}
+.lo-stat-l{font-size:11.5px;color:var(--muted);}
+.lo-next-emi{display:flex;align-items:center;justify-content:space-between;background:var(--amber-pale);border:1.5px solid var(--amber-pale2);border-radius:12px;padding:13px 16px;margin-bottom:16px;}
+.lo-next-emi-left{display:flex;align-items:center;gap:10px;}
+.lo-next-emi-icon{font-size:22px;}
+.lo-next-emi-title{font-size:13.5px;font-weight:700;color:var(--amber2);}
+.lo-next-emi-sub{font-size:12px;color:var(--muted);margin-top:1px;}
+.lo-next-emi-amt{font-family:'Playfair Display',serif;font-size:20px;font-weight:700;color:var(--amber2);}
+.lo-actions{display:flex;gap:10px;flex-wrap:wrap;}
+
+/* ── INSTALLMENT TIMELINE ── */
+.inst-timeline{display:flex;gap:0;margin-bottom:20px;position:relative;}
+.inst-timeline::before{content:'';position:absolute;top:17px;left:40px;right:40px;height:2px;background:var(--border2);z-index:0;}
+.inst-item{flex:1;display:flex;flex-direction:column;align-items:center;position:relative;z-index:1;cursor:pointer;}
+.inst-item:hover .inst-card{transform:translateY(-3px);box-shadow:var(--shadow-md);}
+.inst-circle{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;margin-bottom:10px;transition:all .3s;flex-shrink:0;position:relative;}
+.inst-circle.paid{background:var(--green);color:#fff;box-shadow:0 4px 14px rgba(22,163,74,.35);}
+.inst-circle.paid::after{content:'✓';position:absolute;animation:checkPop .3s ease;}
+.inst-circle.due{background:var(--amber);color:#fff;box-shadow:0 4px 14px rgba(240,165,0,.35);animation:pulse 2s infinite;}
+.inst-circle.pending-review{background:var(--blue);color:#fff;box-shadow:0 4px 14px rgba(59,130,246,.35);}
+.inst-circle.rejected{background:var(--red);color:#fff;box-shadow:0 4px 14px rgba(239,68,68,.3);}
+.inst-circle.upcoming{background:var(--bg3);color:var(--muted2);border:2px solid var(--border2);}
+.inst-card{background:var(--white);border-radius:var(--r-sm);border:1.5px solid var(--border);padding:12px 10px;text-align:center;width:100%;transition:all .22s;margin:0 6px;}
+.inst-card.paid-card{border-color:rgba(22,163,74,.2);background:rgba(22,163,74,.02);}
+.inst-card.due-card{border-color:rgba(240,165,0,.3);background:rgba(240,165,0,.03);}
+.inst-card.pending-card{border-color:rgba(59,130,246,.25);background:rgba(59,130,246,.03);}
+.inst-card.rejected-card{border-color:rgba(239,68,68,.2);background:rgba(239,68,68,.02);}
+.inst-n{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px;}
+.inst-amt{font-family:'Playfair Display',serif;font-size:17px;font-weight:700;margin-bottom:2px;}
+.inst-date{font-size:11px;color:var(--muted2);margin-bottom:6px;}
+.inst-status-pill{font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:50px;letter-spacing:.3px;}
+.sp-paid{background:var(--green-pale);color:var(--green);}
+.sp-due{background:var(--amber-pale);color:var(--amber2);}
+.sp-pending{background:var(--blue-pale);color:var(--blue);}
+.sp-rejected{background:var(--red-pale);color:var(--red);}
+.sp-upcoming{background:var(--bg2);color:var(--muted);}
+.inst-extra{font-size:10.5px;color:var(--muted);margin-top:4px;}
+
+/* ── REPAYMENT SUBMISSION CARDS ── */
+.sub-card{background:var(--white);border-radius:var(--r-sm);border:1.5px solid var(--border);padding:18px 20px;margin-bottom:12px;transition:all .22s;}
+.sub-card:hover{box-shadow:var(--shadow);}
+.sub-card.pending{border-left:4px solid var(--blue);}
+.sub-card.approved{border-left:4px solid var(--green);}
+.sub-card.rejected{border-left:4px solid var(--red);}
+.sc-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
+.sc-member{display:flex;align-items:center;gap:10px;}
+.sc-av{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:#fff;flex-shrink:0;}
+.sc-mname{font-size:13.5px;font-weight:700;}
+.sc-msub{font-size:11.5px;color:var(--muted);margin-top:1px;}
+.sc-body{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px;}
+.sc-field{background:var(--bg);border-radius:9px;padding:10px 12px;}
+.sc-field-l{font-size:11px;color:var(--muted);margin-bottom:3px;}
+.sc-field-v{font-size:13px;font-weight:700;}
+.sc-proof{display:flex;align-items:center;gap:9px;background:var(--bg);border-radius:9px;padding:10px 12px;margin-bottom:14px;cursor:pointer;transition:all .2s;border:1.5px solid transparent;}
+.sc-proof:hover{border-color:var(--teal);background:var(--teal-pale);}
+.sc-proof-thumb{width:44px;height:44px;border-radius:8px;object-fit:cover;background:var(--bg2);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;}
+.sc-proof-info{flex:1;}
+.sc-proof-name{font-size:13px;font-weight:600;}
+.sc-proof-sub{font-size:11.5px;color:var(--muted);margin-top:1px;}
+.sc-proof-btn{font-size:12px;color:var(--teal);font-weight:600;}
+.sc-actions{display:flex;gap:9px;align-items:center;}
+.sc-note-input{flex:1;padding:9px 12px;border:1.5px solid var(--border);border-radius:9px;font-size:13px;background:var(--bg);outline:none;transition:all .2s;font-family:'DM Sans',sans-serif;}
+.sc-note-input:focus{border-color:var(--teal);}
+.sc-result{padding:10px 13px;border-radius:9px;font-size:12.5px;line-height:1.5;margin-top:10px;}
+.sc-result.approved-r{background:var(--green-pale);border:1px solid var(--green-pale2);color:var(--green);}
+.sc-result.rejected-r{background:var(--red-pale);border:1px solid var(--red-pale2);color:var(--red);}
+
+/* ── MANUAL ENTRY CARD ── */
+.manual-card{background:linear-gradient(135deg,var(--teal-pale),rgba(13,115,119,.04));border:1.5px solid var(--teal-pale2);border-radius:var(--r);padding:22px 24px;margin-bottom:20px;}
+.mc-title{font-family:'Playfair Display',serif;font-size:17px;font-weight:700;margin-bottom:4px;}
+.mc-sub{font-size:12.5px;color:var(--muted);margin-bottom:18px;}
+
+/* ── HISTORY TABLE ── */
+.hist-table{width:100%;border-collapse:collapse;}
+.hist-table th{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;padding:9px 13px;text-align:left;border-bottom:1.5px solid var(--border);background:var(--bg);}
+.hist-table td{font-size:13px;padding:13px 13px;border-bottom:1px solid rgba(226,222,214,.5);color:var(--dark2);vertical-align:middle;}
+.hist-table tr:last-child td{border:none;}
+.hist-table tr:hover td{background:rgba(13,115,119,.016);}
+.amount-cell{font-family:'Playfair Display',serif;font-size:15px;font-weight:700;}
+.proof-thumb-sm{width:32px;height:32px;border-radius:6px;object-fit:cover;cursor:pointer;background:var(--teal-pale);display:flex;align-items:center;justify-content:center;font-size:14px;}
+
+/* ── COMPLETION BANNER ── */
+.completion-banner{background:linear-gradient(135deg,#16A34A 0%,#15803d 50%,#14A085 100%);border-radius:var(--r);padding:28px 30px;margin-bottom:20px;position:relative;overflow:hidden;text-align:center;}
+.completion-banner::before{content:'';position:absolute;width:400px;height:400px;border-radius:50%;background:rgba(255,255,255,.05);top:-200px;right:-100px;}
+.cb-icon{font-size:48px;margin-bottom:12px;animation:checkPop .5s ease;}
+.cb-title{font-family:'Playfair Display',serif;font-size:26px;font-weight:900;color:#fff;margin-bottom:6px;}
+.cb-sub{font-size:14px;color:rgba(255,255,255,.75);margin-bottom:16px;}
+.cb-detail{display:flex;gap:24px;justify-content:center;flex-wrap:wrap;}
+.cb-stat{text-align:center;}
+.cb-stat-n{font-family:'Playfair Display',serif;font-size:20px;font-weight:700;color:#fff;}
+.cb-stat-l{font-size:11.5px;color:rgba(255,255,255,.65);}
+.confetti-piece{position:absolute;width:8px;height:8px;border-radius:2px;animation:confetti 1.5s ease forwards;}
+
+/* ── STATUS BADGES ── */
+.bdg{padding:4px 10px;border-radius:50px;font-size:10.5px;font-weight:700;letter-spacing:.3px;display:inline-flex;align-items:center;gap:4px;}
+.bdg-g{background:var(--green-pale);color:var(--green);}
+.bdg-a{background:var(--amber-pale);color:var(--amber2);}
+.bdg-r{background:var(--red-pale);color:var(--red);}
+.bdg-b{background:var(--blue-pale);color:var(--blue);}
+.bdg-gr{background:rgba(107,114,128,.1);color:var(--muted);}
+.bdg-t{background:var(--teal-pale);color:var(--teal);}
+
+/* ── SECTION HEADERS ── */
+.sec-hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px;}
+.sec-title{font-family:'Playfair Display',serif;font-size:20px;font-weight:700;}
+.sec-sub{font-size:12.5px;color:var(--muted);margin-top:2px;}
+
+/* ── IMAGE MODAL ── */
+.img-viewer{background:transparent;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;}
+.img-viewer img{max-width:100%;max-height:70vh;border-radius:12px;object-fit:contain;}
+.img-viewer-info{color:rgba(255,255,255,.7);font-size:13px;text-align:center;}
+
+/* ── EMPTY STATE ── */
+.empty-state{text-align:center;padding:48px 24px;color:var(--muted);}
+.empty-state-icon{font-size:48px;margin-bottom:12px;opacity:.5;}
+.empty-state-title{font-family:'Playfair Display',serif;font-size:18px;font-weight:600;color:var(--dark2);margin-bottom:6px;}
+.empty-state-sub{font-size:13.5px;color:var(--muted);}
+
+/* ── TOAST ── */
+.toast{position:fixed;bottom:24px;right:24px;background:var(--dark);color:#fff;padding:13px 20px;border-radius:13px;font-size:13.5px;box-shadow:0 8px 32px rgba(0,0,0,.25);z-index:999;display:none;align-items:center;gap:10px;max-width:360px;}
+.toast.show{display:flex;animation:fadeUp .3s ease;}
+
+/* ── CARD SHELL ── */
+.card{background:var(--white);border-radius:var(--r);border:1.5px solid var(--border);padding:22px;box-shadow:var(--shadow);}
+.card-hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;}
+.card-title{font-family:'Playfair Display',serif;font-size:16px;font-weight:700;}
+
+/* ── PENDING ALERT BAR ── */
+.alert-bar{display:flex;align-items:center;gap:12px;padding:13px 18px;border-radius:12px;margin-bottom:16px;}
+.alert-bar.pending-bar{background:var(--blue-pale);border:1.5px solid rgba(59,130,246,.22);}
+.alert-bar.warning-bar{background:var(--amber-pale);border:1.5px solid var(--amber-pale2);}
+.ab-icon{font-size:20px;}
+.ab-text{flex:1;font-size:13.5px;font-weight:600;}
+.ab-count{background:var(--red);color:#fff;font-size:11px;font-weight:700;padding:3px 9px;border-radius:50px;}
+</style>
+</head>
+<body>
+<div class="app">
+
+<!-- ═══ SIDEBAR ═══ -->
+<div class="sidebar">
+  <div class="sb-head">
+    <div class="sb-logo"><div class="sb-logo-ic">☽</div><div><div class="sb-logo-txt">SKSSF eGov</div><div class="sb-logo-sub">Poyanad Branch</div></div></div>
+    <div class="sb-user">
+      <div class="sb-av" id="sb-av" style="background:var(--teal)">FA</div>
+      <div><div class="sb-uname" id="sb-name">Faris Abdulrahman</div><div class="sb-uemail" id="sb-email">faris@skssf.org</div><div class="sb-badge" id="sb-badge">MEMBER</div></div>
+    </div>
+  </div>
+  <div class="sb-nav">
+    <div class="sb-sec">Loan</div>
+    <div class="ni on" onclick="setSection('repayments')"><span class="ni-ic">📅</span>Repayments</div>
+    <div class="ni" onclick="setSection('history')"><span class="ni-ic">📋</span>Payment History</div>
+    <div class="sb-sec">Admin Tools</div>
+    <div class="ni" id="ni-queue" onclick="setSection('queue')"><span class="ni-ic">⏳</span>Approval Queue <span class="ni-b" id="queue-badge">2</span></div>
+    <div class="ni" onclick="setSection('manual')"><span class="ni-ic">✏️</span>Manual Entry</div>
+  </div>
+  <div class="sb-foot"><div class="ni logout" onclick="location.reload()"><span class="ni-ic">🚪</span>Exit Demo</div></div>
+</div>
+
+<!-- ═══ MAIN ═══ -->
+<div class="main-wrap">
+  <div class="top-bar">
+    <div class="tb-title" id="tb-title">Repayment Dashboard</div>
+    <div class="tb-right">
+      <div class="role-toggle">
+        <button class="rt-btn on" id="rt-member" onclick="setRole('member')">👤 Member View</button>
+        <button class="rt-btn" id="rt-admin" onclick="setRole('admin')">🛡️ Admin View</button>
+      </div>
+    </div>
+  </div>
+  <div class="main"><div class="mp" id="main-content"></div></div>
+</div>
+
+</div>
+
+<!-- ═══ MODAL ═══ -->
+<div class="ov" id="modal-ov" onclick="closeModalOv(event)" style="display:none">
+  <div class="modal" id="modal">
+    <div class="mh"><div class="mh-title" id="modal-title">Modal</div><button class="mh-close" onclick="closeModal()">✕</button></div>
+    <div class="mb" id="modal-body"></div>
+    <div class="mf" id="modal-foot"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"><span id="t-ic">✅</span><span id="t-msg">Done!</span></div>
+
+<script>
+// ═══════════════════════════════════
+// DATA
+// ═══════════════════════════════════
+let ROLE = 'member';
+let SECTION = 'repayments';
+
+const LOANS = [
+  {
+    id: 'LOAN-2025-0047',
+    memberName: 'Faris Abdulrahman',
+    memberNo: 'SKSSF-2024-1042',
+    memberAvColor: '#0D7377',
+    purpose: 'Education Fees',
+    totalAmt: 15000,
+    disbursedDate: '2025-03-20',
+    disbursedMode: 'Bank Transfer',
+    disbursedRef: 'REF892341',
+    months: 3,
+    installments: [
+      { num: 1, due: 'Apr 1, 2025', amt: 5000, status: 'paid', paidDate: 'Apr 3, 2025', mode: 'UPI', ref: 'UPI8834291', submissionId: 'SUB001', adminNote: 'Verified. UPI reference matched.' },
+      { num: 2, due: 'May 1, 2025', amt: 5000, status: 'pending_review', paidDate: null, mode: 'UPI', ref: 'UPI9921003', submissionId: 'SUB002', adminNote: '' },
+      { num: 3, due: 'Jun 1, 2025', amt: 5000, status: 'upcoming', paidDate: null, mode: '', ref: '', submissionId: null, adminNote: '' },
+    ]
+  },
+  {
+    id: 'LOAN-2025-0043',
+    memberName: 'Ameen Siddique',
+    memberNo: 'SKSSF-2024-1015',
+    memberAvColor: '#8B5CF6',
+    purpose: 'Home Repair',
+    totalAmt: 20000,
+    disbursedDate: '2025-01-10',
+    disbursedMode: 'UPI',
+    disbursedRef: 'UPI5512',
+    months: 2,
+    installments: [
+      { num: 1, due: 'Feb 1, 2025', amt: 10000, status: 'paid', paidDate: 'Feb 3, 2025', mode: 'Cash', ref: '—', submissionId: 'SUB003', adminNote: 'Cash received in office.' },
+      { num: 2, due: 'Mar 1, 2025', amt: 10000, status: 'paid', paidDate: 'Mar 2, 2025', mode: 'UPI', ref: 'UPI7743', submissionId: 'SUB004', adminNote: 'UPI confirmed.' },
+    ]
+  }
+];
+
+let SUBMISSIONS = [
+  {
+    id: 'SUB001',
+    loanId: 'LOAN-2025-0047',
+    installmentNum: 1,
+    memberName: 'Faris Abdulrahman',
+    memberNo: 'SKSSF-2024-1042',
+    memberAvColor: '#0D7377',
+    amt: 5000,
+    date: 'Apr 3, 2025',
+    mode: 'UPI',
+    ref: 'UPI8834291',
+    note: 'Transferred via PhonePe to branch account.',
+    proofFile: '📱',
+    proofName: 'phonepay_screenshot.jpg',
+    status: 'approved',
+    submittedOn: '2025-04-03',
+    adminNote: 'Verified. UPI reference matched.',
+    adminBy: 'Mohammed Ashraf (President)',
+    adminDate: '2025-04-04',
+  },
+  {
+    id: 'SUB002',
+    loanId: 'LOAN-2025-0047',
+    installmentNum: 2,
+    memberName: 'Faris Abdulrahman',
+    memberNo: 'SKSSF-2024-1042',
+    memberAvColor: '#0D7377',
+    amt: 5000,
+    date: 'May 5, 2025',
+    mode: 'UPI',
+    ref: 'UPI9921003',
+    note: 'Second installment transferred via GPay.',
+    proofFile: '📱',
+    proofName: 'gpay_receipt.jpg',
+    status: 'pending',
+    submittedOn: '2025-05-05',
+    adminNote: '',
+    adminBy: '',
+    adminDate: '',
+  },
+  {
+    id: 'SUB003',
+    loanId: 'LOAN-2025-0043',
+    installmentNum: 1,
+    memberName: 'Ameen Siddique',
+    memberNo: 'SKSSF-2024-1015',
+    memberAvColor: '#8B5CF6',
+    amt: 10000,
+    date: 'Feb 3, 2025',
+    mode: 'Cash',
+    ref: '—',
+    note: 'Paid cash at the office.',
+    proofFile: '🧾',
+    proofName: 'cash_receipt.jpg',
+    status: 'approved',
+    submittedOn: '2025-02-03',
+    adminNote: 'Cash received in office.',
+    adminBy: 'Haris Nasser (Secretary)',
+    adminDate: '2025-02-03',
+  },
+  {
+    id: 'SUB004',
+    loanId: 'LOAN-2025-0043',
+    installmentNum: 2,
+    memberName: 'Ameen Siddique',
+    memberNo: 'SKSSF-2024-1015',
+    memberAvColor: '#8B5CF6',
+    amt: 10000,
+    date: 'Mar 2, 2025',
+    mode: 'UPI',
+    ref: 'UPI7743',
+    note: '',
+    proofFile: '📱',
+    proofName: 'upi_transfer.png',
+    status: 'approved',
+    submittedOn: '2025-03-02',
+    adminNote: 'UPI confirmed.',
+    adminBy: 'Mohammed Ashraf (President)',
+    adminDate: '2025-03-02',
+  },
+];
+
+// ═══════════════════════════════════
+// ROLE & SECTION NAV
+// ═══════════════════════════════════
+function setRole(r) {
+  ROLE = r;
+  document.getElementById('rt-member').classList.toggle('on', r === 'member');
+  document.getElementById('rt-admin').classList.toggle('on', r === 'admin');
+  const cfg = r === 'member'
+    ? { av: 'FA', name: 'Faris Abdulrahman', email: 'faris@skssf.org', badge: 'MEMBER', avBg: '#0D7377' }
+    : { av: 'MA', name: 'Mohammed Ashraf', email: 'president@skssf.org', badge: 'PRESIDENT', avBg: '#14A085' };
+  document.getElementById('sb-av').textContent = cfg.av;
+  document.getElementById('sb-av').style.background = cfg.avBg;
+  document.getElementById('sb-name').textContent = cfg.name;
+  document.getElementById('sb-email').textContent = cfg.email;
+  document.getElementById('sb-badge').textContent = cfg.badge;
+  document.getElementById('ni-queue').style.display = r === 'admin' ? 'flex' : 'none';
+  updateQueueBadge();
+  setSection('repayments');
+}
+
+function setSection(id) {
+  SECTION = id;
+  document.querySelectorAll('.ni').forEach(n => n.classList.remove('on'));
+  const sec = {
+    repayments: 'Repayment Dashboard',
+    history: 'Payment History',
+    queue: 'Approval Queue',
+    manual: 'Manual Entry',
+  };
+  document.getElementById('tb-title').textContent = sec[id] || id;
+  const map = { repayments: buildRepayments, history: buildHistory, queue: buildQueue, manual: buildManual };
+  if (map[id]) document.getElementById('main-content').innerHTML = map[id]();
+}
+
+function updateQueueBadge() {
+  const count = SUBMISSIONS.filter(s => s.status === 'pending').length;
+  const badge = document.getElementById('queue-badge');
+  if (badge) badge.textContent = count;
+}
+
+// ═══════════════════════════════════
+// REPAYMENTS PAGE
+// ═══════════════════════════════════
+function buildRepayments() {
+  const myLoans = ROLE === 'member'
+    ? LOANS.filter(l => l.memberNo === 'SKSSF-2024-1042')
+    : LOANS;
+
+  const pendingCount = SUBMISSIONS.filter(s => s.status === 'pending').length;
+  const completedLoans = myLoans.filter(l => l.installments.every(i => i.status === 'paid'));
+  const activeLoans = myLoans.filter(l => !l.installments.every(i => i.status === 'paid'));
+
+  let html = '';
+
+  // Pending alert for admin
+  if (ROLE === 'admin' && pendingCount > 0) {
+    html += `<div class="alert-bar pending-bar fu">
+      <span class="ab-icon">⏳</span>
+      <div class="ab-text">You have <b>${pendingCount} repayment submission${pendingCount > 1 ? 's' : ''}</b> waiting for your review and approval.</div>
+      <span class="ab-count">${pendingCount} Pending</span>
+      <button class="bsm s" style="font-size:12px;padding:7px 14px" onclick="setSection('queue')">Review Now →</button>
+    </div>`;
+  }
+
+  // Pending alert for member
+  const myPending = SUBMISSIONS.filter(s => s.status === 'pending' && s.memberNo === 'SKSSF-2024-1042');
+  if (ROLE === 'member' && myPending.length > 0) {
+    html += `<div class="alert-bar warning-bar fu">
+      <span class="ab-icon">⏳</span>
+      <div class="ab-text">Your repayment submission for <b>₹${myPending[0].amt.toLocaleString()}</b> is under admin review.</div>
+      <span class="bdg bdg-b">Pending Review</span>
+    </div>`;
+  }
+
+  // Completed loans celebration
+  completedLoans.forEach(l => {
+    html += buildCompletionBanner(l);
+  });
+
+  // Active loans
+  activeLoans.forEach(l => {
+    html += buildLoanOverviewCard(l);
+    html += buildInstallmentTimeline(l);
+  });
+
+  if (myLoans.length === 0) {
+    html += `<div class="card fu"><div class="empty-state"><div class="empty-state-icon">💰</div><div class="empty-state-title">No Active Loans</div><div class="empty-state-sub">No loan repayments to track.</div></div></div>`;
+  }
+
+  return html;
+}
+
+function buildCompletionBanner(l) {
+  const confettis = ['#0D7377','#F0A500','#16A34A','#3B82F6','#EF4444','#8B5CF6'];
+  const confHtml = Array.from({length: 12}, (_, i) => {
+    const c = confettis[i % confettis.length];
+    const left = 5 + (i * 8) + '%';
+    const delay = (i * 0.12) + 's';
+    return `<div class="confetti-piece" style="background:${c};left:${left};top:80%;animation-delay:${delay}"></div>`;
+  }).join('');
+  return `<div class="completion-banner fu">
+    ${confHtml}
+    <div class="cb-icon">🏁</div>
+    <div class="cb-title">Loan Fully Repaid!</div>
+    <div class="cb-sub">${l.id} — ${l.purpose} · Congratulations on completing your loan!</div>
+    <div class="cb-detail">
+      <div class="cb-stat"><div class="cb-stat-n">₹${l.totalAmt.toLocaleString()}</div><div class="cb-stat-l">Total Repaid</div></div>
+      <div class="cb-stat"><div class="cb-stat-n">${l.months}</div><div class="cb-stat-l">Installments</div></div>
+      <div class="cb-stat"><div class="cb-stat-n">✅</div><div class="cb-stat-l">Status: Cleared</div></div>
+    </div>
+  </div>`;
+}
+
+function buildLoanOverviewCard(l) {
+  const paid = l.installments.filter(i => i.status === 'paid').reduce((s, i) => s + i.amt, 0);
+  const remaining = l.totalAmt - paid;
+  const pct = Math.round(paid / l.totalAmt * 100);
+  const nextDue = l.installments.find(i => i.status === 'due' || i.status === 'pending_review' || i.status === 'upcoming');
+
+  return `<div class="loan-overview fu">
+    <div class="lo-header">
+      <div class="lo-top">
+        <div>
+          <div class="lo-loan-id">${l.id}</div>
+          <div class="lo-name">${l.memberName}</div>
+          <div class="lo-purpose">${l.purpose}</div>
+        </div>
+        <div class="lo-amount">
+          <div class="lo-amount-lbl">Total Loan</div>
+          <div class="lo-amount-num">₹${l.totalAmt.toLocaleString()}</div>
+        </div>
+      </div>
+      <div class="lo-progress">
+        <div class="lo-prog-labels">
+          <span class="lo-prog-label">₹${paid.toLocaleString()} repaid</span>
+          <span class="lo-prog-label">₹${remaining.toLocaleString()} left</span>
+        </div>
+        <div class="lo-prog-bar-wrap">
+          <div class="lo-prog-bar" style="width:${pct}%"></div>
+        </div>
+        <div class="lo-prog-pct">${pct}% complete · ${l.installments.filter(i=>i.status==='paid').length} of ${l.months} installments paid</div>
+      </div>
+    </div>
+    <div class="lo-body">
+      <div class="lo-stats">
+        <div class="lo-stat"><div class="lo-stat-n" style="color:var(--teal)">₹${paid.toLocaleString()}</div><div class="lo-stat-l">Total Paid</div></div>
+        <div class="lo-stat"><div class="lo-stat-n" style="color:var(--amber2)">₹${remaining.toLocaleString()}</div><div class="lo-stat-l">Remaining</div></div>
+        <div class="lo-stat"><div class="lo-stat-n" style="color:var(--dark)">₹${Math.round(l.totalAmt/l.months).toLocaleString()}</div><div class="lo-stat-l">Per Installment</div></div>
+      </div>
+      ${nextDue && nextDue.status !== 'paid' ? `
+      <div class="lo-next-emi">
+        <div class="lo-next-emi-left">
+          <div class="lo-next-emi-icon">${nextDue.status === 'pending_review' ? '⏳' : nextDue.status === 'due' ? '⚠️' : '📅'}</div>
+          <div>
+            <div class="lo-next-emi-title">${nextDue.status === 'pending_review' ? 'Under Review' : nextDue.status === 'due' ? 'Payment Due' : 'Upcoming Payment'}</div>
+            <div class="lo-next-emi-sub">Installment ${nextDue.num} · Due ${nextDue.due}</div>
+          </div>
+        </div>
+        <div class="lo-next-emi-amt">₹${nextDue.amt.toLocaleString()}</div>
+      </div>` : ''}
+      <div class="lo-actions">
+        ${ROLE === 'member' ? `<button class="bsm s" onclick="openSubmitRepaymentModal('${l.id}')">💸 Submit Repayment</button>` : ''}
+        ${ROLE === 'admin' ? `<button class="bsm s" onclick="openManualEntryModal('${l.id}')">✏️ Record Payment</button>` : ''}
+        <button class="bsm g" onclick="openHistoryModal('${l.id}')">📋 View Full History</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function buildInstallmentTimeline(l) {
+  const items = l.installments.map(inst => {
+    const cls = inst.status === 'paid' ? 'paid' :
+                inst.status === 'pending_review' ? 'pending-review' :
+                inst.status === 'rejected' ? 'rejected' :
+                inst.status === 'due' ? 'due' : 'upcoming';
+    const cardCls = `${cls.split('-')[0]}-card`;
+    const icon = inst.status === 'paid' ? '✓' :
+                 inst.status === 'pending_review' ? '⏳' :
+                 inst.status === 'rejected' ? '✕' :
+                 inst.status === 'due' ? '!' : inst.num;
+    const pillCls = inst.status === 'paid' ? 'sp-paid' :
+                    inst.status === 'pending_review' ? 'sp-pending' :
+                    inst.status === 'rejected' ? 'sp-rejected' :
+                    inst.status === 'due' ? 'sp-due' : 'sp-upcoming';
+    const pillLabel = inst.status === 'paid' ? '✓ Paid' :
+                      inst.status === 'pending_review' ? '⏳ Under Review' :
+                      inst.status === 'rejected' ? '✕ Rejected' :
+                      inst.status === 'due' ? '⚠ Due' : '🔒 Upcoming';
+
+    return `<div class="inst-item" onclick="openInstallmentDetail('${l.id}',${inst.num-1})">
+      <div class="inst-circle ${cls}">${icon}</div>
+      <div class="inst-card ${cardCls}">
+        <div class="inst-n">Installment ${inst.num}</div>
+        <div class="inst-amt" style="color:${inst.status==='paid'?'var(--green)':inst.status==='due'?'var(--amber2)':inst.status==='pending_review'?'var(--blue)':inst.status==='rejected'?'var(--red)':'var(--dark)'}">₹${inst.amt.toLocaleString()}</div>
+        <div class="inst-date">Due: ${inst.due}</div>
+        <div><span class="inst-status-pill ${pillCls}">${pillLabel}</span></div>
+        ${inst.status === 'paid' ? `<div class="inst-extra">Paid ${inst.paidDate}<br>${inst.mode}${inst.ref !== '—' ? ' · ' + inst.ref : ''}</div>` : ''}
+        ${inst.status === 'pending_review' ? `<div class="inst-extra">Submitted ${inst.mode}<br>Ref: ${inst.ref}</div>` : ''}
+      </div>
+    </div>`;
+  });
+
+  return `<div class="fu" style="margin-bottom:24px">
+    <div class="sec-hd"><div><div class="sec-title" style="font-size:16px">Installment Timeline</div></div></div>
+    <div class="inst-timeline">${items.join('')}</div>
+  </div>`;
+}
+
+// ═══════════════════════════════════
+// SUBMIT REPAYMENT MODAL (Member)
+// ═══════════════════════════════════
+function openSubmitRepaymentModal(loanId) {
+  const l = LOANS.find(x => x.id === loanId);
+  const nextInst = l.installments.find(i => i.status !== 'paid');
+  document.getElementById('modal-title').textContent = 'Submit Repayment';
+  document.getElementById('modal').className = 'modal';
+  document.getElementById('modal-body').innerHTML = `
+    <div style="background:linear-gradient(135deg,var(--teal-pale),rgba(13,115,119,.04));border:1.5px solid var(--teal-pale2);border-radius:13px;padding:16px 18px;margin-bottom:20px;display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <div style="font-size:11.5px;color:var(--muted);margin-bottom:3px">${l.id} · ${l.purpose}</div>
+        <div style="font-family:'Playfair Display',serif;font-size:18px;font-weight:700;color:var(--teal)">Installment ${nextInst ? nextInst.num : '?'} of ${l.months}</div>
+        <div style="font-size:12.5px;color:var(--muted);margin-top:2px">Due: ${nextInst ? nextInst.due : '—'}</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:11px;color:var(--muted);margin-bottom:2px">Amount Due</div>
+        <div style="font-family:'Playfair Display',serif;font-size:26px;font-weight:900;color:var(--teal)">₹${nextInst ? nextInst.amt.toLocaleString() : '0'}</div>
+      </div>
+    </div>
+    <div class="fg">
+      <label class="fl">Amount Paid (₹) *</label>
+      <div class="fir"><span class="fic">₹</span><input class="fi ic-l" type="number" id="sub-amt" value="${nextInst ? nextInst.amt : ''}" placeholder="${nextInst ? nextInst.amt : 'Enter amount'}"></div>
+    </div>
+    <div class="fgrid">
+      <div class="fg">
+        <label class="fl">Payment Date *</label>
+        <input class="fi" type="date" id="sub-date" value="${new Date().toISOString().split('T')[0]}">
+      </div>
+      <div class="fg">
+        <label class="fl">Payment Mode *</label>
+        <select class="sel" id="sub-mode">
+          <option>UPI</option><option>Bank Transfer</option><option>Cash</option><option>Cheque</option>
+        </select>
+      </div>
+    </div>
+    <div class="fg">
+      <label class="fl">Transaction Reference / ID *</label>
+      <input class="fi" id="sub-ref" placeholder="e.g. UPI8834291 · Cheque No. · Bank Ref">
+    </div>
+    <div class="fg">
+      <label class="fl">Note (Optional)</label>
+      <textarea class="ta" id="sub-note" rows="2" placeholder="Any additional information..."></textarea>
+    </div>
+    <div class="fg">
+      <label class="fl">Payment Proof * <span style="font-weight:400;color:var(--muted)">(Screenshot / Receipt / Photo)</span></label>
+      <div class="upload-box" id="sub-upload-box" onclick="document.getElementById('sub-proof').click()">
+        <div class="ub-icon">📎</div>
+        <div class="ub-title">Upload Proof of Payment</div>
+        <div class="ub-sub">UPI screenshot, bank receipt, cash voucher — PNG, JPG, PDF</div>
+        <img class="ub-preview" id="sub-preview">
+        <input type="file" id="sub-proof" accept="image/*,.pdf" onchange="handleProofUpload('sub-upload-box','sub-proof','sub-preview')">
+      </div>
+    </div>
+    <div style="background:var(--amber-pale);border:1px solid var(--amber-pale2);border-radius:10px;padding:11px 13px;font-size:12.5px;color:var(--amber2);display:flex;gap:8px;align-items:flex-start">
+      <span>⚠️</span><div>Your submission will be reviewed by the admin before being officially recorded. You'll be notified once approved.</div>
+    </div>
+  `;
+  document.getElementById('modal-foot').innerHTML = `
+    <button class="bsm g" onclick="closeModal()">Cancel</button>
+    <button class="bsm s" onclick="submitRepayment('${loanId}')">📤 Submit for Approval</button>
+  `;
+  document.getElementById('modal-ov').style.display = 'flex';
+}
+
+function handleProofUpload(boxId, inputId, previewId) {
+  const input = document.getElementById(inputId);
+  const box = document.getElementById(boxId);
+  const preview = document.getElementById(previewId);
+  if (input.files && input.files[0]) {
+    const file = input.files[0];
+    box.classList.add('has');
+    box.querySelector('.ub-title').textContent = '✅ ' + file.name;
+    box.querySelector('.ub-sub').textContent = (file.size / 1024).toFixed(0) + ' KB · Click to change';
+    const reader = new FileReader();
+    reader.onload = e => { preview.src = e.target.result; preview.style.display = 'block'; };
+    reader.readAsDataURL(file);
+  }
+}
+
+function submitRepayment(loanId) {
+  const l = LOANS.find(x => x.id === loanId);
+  const nextInst = l.installments.find(i => i.status !== 'paid');
+  if (!nextInst) { toast('No pending installments.', '⚠️'); return; }
+  const amt = parseInt(document.getElementById('sub-amt').value) || nextInst.amt;
+  const mode = document.getElementById('sub-mode').value;
+  const ref = document.getElementById('sub-ref').value || '—';
+  const date = document.getElementById('sub-date').value;
+  const note = document.getElementById('sub-note').value;
+  const newSub = {
+    id: 'SUB' + Date.now().toString().slice(-4),
+    loanId,
+    installmentNum: nextInst.num,
+    memberName: l.memberName,
+    memberNo: l.memberNo,
+    memberAvColor: l.memberAvColor,
+    amt, date: new Date(date).toLocaleDateString('en-IN'),
+    mode, ref, note,
+    proofFile: '📱',
+    proofName: document.getElementById('sub-proof').files[0]?.name || 'proof.jpg',
+    status: 'pending',
+    submittedOn: date,
+    adminNote: '', adminBy: '', adminDate: '',
+  };
+  SUBMISSIONS.push(newSub);
+  nextInst.status = 'pending_review';
+  nextInst.submissionId = newSub.id;
+  nextInst.mode = mode;
+  nextInst.ref = ref;
+  updateQueueBadge();
+  closeModal();
+  setSection('repayments');
+  toast('✅ Repayment submitted! Admin will review shortly.', '📤');
+}
+
+// ═══════════════════════════════════
+// INSTALLMENT DETAIL MODAL
+// ═══════════════════════════════════
+function openInstallmentDetail(loanId, idx) {
+  const l = LOANS.find(x => x.id === loanId);
+  const inst = l.installments[idx];
+  const sub = inst.submissionId ? SUBMISSIONS.find(s => s.id === inst.submissionId) : null;
+
+  document.getElementById('modal-title').textContent = `Installment ${inst.num} Details`;
+  document.getElementById('modal').className = 'modal';
+
+  const statusColor = inst.status === 'paid' ? 'var(--green)' :
+                      inst.status === 'pending_review' ? 'var(--blue)' :
+                      inst.status === 'due' ? 'var(--amber2)' :
+                      inst.status === 'rejected' ? 'var(--red)' : 'var(--muted)';
+
+  document.getElementById('modal-body').innerHTML = `
+    <div style="text-align:center;padding:20px 0;border-bottom:1.5px solid var(--border);margin-bottom:20px">
+      <div style="font-size:42px;margin-bottom:8px">${inst.status === 'paid' ? '✅' : inst.status === 'pending_review' ? '⏳' : inst.status === 'rejected' ? '❌' : inst.status === 'due' ? '⚠️' : '🔒'}</div>
+      <div style="font-family:'Playfair Display',serif;font-size:30px;font-weight:900;color:${statusColor}">₹${inst.amt.toLocaleString()}</div>
+      <div style="font-size:13px;color:var(--muted);margin-top:4px">Installment ${inst.num} of ${l.months} · Due ${inst.due}</div>
+    </div>
+    ${sub ? `
+    <div style="font-size:13px;font-weight:700;margin-bottom:12px;color:var(--dark2)">📤 Member Submission</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:14px">
+      ${[['Submitted On', sub.submittedOn], ['Amount', '₹'+sub.amt.toLocaleString()], ['Mode', sub.mode], ['Reference', sub.ref]].map(([k,v])=>`<div style="background:var(--bg);border-radius:9px;padding:11px 13px"><div style="font-size:11px;color:var(--muted);margin-bottom:3px">${k}</div><div style="font-size:13.5px;font-weight:600">${v}</div></div>`).join('')}
+    </div>
+    ${sub.note ? `<div style="background:var(--bg);border-radius:9px;padding:11px 13px;margin-bottom:14px;font-size:13px;color:var(--dark2)">"${sub.note}"</div>` : ''}
+    <div style="display:flex;align-items:center;gap:10px;background:var(--teal-pale);border:1.5px solid var(--teal-pale2);border-radius:10px;padding:12px 14px;margin-bottom:14px;cursor:pointer" onclick="openProofViewer('${sub.proofName}')">
+      <div style="font-size:28px">${sub.proofFile}</div>
+      <div style="flex:1"><div style="font-size:13px;font-weight:600">${sub.proofName}</div><div style="font-size:11.5px;color:var(--muted)">Click to view proof image</div></div>
+      <span style="color:var(--teal);font-size:12px;font-weight:600">View 🔍</span>
+    </div>
+    ${sub.status === 'approved' ? `<div style="background:var(--green-pale);border:1.5px solid var(--green-pale2);border-radius:10px;padding:12px 14px;font-size:12.5px;color:var(--green)"><b>✅ Approved</b> by ${sub.adminBy} on ${sub.adminDate}${sub.adminNote ? ' — "' + sub.adminNote + '"' : ''}</div>` : ''}
+    ${sub.status === 'rejected' ? `<div style="background:var(--red-pale);border:1.5px solid var(--red-pale2);border-radius:10px;padding:12px 14px;font-size:12.5px;color:var(--red)"><b>❌ Rejected</b> — ${sub.adminNote}</div>` : ''}
+    ${sub.status === 'pending' ? `<div style="background:var(--blue-pale);border:1px solid rgba(59,130,246,.2);border-radius:10px;padding:12px 14px;font-size:12.5px;color:var(--blue)">⏳ Submission is pending admin review.</div>` : ''}
+    ` : `<div style="color:var(--muted);text-align:center;padding:16px 0;font-size:13.5px">${inst.status === 'upcoming' ? '🔒 This installment is not yet due.' : 'No submission yet for this installment.'}</div>`}
+  `;
+  document.getElementById('modal-foot').innerHTML = `
+    ${ROLE === 'member' && inst.status !== 'paid' && inst.status !== 'pending_review' ? `<button class="bsm s" onclick="closeModal();openSubmitRepaymentModal('${loanId}')">💸 Submit Payment</button>` : ''}
+    ${ROLE === 'admin' && inst.status === 'pending_review' && sub ? `<button class="bsm r" onclick="closeModal();openAdminReviewModal('${sub.id}')">Review Submission</button>` : ''}
+    <button class="bsm g" onclick="closeModal()">Close</button>
+  `;
+  document.getElementById('modal-ov').style.display = 'flex';
+}
+
+// ═══════════════════════════════════
+// ADMIN APPROVAL QUEUE
+// ═══════════════════════════════════
+function buildQueue() {
+  const pending = SUBMISSIONS.filter(s => s.status === 'pending');
+  const reviewed = SUBMISSIONS.filter(s => s.status !== 'pending');
+
+  let html = `<div class="sec-hd fu"><div><div class="sec-title">⏳ Repayment Approval Queue</div><div class="sec-sub">Review member submissions and approve or reject with explanation</div></div><span class="bdg bdg-b">${pending.length} Pending</span></div>`;
+
+  if (pending.length === 0) {
+    html += `<div class="card fu"><div class="empty-state"><div class="empty-state-icon">✅</div><div class="empty-state-title">All Clear!</div><div class="empty-state-sub">No pending repayment submissions to review.</div></div></div>`;
+  } else {
+    html += `<div class="fu" style="margin-bottom:24px">`;
+    pending.forEach(sub => { html += buildQueueCard(sub, true); });
+    html += `</div>`;
+  }
+
+  if (reviewed.length > 0) {
+    html += `<div class="sec-hd fu" style="margin-top:8px"><div><div class="sec-title" style="font-size:17px">Recently Reviewed</div></div></div>`;
+    reviewed.forEach(sub => { html += buildQueueCard(sub, false); });
+  }
+
+  return html;
+}
+
+function buildQueueCard(sub, isPending) {
+  const l = LOANS.find(x => x.id === sub.loanId);
+  const inst = l ? l.installments.find(i => i.num === sub.installmentNum) : null;
+  const statusCls = sub.status === 'approved' ? 'approved' : sub.status === 'rejected' ? 'rejected' : 'pending';
+
+  return `<div class="sub-card ${statusCls} fu">
+    <div class="sc-top">
+      <div class="sc-member">
+        <div class="sc-av" style="background:${sub.memberAvColor}">${sub.memberName.charAt(0)}</div>
+        <div>
+          <div class="sc-mname">${sub.memberName}</div>
+          <div class="sc-msub">${sub.memberNo} · ${sub.loanId} · Installment ${sub.installmentNum}</div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <span class="bdg ${sub.status === 'approved' ? 'bdg-g' : sub.status === 'rejected' ? 'bdg-r' : 'bdg-b'}">${sub.status === 'approved' ? '✅ Approved' : sub.status === 'rejected' ? '❌ Rejected' : '⏳ Pending Review'}</span>
+        <div style="font-size:11px;color:var(--muted)">${sub.submittedOn}</div>
+      </div>
+    </div>
+    <div class="sc-body">
+      <div class="sc-field"><div class="sc-field-l">Amount</div><div class="sc-field-v" style="color:var(--teal);font-family:'Playfair Display',serif;font-size:17px">₹${sub.amt.toLocaleString()}</div></div>
+      <div class="sc-field"><div class="sc-field-l">Mode</div><div class="sc-field-v">${sub.mode}</div></div>
+      <div class="sc-field"><div class="sc-field-l">Reference</div><div class="sc-field-v" style="font-size:12px">${sub.ref}</div></div>
+      <div class="sc-field"><div class="sc-field-l">Due Date</div><div class="sc-field-v" style="font-size:12px">${inst ? inst.due : '—'}</div></div>
+    </div>
+    ${sub.note ? `<div style="background:var(--bg);border-radius:8px;padding:9px 12px;font-size:12.5px;color:var(--dark2);margin-bottom:12px;font-style:italic">"${sub.note}"</div>` : ''}
+    <div class="sc-proof" onclick="openProofViewer('${sub.proofName}')">
+      <div class="sc-proof-thumb">${sub.proofFile}</div>
+      <div class="sc-proof-info">
+        <div class="sc-proof-name">${sub.proofName}</div>
+        <div class="sc-proof-sub">Payment proof attached · Click to view full image</div>
+      </div>
+      <div class="sc-proof-btn">🔍 View Proof</div>
+    </div>
+    ${isPending ? `
+    <div class="sc-actions">
+      <input class="sc-note-input" id="note-${sub.id}" placeholder="Add approval note or rejection reason (required for rejection)...">
+      <button class="bsm r" onclick="adminDecision('${sub.id}','reject')">❌ Reject</button>
+      <button class="bsm gr" onclick="adminDecision('${sub.id}','approve')">✅ Approve ₹${sub.amt.toLocaleString()}</button>
+    </div>` : `
+    <div class="sc-result ${sub.status}-r">
+      ${sub.status === 'approved' ? `✅ Approved by <b>${sub.adminBy}</b> on ${sub.adminDate}${sub.adminNote ? ` — "${sub.adminNote}"` : ''}` : `❌ Rejected by <b>${sub.adminBy}</b> — "${sub.adminNote}"`}
+    </div>`}
+  </div>`;
+}
+
+function adminDecision(subId, decision) {
+  const note = document.getElementById(`note-${subId}`)?.value || '';
+  if (decision === 'reject' && !note.trim()) {
+    toast('Please add a reason for rejection.', '⚠️');
+    return;
+  }
+  const sub = SUBMISSIONS.find(s => s.id === subId);
+  const l = LOANS.find(x => x.id === sub.loanId);
+  const inst = l.installments.find(i => i.num === sub.installmentNum);
+  sub.status = decision === 'approve' ? 'approved' : 'rejected';
+  sub.adminNote = note || (decision === 'approve' ? 'Verified and approved.' : '');
+  sub.adminBy = 'Mohammed Ashraf (President)';
+  sub.adminDate = new Date().toLocaleDateString('en-IN');
+  if (decision === 'approve') {
+    inst.status = 'paid';
+    inst.paidDate = sub.date;
+    // Check if all paid → loan complete
+    if (l.installments.every(i => i.status === 'paid')) {
+      toast('🏁 Loan fully repaid! Member will be notified.', '🏁');
+    } else {
+      toast(`✅ ₹${sub.amt.toLocaleString()} repayment approved. Amount credited.`, '✅');
+    }
+  } else {
+    inst.status = 'due';
+    inst.submissionId = null;
+    toast('❌ Submission rejected. Member will be notified with reason.', '❌');
+  }
+  updateQueueBadge();
+  setSection('queue');
+}
+
+function openAdminReviewModal(subId) {
+  const sub = SUBMISSIONS.find(s => s.id === subId);
+  const l = LOANS.find(x => x.id === sub.loanId);
+  const inst = l.installments.find(i => i.num === sub.installmentNum);
+  document.getElementById('modal-title').textContent = 'Review Submission';
+  document.getElementById('modal').className = 'modal wide';
+  document.getElementById('modal-body').innerHTML = `
+    <div style="background:linear-gradient(135deg,var(--teal),var(--teal2));border-radius:13px;padding:18px 20px;margin-bottom:18px;display:flex;align-items:center;justify-content:space-between">
+      <div><div style="font-size:11.5px;color:rgba(255,255,255,.6);margin-bottom:3px">${sub.loanId} · Installment ${sub.installmentNum}</div><div style="font-family:'Playfair Display',serif;font-size:24px;font-weight:900;color:#fff">₹${sub.amt.toLocaleString()}</div><div style="font-size:12px;color:rgba(255,255,255,.65)">from ${sub.memberName}</div></div>
+      <div style="text-align:right"><div style="font-size:11.5px;color:rgba(255,255,255,.6);margin-bottom:2px">Due</div><div style="font-size:16px;font-weight:700;color:#fff">${inst.due}</div></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:16px">
+      ${[['Payment Mode', sub.mode], ['Reference', sub.ref], ['Submitted By', sub.memberName], ['Date', sub.submittedOn]].map(([k,v])=>`<div style="background:var(--bg);border-radius:9px;padding:11px 13px"><div style="font-size:11px;color:var(--muted);margin-bottom:3px">${k}</div><div style="font-size:13.5px;font-weight:600">${v}</div></div>`).join('')}
+    </div>
+    ${sub.note ? `<div style="background:var(--bg);border-radius:9px;padding:12px 14px;margin-bottom:16px;font-size:13px;font-style:italic;color:var(--dark2)">"${sub.note}"</div>` : ''}
+    <div style="background:var(--teal-pale);border:1.5px solid var(--teal-pale2);border-radius:12px;padding:14px 16px;margin-bottom:16px;cursor:pointer;display:flex;align-items:center;gap:12px" onclick="openProofViewer('${sub.proofName}')">
+      <div style="font-size:36px">${sub.proofFile}</div>
+      <div><div style="font-size:14px;font-weight:700">Payment Proof: ${sub.proofName}</div><div style="font-size:12.5px;color:var(--muted);margin-top:2px">Click to open full-size image</div></div>
+      <button class="bsm s" style="margin-left:auto;font-size:12px">View Full Image 🔍</button>
+    </div>
+    <div class="fg">
+      <label class="fl">Your Note (optional for approval · required for rejection)</label>
+      <textarea class="ta" id="review-note" rows="2" placeholder="Add a note explaining your decision..."></textarea>
+    </div>
+    <div style="background:var(--amber-pale);border:1px solid var(--amber-pale2);border-radius:10px;padding:11px 13px;font-size:12.5px;color:var(--amber2)">⚠️ If approved, ₹${sub.amt.toLocaleString()} will be officially credited to the member's repayment record.</div>
+  `;
+  document.getElementById('modal-foot').innerHTML = `
+    <button class="bsm g" onclick="closeModal()">Cancel</button>
+    <button class="bsm r" onclick="adminDecisionModal('${sub.id}','reject')">❌ Reject Submission</button>
+    <button class="bsm s" onclick="adminDecisionModal('${sub.id}','approve')">✅ Approve — Credit ₹${sub.amt.toLocaleString()}</button>
+  `;
+  document.getElementById('modal-ov').style.display = 'flex';
+}
+
+function adminDecisionModal(subId, decision) {
+  const note = document.getElementById('review-note')?.value || '';
+  if (decision === 'reject' && !note.trim()) { toast('Please add a rejection reason.', '⚠️'); return; }
+  const sub = SUBMISSIONS.find(s => s.id === subId);
+  const l = LOANS.find(x => x.id === sub.loanId);
+  const inst = l.installments.find(i => i.num === sub.installmentNum);
+  sub.status = decision === 'approve' ? 'approved' : 'rejected';
+  sub.adminNote = note || 'Verified and approved.';
+  sub.adminBy = 'Mohammed Ashraf (President)';
+  sub.adminDate = new Date().toLocaleDateString('en-IN');
+  if (decision === 'approve') {
+    inst.status = 'paid';
+    inst.paidDate = sub.date;
+    if (l.installments.every(i => i.status === 'paid')) toast('🏁 Loan fully repaid!', '🏁');
+    else toast(`✅ ₹${sub.amt.toLocaleString()} approved and credited!`, '✅');
+  } else {
+    inst.status = 'due';
+    inst.submissionId = null;
+    toast('❌ Submission rejected. Reason sent to member.', '❌');
+  }
+  updateQueueBadge();
+  closeModal();
+  setSection('repayments');
+}
+
+// ═══════════════════════════════════
+// MANUAL ENTRY (Admin)
+// ═══════════════════════════════════
+function buildManual() {
+  return `<div class="sec-hd fu"><div><div class="sec-title">✏️ Manual Payment Entry</div><div class="sec-sub">Record payments directly without requiring member submission — for cash and offline transactions</div></div></div>
+  <div class="card fu" style="margin-bottom:20px">
+    <div style="display:flex;align-items:flex-start;gap:14px;margin-bottom:22px">
+      <div style="width:48px;height:48px;background:var(--teal-pale);border-radius:13px;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">✏️</div>
+      <div><div style="font-family:'Playfair Display',serif;font-size:17px;font-weight:700;margin-bottom:3px">Admin Direct Credit</div><div style="font-size:13px;color:var(--muted);line-height:1.6">Use this when a member pays cash at the office, or you have confirmed a transfer that the member hasn't submitted themselves. This is credited immediately without approval step.</div></div>
+    </div>
+    <div class="fg">
+      <label class="fl">Select Loan *</label>
+      <select class="sel" id="man-loan" onchange="updateManualInstallments()">
+        <option value="">Choose a loan...</option>
+        ${LOANS.map(l => `<option value="${l.id}">${l.id} — ${l.memberName} (₹${l.totalAmt.toLocaleString()})</option>`).join('')}
+      </select>
+    </div>
+    <div class="fg" id="man-inst-wrap" style="display:none">
+      <label class="fl">Select Installment *</label>
+      <select class="sel" id="man-inst"></select>
+    </div>
+    <div class="fgrid">
+      <div class="fg">
+        <label class="fl">Amount Received (₹) *</label>
+        <div class="fir"><span class="fic">₹</span><input class="fi ic-l" type="number" id="man-amt" placeholder="0"></div>
+      </div>
+      <div class="fg">
+        <label class="fl">Payment Date *</label>
+        <input class="fi" type="date" id="man-date" value="${new Date().toISOString().split('T')[0]}">
+      </div>
+      <div class="fg">
+        <label class="fl">Payment Mode *</label>
+        <select class="sel" id="man-mode">
+          <option>Cash</option><option>UPI</option><option>Bank Transfer</option><option>Cheque</option>
+        </select>
+      </div>
+      <div class="fg">
+        <label class="fl">Reference / Transaction ID</label>
+        <input class="fi" id="man-ref" placeholder="Optional for cash">
+      </div>
+    </div>
+    <div class="fg">
+      <label class="fl">Admin Note</label>
+      <textarea class="ta" id="man-note" rows="2" placeholder="e.g. Member paid cash at office during meeting..."></textarea>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center">
+      <button class="bsm s" onclick="recordManualPayment()">✅ Record Payment Directly</button>
+      <div style="font-size:12.5px;color:var(--muted)">No approval step needed — immediately credited</div>
+    </div>
+  </div>
+  <div class="card fu">
+    <div class="card-hd"><div class="card-title">All Active Loans — Quick Status</div></div>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      ${LOANS.map(l => {
+        const paid = l.installments.filter(i=>i.status==='paid').reduce((s,i)=>s+i.amt,0);
+        const pct = Math.round(paid/l.totalAmt*100);
+        const pending = l.installments.filter(i=>i.status==='pending_review').length;
+        return `<div style="display:flex;align-items:center;gap:14px;padding:13px 16px;background:var(--bg);border-radius:11px;cursor:pointer" onclick="openManualEntryModal('${l.id}')">
+          <div style="width:36px;height:36px;border-radius:50%;background:${l.memberAvColor};display:flex;align-items:center;justify-content:center;font-size:14px;color:#fff;font-weight:700;flex-shrink:0">${l.memberName.charAt(0)}</div>
+          <div style="flex:1">
+            <div style="font-size:13.5px;font-weight:700">${l.memberName} <span style="font-size:11.5px;font-weight:400;color:var(--muted)">· ${l.id}</span></div>
+            <div style="display:flex;align-items:center;gap:8px;margin-top:5px">
+              <div style="flex:1;background:var(--border2);border-radius:50px;height:6px;overflow:hidden"><div style="width:${pct}%;height:100%;background:linear-gradient(90deg,var(--teal),var(--teal2));border-radius:50px"></div></div>
+              <span style="font-size:11.5px;color:var(--muted);white-space:nowrap">${pct}% · ₹${paid.toLocaleString()} / ₹${l.totalAmt.toLocaleString()}</span>
+            </div>
+          </div>
+          ${pending > 0 ? `<span class="bdg bdg-b">⏳ ${pending} pending</span>` : ''}
+          <button class="bsm s" style="font-size:11.5px;padding:6px 13px">Record</button>
+        </div>`;
+      }).join('')}
+    </div>
+  </div>`;
+}
+
+function updateManualInstallments() {
+  const loanId = document.getElementById('man-loan').value;
+  const wrap = document.getElementById('man-inst-wrap');
+  const sel = document.getElementById('man-inst');
+  if (!loanId) { wrap.style.display = 'none'; return; }
+  const l = LOANS.find(x => x.id === loanId);
+  const unpaid = l.installments.filter(i => i.status !== 'paid');
+  sel.innerHTML = unpaid.map(i => `<option value="${i.num}">Installment ${i.num} — ₹${i.amt.toLocaleString()} (Due ${i.due})</option>`).join('');
+  if (unpaid.length > 0) {
+    document.getElementById('man-amt').value = unpaid[0].amt;
+    wrap.style.display = 'block';
+  } else {
+    sel.innerHTML = '<option>All installments paid!</option>';
+    wrap.style.display = 'block';
+  }
+}
+
+function openManualEntryModal(loanId) {
+  const l = LOANS.find(x => x.id === loanId);
+  const unpaid = l.installments.filter(i => i.status !== 'paid');
+  document.getElementById('modal-title').textContent = 'Record Manual Payment';
+  document.getElementById('modal').className = 'modal';
+  document.getElementById('modal-body').innerHTML = `
+    <div style="background:var(--teal-pale);border:1.5px solid var(--teal-pale2);border-radius:12px;padding:14px 16px;margin-bottom:18px;display:flex;justify-content:space-between;align-items:center">
+      <div><div style="font-size:11.5px;color:var(--muted);margin-bottom:2px">${l.id}</div><div style="font-size:14px;font-weight:700">${l.memberName}</div><div style="font-size:12px;color:var(--muted)">${l.memberNo}</div></div>
+      <div style="text-align:right"><div style="font-size:11.5px;color:var(--muted)">Remaining</div><div style="font-family:'Playfair Display',serif;font-size:20px;font-weight:700;color:var(--teal)">₹${l.installments.filter(i=>i.status!=='paid').reduce((s,i)=>s+i.amt,0).toLocaleString()}</div></div>
+    </div>
+    ${unpaid.length === 0 ? '<div style="text-align:center;color:var(--green);font-weight:600;padding:16px">✅ All installments already paid!</div>' : `
+    <div class="fg">
+      <label class="fl">Select Installment *</label>
+      <select class="sel" id="mm-inst" onchange="document.getElementById('mm-amt').value=this.options[this.selectedIndex].dataset.amt">
+        ${unpaid.map(i=>`<option value="${i.num}" data-amt="${i.amt}">Installment ${i.num} — ₹${i.amt.toLocaleString()} (Due ${i.due})</option>`).join('')}
+      </select>
+    </div>
+    <div class="fgrid">
+      <div class="fg"><label class="fl">Amount (₹) *</label><div class="fir"><span class="fic">₹</span><input class="fi ic-l" type="number" id="mm-amt" value="${unpaid[0]?.amt||''}"></div></div>
+      <div class="fg"><label class="fl">Date *</label><input class="fi" type="date" id="mm-date" value="${new Date().toISOString().split('T')[0]}"></div>
+      <div class="fg"><label class="fl">Mode *</label><select class="sel" id="mm-mode"><option>Cash</option><option>UPI</option><option>Bank Transfer</option><option>Cheque</option></select></div>
+      <div class="fg"><label class="fl">Reference</label><input class="fi" id="mm-ref" placeholder="Optional"></div>
+    </div>
+    <div class="fg"><label class="fl">Admin Note</label><textarea class="ta" id="mm-note" rows="2" placeholder="e.g. Cash received at office..."></textarea></div>
+    <div style="background:var(--green-pale);border:1px solid var(--green-pale2);border-radius:9px;padding:11px 13px;font-size:12.5px;color:var(--green)">✅ This will be credited immediately — no member submission or approval needed.</div>
+    `}
+  `;
+  document.getElementById('modal-foot').innerHTML = unpaid.length === 0
+    ? `<button class="bsm s" onclick="closeModal()">Close</button>`
+    : `<button class="bsm g" onclick="closeModal()">Cancel</button><button class="bsm s" onclick="recordManualModal('${loanId}')">✅ Credit Now</button>`;
+  document.getElementById('modal-ov').style.display = 'flex';
+}
+
+function recordManualPayment() {
+  const loanId = document.getElementById('man-loan').value;
+  if (!loanId) { toast('Please select a loan.', '⚠️'); return; }
+  recordManualCore(loanId, {
+    instNum: parseInt(document.getElementById('man-inst')?.value) || 1,
+    amt: parseInt(document.getElementById('man-amt').value) || 0,
+    date: document.getElementById('man-date').value,
+    mode: document.getElementById('man-mode').value,
+    ref: document.getElementById('man-ref').value || '—',
+    note: document.getElementById('man-note').value,
+  });
+  setSection('manual');
+}
+
+function recordManualModal(loanId) {
+  recordManualCore(loanId, {
+    instNum: parseInt(document.getElementById('mm-inst')?.value) || 1,
+    amt: parseInt(document.getElementById('mm-amt').value) || 0,
+    date: document.getElementById('mm-date').value,
+    mode: document.getElementById('mm-mode').value,
+    ref: document.getElementById('mm-ref').value || '—',
+    note: document.getElementById('mm-note').value,
+  });
+  closeModal();
+  setSection('repayments');
+}
+
+function recordManualCore(loanId, data) {
+  const l = LOANS.find(x => x.id === loanId);
+  const inst = l.installments.find(i => i.num === data.instNum);
+  if (!inst) { toast('Installment not found.', '⚠️'); return; }
+  inst.status = 'paid';
+  inst.paidDate = new Date(data.date).toLocaleDateString('en-IN', {day:'numeric',month:'short',year:'numeric'});
+  inst.mode = data.mode;
+  inst.ref = data.ref;
+  const newSub = {
+    id: 'SUB' + Date.now().toString().slice(-4),
+    loanId, installmentNum: data.instNum,
+    memberName: l.memberName, memberNo: l.memberNo, memberAvColor: l.memberAvColor,
+    amt: data.amt, date: inst.paidDate, mode: data.mode, ref: data.ref, note: data.note,
+    proofFile: '✏️', proofName: 'admin_entry.pdf',
+    status: 'approved',
+    submittedOn: data.date,
+    adminNote: data.note || 'Manually recorded by admin.',
+    adminBy: 'Mohammed Ashraf (President)',
+    adminDate: new Date().toLocaleDateString('en-IN'),
+  };
+  inst.submissionId = newSub.id;
+  SUBMISSIONS.push(newSub);
+  if (l.installments.every(i => i.status === 'paid')) toast('🏁 Loan fully repaid! All installments cleared.', '🏁');
+  else toast(`✅ ₹${data.amt.toLocaleString()} recorded for ${l.memberName}.`, '✅');
+}
+
+// ═══════════════════════════════════
+// PAYMENT HISTORY
+// ═══════════════════════════════════
+function buildHistory() {
+  const subs = ROLE === 'member'
+    ? SUBMISSIONS.filter(s => s.memberNo === 'SKSSF-2024-1042')
+    : SUBMISSIONS;
+
+  const stats = {
+    approved: subs.filter(s => s.status === 'approved'),
+    pending: subs.filter(s => s.status === 'pending'),
+    rejected: subs.filter(s => s.status === 'rejected'),
+  };
+
+  return `<div class="sec-hd fu"><div><div class="sec-title">📋 Payment History</div><div class="sec-sub">Complete record of all repayment transactions and submissions</div></div></div>
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:13px;margin-bottom:20px" class="fu">
+    <div style="background:var(--white);border-radius:var(--r-sm);padding:18px;border:1.5px solid var(--border);text-align:center">
+      <div style="font-size:26px;margin-bottom:6px">✅</div>
+      <div style="font-family:'Playfair Display',serif;font-size:22px;font-weight:700;color:var(--green)">₹${stats.approved.reduce((s,x)=>s+x.amt,0).toLocaleString()}</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:2px">${stats.approved.length} Approved Payments</div>
+    </div>
+    <div style="background:var(--white);border-radius:var(--r-sm);padding:18px;border:1.5px solid var(--border);text-align:center">
+      <div style="font-size:26px;margin-bottom:6px">⏳</div>
+      <div style="font-family:'Playfair Display',serif;font-size:22px;font-weight:700;color:var(--blue)">₹${stats.pending.reduce((s,x)=>s+x.amt,0).toLocaleString()}</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:2px">${stats.pending.length} Pending Review</div>
+    </div>
+    <div style="background:var(--white);border-radius:var(--r-sm);padding:18px;border:1.5px solid var(--border);text-align:center">
+      <div style="font-size:26px;margin-bottom:6px">❌</div>
+      <div style="font-family:'Playfair Display',serif;font-size:22px;font-weight:700;color:var(--red)">₹${stats.rejected.reduce((s,x)=>s+x.amt,0).toLocaleString()}</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:2px">${stats.rejected.length} Rejected</div>
+    </div>
+  </div>
+  <div class="card fu">
+    <div class="card-hd"><div class="card-title">All Transactions</div></div>
+    <div style="overflow-x:auto"><table class="hist-table">
+      <thead><tr><th>Date</th><th>Member</th><th>Loan</th><th>Inst.</th><th>Amount</th><th>Mode</th><th>Reference</th><th>Proof</th><th>Status</th><th>Admin</th></tr></thead>
+      <tbody>
+        ${[...subs].reverse().map(sub => {
+          const stCls = sub.status === 'approved' ? 'bdg-g' : sub.status === 'rejected' ? 'bdg-r' : 'bdg-b';
+          const stLabel = sub.status === 'approved' ? '✅ Approved' : sub.status === 'rejected' ? '❌ Rejected' : '⏳ Pending';
+          return `<tr>
+            <td style="font-size:12px">${sub.submittedOn}</td>
+            <td><div style="display:flex;align-items:center;gap:8px"><div style="width:28px;height:28px;border-radius:50%;background:${sub.memberAvColor};display:flex;align-items:center;justify-content:center;font-size:11px;color:#fff;font-weight:700">${sub.memberName.charAt(0)}</div><div><div style="font-size:13px;font-weight:600">${sub.memberName.split(' ')[0]}</div><div style="font-size:10.5px;color:var(--muted)">${sub.memberNo}</div></div></div></td>
+            <td style="font-size:11.5px;color:var(--muted)">${sub.loanId}</td>
+            <td style="text-align:center;font-weight:600">${sub.installmentNum}</td>
+            <td><div class="amount-cell" style="color:${sub.status==='approved'?'var(--green)':sub.status==='rejected'?'var(--red)':'var(--blue)'}">₹${sub.amt.toLocaleString()}</div></td>
+            <td style="font-size:12.5px">${sub.mode}</td>
+            <td style="font-size:11.5px;color:var(--muted2)">${sub.ref}</td>
+            <td><div class="proof-thumb-sm" onclick="openProofViewer('${sub.proofName}')">${sub.proofFile}</div></td>
+            <td><span class="bdg ${stCls}">${stLabel}</span></td>
+            <td style="font-size:11px;color:var(--muted)">${sub.adminBy ? sub.adminBy.split('(')[0].trim() : '—'}${sub.adminNote ? `<div style="font-size:10.5px;color:var(--muted2)">"${sub.adminNote.substring(0,28)}${sub.adminNote.length>28?'...':''}"</div>` : ''}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table></div>
+  </div>`;
+}
+
+// ═══════════════════════════════════
+// PROOF IMAGE VIEWER
+// ═══════════════════════════════════
+function openProofViewer(filename) {
+  document.getElementById('modal-title').textContent = '';
+  document.getElementById('modal').className = 'modal img-modal wide';
+  const ext = filename.split('.').pop().toLowerCase();
+  const isImage = ['jpg','jpeg','png','gif','webp'].includes(ext);
+  document.getElementById('modal-body').innerHTML = `
+    <div class="img-viewer">
+      <div style="font-size:80px;margin-bottom:12px">${filename.includes('upi')||filename.includes('gpay')||filename.includes('phone')?'📱':filename.includes('cash')||filename.includes('receipt')?'🧾':'📄'}</div>
+      <div style="color:rgba(255,255,255,.8);font-family:'Playfair Display',serif;font-size:20px;font-weight:700;margin-bottom:4px">${filename}</div>
+      <div style="color:rgba(255,255,255,.5);font-size:13px;margin-bottom:20px">Payment proof document · ${ext.toUpperCase()} file</div>
+      <div style="background:rgba(255,255,255,.08);border:1.5px solid rgba(255,255,255,.15);border-radius:14px;padding:24px 32px;text-align:center">
+        <div style="font-size:14px;color:rgba(255,255,255,.6);margin-bottom:8px">In production, the actual uploaded image would be displayed here.</div>
+        <div style="font-size:13px;color:rgba(255,255,255,.4)">File: ${filename} · Submitted as payment proof</div>
+      </div>
+    </div>`;
+  document.getElementById('modal-foot').innerHTML = `
+    <button style="background:rgba(255,255,255,.15);color:#fff;border:1.5px solid rgba(255,255,255,.25);padding:9px 18px;border-radius:50px;font-size:13px;font-weight:600;cursor:pointer" onclick="closeModal()">Close</button>
+  `;
+  const mh = document.querySelector('.mh');
+  if (mh) { mh.style.display = 'none'; }
+  document.getElementById('modal-ov').style.display = 'flex';
+}
+
+function openHistoryModal(loanId) {
+  const l = LOANS.find(x => x.id === loanId);
+  const subs = SUBMISSIONS.filter(s => s.loanId === loanId);
+  document.getElementById('modal-title').textContent = 'Payment History — ' + l.id;
+  document.getElementById('modal').className = 'modal wide';
+  const mh = document.querySelector('.mh');
+  if (mh) mh.style.display = 'flex';
+  document.getElementById('modal-body').innerHTML = `
+    <div style="background:var(--teal-pale);border-radius:11px;padding:14px 16px;margin-bottom:18px;display:flex;justify-content:space-between">
+      <div><div style="font-size:13.5px;font-weight:700">${l.memberName}</div><div style="font-size:12px;color:var(--muted)">${l.memberNo} · ${l.purpose}</div></div>
+      <div style="text-align:right"><div style="font-size:11px;color:var(--muted)">Loan Total</div><div style="font-family:'Playfair Display',serif;font-size:20px;font-weight:700;color:var(--teal)">₹${l.totalAmt.toLocaleString()}</div></div>
+    </div>
+    ${subs.length === 0 ? '<div style="text-align:center;padding:24px;color:var(--muted)">No payment records yet.</div>' : `
+    <div style="display:flex;flex-direction:column;gap:10px">
+      ${subs.map(sub => `
+      <div style="display:flex;gap:13px;align-items:center;padding:13px 15px;background:var(--bg);border-radius:10px;border-left:4px solid ${sub.status==='approved'?'var(--green)':sub.status==='rejected'?'var(--red)':'var(--blue)'}">
+        <div style="font-size:22px">${sub.proofFile}</div>
+        <div style="flex:1">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
+            <span style="font-size:13.5px;font-weight:700">₹${sub.amt.toLocaleString()}</span>
+            <span class="bdg ${sub.status==='approved'?'bdg-g':sub.status==='rejected'?'bdg-r':'bdg-b'}">${sub.status==='approved'?'✅ Approved':sub.status==='rejected'?'❌ Rejected':'⏳ Pending'}</span>
+          </div>
+          <div style="font-size:12px;color:var(--muted)">${sub.mode} · ${sub.ref} · ${sub.submittedOn}</div>
+          ${sub.adminNote ? `<div style="font-size:12px;color:${sub.status==='approved'?'var(--green)':'var(--red)'};margin-top:3px">${sub.status==='approved'?'✓':'✕'} ${sub.adminNote}</div>` : ''}
+        </div>
+        <div style="font-size:24px;cursor:pointer" onclick="openProofViewer('${sub.proofName}')" title="View proof">${sub.proofFile}</div>
+      </div>`).join('')}
+    </div>`}
+  `;
+  document.getElementById('modal-foot').innerHTML = `<button class="bsm s" onclick="closeModal()">Close</button>`;
+  document.getElementById('modal-ov').style.display = 'flex';
+}
+
+// ═══════════════════════════════════
+// MODAL HELPERS
+// ═══════════════════════════════════
+function closeModal() {
+  document.getElementById('modal-ov').style.display = 'none';
+  document.getElementById('modal').className = 'modal';
+  const mh = document.querySelector('.mh');
+  if (mh) mh.style.display = 'flex';
+}
+function closeModalOv(e) {
+  if (e.target === document.getElementById('modal-ov')) closeModal();
+}
+function toast(msg, ic = '✅') {
+  document.getElementById('t-ic').textContent = ic;
+  document.getElementById('t-msg').textContent = msg;
+  const t = document.getElementById('toast');
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3500);
+}
+
+// ═══════════════════════════════════
+// INIT
+// ═══════════════════════════════════
+setRole('member');
+document.getElementById('ni-queue').style.display = 'none';
+setSection('repayments');
+</script>
+</body>
+</html>
