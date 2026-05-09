@@ -1576,7 +1576,7 @@ export default function Inventory() {
                       fontWeight: 800, fontSize: 13, cursor: (!kitName.trim() || totalSelected === 0) ? 'not-allowed' : 'pointer'
                     }}
                   >
-                    {editingKit ? '💾 Save Changes' : '🧰 Seal Kit & Generate Barcode'}
+                    {editingKit ? '💾 Save Changes' : '🧰 Generate Barcode'}
                   </button>
                 </div>
               </div>
