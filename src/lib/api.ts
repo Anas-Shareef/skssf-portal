@@ -10,18 +10,28 @@ async function request<T>(path: string, method: HttpMethod = 'GET', body?: unkno
   };
   if (authToken) headers.Authorization = `Bearer ${authToken}`;
 
-  const res = await fetch(`${API_BASE_URL}${path}`, {
-    method,
-    headers,
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
+  try {
+    const res = await fetch(`${API_BASE_URL}${path}`, {
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
 
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const msg = json?.message || 'API request failed';
-    throw new Error(msg);
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const msg = json?.message || 'API request failed';
+      throw new Error(msg);
+    }
+    return json as T;
+  } catch (error) {
+    if (error instanceof TypeError && (API_BASE_URL.includes('127.0.0.1') || API_BASE_URL.includes('localhost'))) {
+      const isLive = window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
+      if (isLive) {
+        console.error('CRITICAL: Frontend is live but trying to connect to a local backend (127.0.0.1:8000). Please set VITE_API_BASE_URL in Netlify environment variables.');
+      }
+    }
+    throw error;
   }
-  return json as T;
 }
 
 export const api = {
