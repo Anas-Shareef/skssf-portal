@@ -224,7 +224,10 @@ export default function LaunchPage() {
              </div>
           </div>
         </div>
+      </div>
 
+      <div style={{ position: 'absolute', bottom: '30px', color: '#64748b', fontSize: '12px', fontWeight: 600, letterSpacing: '1px' }}>
+        © {new Date().getFullYear()} SKSSF POYANAD UNIT · DIGITAL INFRASTRUCTURE
       </div>
 
       <style>{`
@@ -248,11 +251,6 @@ export default function LaunchPage() {
           transform: scale(0.96);
         }
       `}</style>
-      </div>
-
-      <div style={{ position: 'absolute', bottom: '30px', color: '#64748b', fontSize: '12px', fontWeight: 600, letterSpacing: '1px' }}>
-        © {new Date().getFullYear()} SKSSF POYANAD UNIT · DIGITAL INFRASTRUCTURE
-      </div>
     </div>
   );
 }
