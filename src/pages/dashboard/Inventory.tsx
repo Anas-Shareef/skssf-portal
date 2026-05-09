@@ -536,7 +536,7 @@ export default function Inventory() {
         {/* ══ PRODUCTS VIEW ══ */}
         {view === 'products' && (
           <div style={{ animation: 'fadeUp 0.3s ease' }}>
-            <div style={{ marginBottom: 28, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div className="inv-ctrls" style={{ marginBottom: 28, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
               <div style={{ position: 'relative', width: '100%', maxWidth: 400, boxShadow: '0 4px 20px rgba(0,0,0,0.05)', borderRadius: 20 }}>
                 <span style={{ position: 'absolute', left: 18, top: '50%', transform: 'translateY(-50%)', fontSize: 18, opacity: 0.5 }}>🔍</span>
                 <input 
@@ -548,37 +548,27 @@ export default function Inventory() {
                 />
               </div>
               
-              <div style={{ display: 'flex', gap: 12 }}>
+              <div className="inv-actions-group" style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
                 {selectedPrintIds.length > 0 && (
                   <button className="bsm r" style={{ fontSize: 11, padding: '8px 16px', borderRadius: 8, background: '#fee2e2', color: '#ef4444' }} onClick={() => setSelectedPrintIds([])}>
                     Clear Selection ({selectedPrintIds.length})
                   </button>
                 )}
                 
-                <div style={{ display: 'flex', gap: 4, background: '#f1f5f9', borderRadius: 12, padding: 4 }}>
-                  <button className="bsm o" style={{ background: '#fff', fontSize: 12, padding: '8px 16px', borderRadius: 8 }} onClick={() => handleExport('products')}>📊 Export Catalog</button>
-                  <button className="bsm o" style={{ 
+                <div style={{ display: 'flex', gap: 4, background: '#f1f5f9', borderRadius: 12, padding: 4, height: 44, alignItems: 'center' }}>
+                  <button className="bsm-mini" style={{ background: '#fff', border: '1px solid #eef2f6' }} onClick={() => handleExport('products')}>📊 Export</button>
+                  <button className="bsm-mini" style={{ 
                     background: selectedPrintIds.length > 0 ? 'var(--teal)' : '#fff', 
                     color: selectedPrintIds.length > 0 ? '#fff' : 'var(--teal)',
-                    fontSize: 12, padding: '8px 16px', borderRadius: 8, border: 'none'
+                    border: '1px solid #eef2f6'
                   }} onClick={handlePrint}>
-                    🖨️ {selectedPrintIds.length > 0 ? `Print Selected (${selectedPrintIds.length})` : 'Print Catalog'}
+                    🖨️ {selectedPrintIds.length > 0 ? `Print (${selectedPrintIds.length})` : 'Print'}
                   </button>
                 </div>
                 
-                <div style={{ display: 'flex', gap: 6, background: '#f1f5f9', padding: 4, borderRadius: 12 }}>
-                  <button onClick={() => setProductMode('gallery')} style={{ 
-                    padding: '8px 16px', borderRadius: 10, border: 'none', fontSize: 12, fontWeight: 800, cursor: 'pointer',
-                    background: productMode === 'gallery' ? '#fff' : 'transparent',
-                    color: productMode === 'gallery' ? 'var(--teal)' : '#64748b',
-                    boxShadow: productMode === 'gallery' ? '0 2px 6px rgba(0,0,0,0.05)' : 'none'
-                  }}>🖼️ Grid</button>
-                  <button onClick={() => setProductMode('table')} style={{ 
-                    padding: '8px 16px', borderRadius: 10, border: 'none', fontSize: 12, fontWeight: 800, cursor: 'pointer',
-                    background: productMode === 'table' ? '#fff' : 'transparent',
-                    color: productMode === 'table' ? 'var(--teal)' : '#64748b',
-                    boxShadow: productMode === 'table' ? '0 2px 6px rgba(0,0,0,0.05)' : 'none'
-                  }}>📋 List</button>
+                <div style={{ display: 'flex', gap: 4, background: '#f1f5f9', padding: 4, borderRadius: 12, height: 44, alignItems: 'center' }}>
+                  <button onClick={() => setProductMode('gallery')} className={`toggle-btn ${productMode === 'gallery' ? 'on' : ''}`}>🖼️ Grid</button>
+                  <button onClick={() => setProductMode('table')} className={`toggle-btn ${productMode === 'table' ? 'on' : ''}`}>📋 List</button>
                 </div>
               </div>
             </div>
@@ -1896,6 +1886,30 @@ export default function Inventory() {
       )}
       {/* ─── GLOBAL RESPONSIVE STYLES ─── */}
       <style>{`
+        .bsm-mini {
+          padding: 8px 14px;
+          border-radius: 8px;
+          font-size: 11px;
+          font-weight: 800;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+        .toggle-btn {
+          padding: 8px 12px;
+          border-radius: 8px;
+          border: none;
+          font-size: 11px;
+          font-weight: 800;
+          cursor: pointer;
+          background: transparent;
+          color: #64748b;
+        }
+        .toggle-btn.on {
+          background: #fff;
+          color: var(--teal);
+          box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+        }
+
         @media (max-width: 1024px) {
           .pg-hd {
             flex-direction: column !important;
@@ -1908,11 +1922,13 @@ export default function Inventory() {
             grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
             gap: 10px;
           }
-          .bsm {
-            width: 100%;
-            justify-content: center;
-            padding: 12px !important;
-            font-size: 13px !important;
+          .inv-ctrls {
+            flex-direction: column !important;
+            align-items: stretch !important;
+            gap: 16px !important;
+          }
+          .inv-actions-group {
+            justify-content: space-between;
           }
         }
 
@@ -1925,25 +1941,25 @@ export default function Inventory() {
           table {
             min-width: 900px;
           }
-          .pg-hd .pg-title {
-            font-size: 22px !important;
-          }
         }
 
         @media (max-width: 600px) {
-          .inv-card {
-            max-width: 100%;
+          .inv-actions-group {
+            display: grid !important;
+            grid-template-columns: 1fr 1fr;
+            width: 100%;
           }
-          /* Adjusting the Tab buttons for mobile */
+          .inv-actions-group > div {
+            width: 100%;
+            justify-content: center;
+          }
+          .toggle-btn, .bsm-mini {
+            flex: 1;
+          }
           div[style*="background: rgb(241, 245, 249)"] {
             width: 100% !important;
             display: grid !important;
             grid-template-columns: 1fr 1fr;
-          }
-          div[style*="background: rgb(241, 245, 249)"] button {
-            width: 100% !important;
-            font-size: 12px !important;
-            padding: 10px 5px !important;
           }
         }
       `}</style>
