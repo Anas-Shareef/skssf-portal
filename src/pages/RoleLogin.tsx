@@ -8,17 +8,17 @@ const SKSSF_LOGO = `data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9Ij
 
 const ROLE_CFG: Record<string, { headline: React.ReactNode; copy: string; label: string }> = {
   'super-admin': {
-    headline: <>Authority<br />starts here</>,
+    headline: <>Authority<br className="br-desktop" />starts here</>,
     copy: 'System owner access for administrator control, approvals, and unit configuration.',
     label: 'Super Admin Portal',
   },
   admin: {
-    headline: <>Serve with<br />purpose</>,
+    headline: <>Serve with<br className="br-desktop" />purpose</>,
     copy: 'Review loan requests, manage members, and keep unit operations moving.',
     label: 'Admin Portal',
   },
   member: {
-    headline: <>Your journey<br />begins here</>,
+    headline: <>Your journey<br className="br-desktop" />begins here</>,
     copy: 'Apply for support, track repayments, and stay connected to unit services.',
     label: 'Member Portal',
   },
@@ -61,7 +61,7 @@ export default function RoleLogin() {
         name: suName.current?.value || '',
         email,
         phone: suPhone.current?.value || '',
-        branch: suBranch.current?.value || '',
+        unit: suBranch.current?.value || '',
         member_no: suMemNo.current?.value || '',
         password,
       });
@@ -79,7 +79,7 @@ export default function RoleLogin() {
   };
 
   return (
-    <div id="s-login" className="screen active" style={{ display: 'flex', minHeight: '100vh', flexDirection: 'row' }}>
+    <div id="s-login" className="login-screen screen active">
       <div className="ll">
         <button className="ll-back" onClick={() => navigate('/')}><ArrowLeft size={15} /> Back to Home</button>
         <div className="ll-body">
@@ -184,6 +184,40 @@ export default function RoleLogin() {
           )}
         </div>
       </div>
+
+      <style>{`
+        .login-screen {
+          display: flex;
+          min-height: 100vh;
+        }
+        @media (max-width: 900px) {
+          .login-screen {
+            flex-direction: column;
+          }
+          .ll {
+            min-height: auto !important;
+            padding: 40px 20px !important;
+          }
+          .ll-h {
+            font-size: 32px !important;
+            line-height: 1.1 !important;
+          }
+          .br-desktop {
+            display: none;
+          }
+          .lr {
+            padding: 40px 20px !important;
+          }
+          .lbox {
+            width: 100% !important;
+            max-width: 100% !important;
+            padding: 0 !important;
+            background: transparent !important;
+            border: none !important;
+            box-shadow: none !important;
+          }
+        }
+      `}</style>
     </div>
   );
 }
