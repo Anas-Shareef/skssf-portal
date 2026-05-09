@@ -1893,7 +1893,59 @@ export default function Inventory() {
         }}>
           {toast.m}
         </div>
-      )}
+      {/* ─── GLOBAL RESPONSIVE STYLES ─── */}
+      <style>{`
+        @media (max-width: 1024px) {
+          .pg-hd {
+            flex-direction: column !important;
+            align-items: flex-start !important;
+            gap: 20px !important;
+          }
+          .pg-hd > div:last-child {
+            width: 100%;
+            display: grid !important;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 10px;
+          }
+          .bsm {
+            width: 100%;
+            justify-content: center;
+            padding: 12px !important;
+            font-size: 13px !important;
+          }
+        }
+
+        @media (max-width: 768px) {
+          .tbl-wrap {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            border-radius: 16px !important;
+          }
+          table {
+            min-width: 900px;
+          }
+          .pg-hd .pg-title {
+            font-size: 22px !important;
+          }
+        }
+
+        @media (max-width: 600px) {
+          .inv-card {
+            max-width: 100%;
+          }
+          /* Adjusting the Tab buttons for mobile */
+          div[style*="background: rgb(241, 245, 249)"] {
+            width: 100% !important;
+            display: grid !important;
+            grid-template-columns: 1fr 1fr;
+          }
+          div[style*="background: rgb(241, 245, 249)"] button {
+            width: 100% !important;
+            font-size: 12px !important;
+            padding: 10px 5px !important;
+          }
+        }
+      `}</style>
     </>
   );
 }
