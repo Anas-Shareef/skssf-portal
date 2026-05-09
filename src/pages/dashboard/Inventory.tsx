@@ -716,20 +716,23 @@ export default function Inventory() {
         {view === 'missions' && (
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-               <h2 style={{ fontSize: 24, fontWeight: 900, color: '#0f172a', margin: 0 }}>Mission Control Center</h2>
-               <div style={{ position: 'relative', width: 300 }}>
-                 <span style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', opacity: 0.5 }}>🔍</span>
-                 <input 
-                   className="fi2" 
-                   style={{ paddingLeft: 44, borderRadius: 16, border: '1.5px solid #eef2f6' }} 
-                   placeholder="Search missions..." 
-                   value={missionSearch}
-                   onChange={e => setMissionSearch(e.target.value)}
-                 />
+            <div className="inv-ctrls" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24, gap: 16 }}>
+               <h2 className="pg-title-mini" style={{ fontSize: 24, fontWeight: 900, color: '#0f172a', margin: 0 }}>Mission Control Center</h2>
+               <div className="inv-actions-group" style={{ display: 'flex', gap: 12, flex: 1, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                 <div style={{ position: 'relative', flex: 1, maxWidth: 300 }}>
+                   <span style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', opacity: 0.5 }}>🔍</span>
+                   <input 
+                     className="fi2" 
+                     style={{ paddingLeft: 44, borderRadius: 16, border: '1.5px solid #eef2f6', height: 48 }} 
+                     placeholder="Search missions..." 
+                     value={missionSearch}
+                     onChange={e => setMissionSearch(e.target.value)}
+                   />
+                 </div>
+                 <button className="bsm s" style={{ padding: '0 24px', borderRadius: 14, height: 48 }} onClick={() => { setSelectedKitsForMission([]); setIsAddingMission(true); }}>
+                   📍 Launch New Mission
+                 </button>
                </div>
-               <button className="bsm s" style={{ padding: '12px 24px', borderRadius: 14 }} onClick={() => { setSelectedKitsForMission([]); setIsAddingMission(true); }}>
-                 📍 Launch New Mission
-               </button>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))', gap: 28 }}>
               {missions.filter(m => (m.title || m.name || '').toLowerCase().includes(missionSearch.toLowerCase())).map((camp: any) => {
@@ -1151,29 +1154,30 @@ export default function Inventory() {
         {/* ══ HISTORY VIEW ══ */}
         {view === 'history' && (
           <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-            <div style={{ padding: '16px 20px', background: '#fff', borderBottom: '2.5px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
+            <div className="inv-ctrls" style={{ padding: '16px 20px', background: '#fff', borderBottom: '2.5px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
               <div style={{ position: 'relative', flex: 1, maxWidth: 400 }}>
                 <span style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }}>🔍</span>
                 <input 
                   type="text" 
+                  className="fi2"
                   placeholder="Search activity log..." 
-                  style={{ width: '100%', padding: '10px 16px 10px 42px', borderRadius: 12, border: '1.5px solid #e2e8f0', outline: 'none', fontSize: 14, fontWeight: 500 }}
+                  style={{ width: '100%', padding: '0 16px 0 42px', borderRadius: 12, border: '1.5px solid #e2e8f0', outline: 'none', fontSize: 14, fontWeight: 500, height: 48 }}
                   value={historySearch}
                   onChange={(e) => setHistorySearch(e.target.value)}
                 />
               </div>
-              <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+              <div className="inv-actions-group" style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
                 <button 
                   className="bsm g" 
                   onClick={seedDemoData} 
-                  style={{ background: '#f0fdf4', color: '#0d9488', border: '1px solid #ccfbf1', padding: '10px 20px', borderRadius: 12, fontSize: 13 }}
+                  style={{ background: '#f0fdf4', color: '#0d9488', border: '1px solid #ccfbf1', padding: '0 20px', borderRadius: 12, fontSize: 13, height: 48 }}
                 >
-                  🧪 Seed Demo Data
+                  🧪 Seed Demo
                 </button>
                 {profile?.role === 'super' && (
                   <button 
                     className="bsm r" 
-                    style={{ padding: '10px 20px', fontSize: 13 }}
+                    style={{ padding: '0 20px', fontSize: 13, height: 48 }}
                     onClick={() => {
                       setDialog({
                         type: 'confirm',
@@ -1926,9 +1930,18 @@ export default function Inventory() {
             flex-direction: column !important;
             align-items: stretch !important;
             gap: 16px !important;
+            padding: 20px !important;
           }
           .inv-actions-group {
             justify-content: space-between;
+            width: 100%;
+          }
+          .inv-actions-group > div {
+             max-width: 100% !important;
+          }
+          .pg-title-mini {
+            text-align: center;
+            width: 100%;
           }
         }
 
