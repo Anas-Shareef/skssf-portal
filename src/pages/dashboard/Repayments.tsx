@@ -483,18 +483,18 @@ export default function Repayments() {
                <span style={{ fontSize: 12, color: '#64748b' }}>Click steps for details</span>
             </div>
  
-            <div style={{ position: 'relative', display: 'flex', justifyContent: 'space-between', padding: '0 10px' }}>
-              <div style={{ position: 'absolute', top: 18, left: 30, right: 30, height: 3, background: '#e2e8f0', zIndex: 0 }} />
+            <div className="timeline-wrapper" style={{ position: 'relative', display: 'flex', justifyContent: 'space-between', padding: '0 10px' }}>
+              <div className="timeline-line" style={{ position: 'absolute', top: 18, left: 30, right: 30, height: 3, background: '#e2e8f0', zIndex: 0 }} />
               
               {reps.map((r, i) => {
                 const s = statusFor(r);
                 const isActive = availableIdx === i;
                 return (
-                  <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', zIndex: 1, cursor: 'pointer' }}
+                  <div key={i} className="timeline-step" style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', zIndex: 1, cursor: 'pointer' }}
                     onClick={() => openSubmit(loan, i, s === 'under_review')}
                   >
                     {/* Step Bubble */}
-                    <div style={{
+                    <div className="timeline-bubble" style={{
                       width: 38, height: 38, borderRadius: '50%', background: STATUS_BG[s], color: '#fff',
                       display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 900,
                       boxShadow: isActive ? '0 0 0 6px rgba(20, 184, 166, 0.15)' : '0 0 0 4px #fff',
@@ -504,7 +504,7 @@ export default function Repayments() {
                     </div>
  
                     {/* Step Card */}
-                    <div style={{ 
+                    <div className="timeline-card" style={{ 
                       marginTop: 14, padding: '12px 8px', borderRadius: 16, width: '90%', background: '#fff', 
                       border: '1.5px solid', borderColor: isActive ? 'var(--teal)' : '#e2e8f0',
                       textAlign: 'center', boxShadow: isActive ? '0 4px 15px rgba(13, 115, 119, 0.08)' : 'none',
@@ -579,7 +579,7 @@ export default function Repayments() {
              </div>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 32 }}>
+          <div className="aq-row-resp" style={{ display: 'flex', alignItems: 'center', gap: 32 }}>
              <div style={{ textAlign: 'center' }}>
                 <div style={{ fontSize: 9, fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase' }}>Amount</div>
                 <div style={{ fontWeight: 950, fontSize: 15, color: (!r.paid && (req.amt === '0' || req.amt === 0)) ? 'var(--red)' : 'var(--teal)' }}>
@@ -596,7 +596,7 @@ export default function Repayments() {
                 </div>
              </div>
 
-             <div style={{ textAlign: 'right', minWidth: 100 }}>
+             <div style={{ textAlign: 'right', minWidth: 100 }} className="aq-actions-resp">
                 <div style={{ fontWeight: 800, fontSize: 13, color: '#1e293b' }}>{dateText}</div>
                 <button 
                   style={{ 
@@ -1097,11 +1097,11 @@ export default function Repayments() {
               })()}
     
                         {/* UNIFIED PIPELINE HEADER */}
-              <div className="card" style={{ padding: '24px 30px', marginBottom: 24, background: '#fff', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 20 }}>
-                 <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', flex: 1 }}>
-                   <div className="fiw" style={{ background: '#f8fafc', height: 44, padding: '6px 16px', borderRadius: 14, width: 280, border: '1.5px solid #f1f5f9' }}>
+              <div className="card inv-ctrls" style={{ padding: '24px 30px', marginBottom: 24, background: '#fff', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 20 }}>
+                 <div className="inv-actions-group" style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', flex: 1 }}>
+                   <div className="fiw" style={{ background: '#f8fafc', height: 44, padding: '0 16px', borderRadius: 14, width: 280, border: '1.5px solid #f1f5f9', display: 'flex', alignItems: 'center' }}>
                      <span className="fic">🔍</span>
-                     <input className="fi" placeholder="Search pipeline..." value={search} onChange={e => setSearch(e.target.value)} />
+                     <input className="fi" placeholder="Search pipeline..." value={search} onChange={e => setSearch(e.target.value)} style={{ border: 'none', background: 'transparent', width: '100%' }} />
                    </div>
                    
                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1110,7 +1110,7 @@ export default function Repayments() {
                        className="sel2" 
                        value={pipelineFilter} 
                        onChange={(e: any) => setPipelineFilter(e.target.value)}
-                       style={{ padding: '8px 14px', borderRadius: 12, fontSize: 11, fontWeight: 800, background: '#f1f5f9', border: 'none' }}
+                       style={{ height: 44, padding: '0 14px', borderRadius: 12, fontSize: 11, fontWeight: 800, background: '#f1f5f9', border: 'none' }}
                      >
                        <option value="all">ALL TRANSACTIONS</option>
                        <option value="pending">⏳ PENDING</option>
@@ -1776,6 +1776,88 @@ export default function Repayments() {
           <span style={{ fontWeight: 600, fontSize: 13 }}>{toast.m}</span>
         </div>
       )}
+      <style>{`
+        @media (max-width: 1024px) {
+          .section-head {
+            flex-direction: column !important;
+            align-items: flex-start !important;
+          }
+          .inv-ctrls {
+            flex-direction: column !important;
+            align-items: stretch !important;
+          }
+          .inv-actions-group {
+            width: 100%;
+            justify-content: space-between;
+          }
+        }
+
+        @media (max-width: 768px) {
+          .aq-card {
+            border-radius: 20px !important;
+          }
+          .aq-row-hover {
+            flex-direction: column !important;
+            align-items: flex-start !important;
+            gap: 16px !important;
+            padding: 20px !important;
+          }
+          .aq-row-resp {
+            width: 100%;
+            justify-content: space-between !important;
+            gap: 10px !important;
+            border-top: 1px solid #f1f5f9;
+            padding-top: 16px;
+          }
+          .aq-actions-resp {
+             text-align: right !important;
+          }
+          
+          /* Vertical Timeline Transformation */
+          .timeline-wrapper {
+             flex-direction: column !important;
+             padding-left: 20px !important;
+             gap: 30px !important;
+          }
+          .timeline-line {
+             top: 0 !important;
+             left: 13px !important;
+             right: auto !important;
+             width: 2px !important;
+             height: 100% !important;
+          }
+          .timeline-step {
+             flex-direction: row !important;
+             align-items: flex-start !important;
+             width: 100% !important;
+             gap: 15px !important;
+             flex: none !important;
+          }
+          .timeline-bubble {
+             flex-shrink: 0 !important;
+          }
+          .timeline-card {
+             margin-top: 0 !important;
+             text-align: left !important;
+             width: 100% !important;
+          }
+        }
+
+        @media (max-width: 480px) {
+          .inv-actions-group {
+            display: grid !important;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px !important;
+          }
+          .inv-actions-group > div:first-child {
+            grid-column: 1 / -1;
+          }
+          .inv-actions-group button:last-child {
+            grid-column: 1 / -1;
+            margin-left: 0 !important;
+          }
+        }
+      `}</style>
     </>
   );
 };
