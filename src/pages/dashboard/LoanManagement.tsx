@@ -2,7 +2,7 @@ import React, { useState, useRef } from 'react';
 import type { ReactElement } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import { localDb } from '../../lib/localDb';
+import { localDb, syncFromBackend } from '../../lib/localDb';
 import ConfirmDialog from '../../components/ConfirmDialog';
 
 export default function LoanManagement() {
@@ -11,6 +11,17 @@ export default function LoanManagement() {
   const isMember = profile?.role === 'member';
 
   const [loans, setLoans] = useState<any[]>(() => localDb.getLoans());
+  
+  React.useEffect(() => {
+    // Initial sync on mount
+    syncFromBackend();
+
+    const handleUpdate = () => {
+      setLoans(localDb.getLoans());
+    };
+    window.addEventListener('appDataUpdated', handleUpdate);
+    return () => window.removeEventListener('appDataUpdated', handleUpdate);
+  }, []);
   const [showReview, setShowReview] = useState(false);
   const [selectedLoanId, setSelectedLoanId] = useState<string | null>(null);
   const [actionStatus, setActionStatus] = useState('pending');

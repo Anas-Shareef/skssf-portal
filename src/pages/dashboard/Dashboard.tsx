@@ -1,17 +1,32 @@
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import { localDb } from '../../lib/localDb';
+import { localDb, syncFromBackend } from '../../lib/localDb';
 
 export default function Dashboard() {
   const navigate = useNavigate();
   const { profile } = useAuth();
 
-  const allLoans = localDb.getLoans();
-  const allUsers = localDb.getUsers();
-  const products = localDb.getProducts();
-  const units    = localDb.getUnits();
-  const kits     = localDb.getKits();
-  const missions = localDb.getCampaigns();
+  const [allLoans, setAllLoans] = useState(() => localDb.getLoans());
+  const [allUsers, setAllUsers] = useState(() => localDb.getUsers());
+  const [products, setProducts] = useState(() => localDb.getProducts());
+  const [units, setUnits] = useState(() => localDb.getUnits());
+  const [kits, setKits] = useState(() => localDb.getKits());
+  const [missions, setMissions] = useState(() => localDb.getCampaigns());
+
+  useEffect(() => {
+    syncFromBackend();
+    const handleUpdate = () => {
+      setAllLoans(localDb.getLoans());
+      setAllUsers(localDb.getUsers());
+      setProducts(localDb.getProducts());
+      setUnits(localDb.getUnits());
+      setKits(localDb.getKits());
+      setMissions(localDb.getCampaigns());
+    };
+    window.addEventListener('appDataUpdated', handleUpdate);
+    return () => window.removeEventListener('appDataUpdated', handleUpdate);
+  }, []);
   
   const isSuper  = profile?.role === 'super';
   const isAdmin  = profile?.role === 'admin';

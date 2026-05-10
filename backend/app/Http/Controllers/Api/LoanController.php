@@ -14,7 +14,15 @@ class LoanController extends Controller
     public function index(Request $request): JsonResponse
     {
         $status = $request->query('status');
+        $user = auth()->user();
         $query = Loan::query()->latest('id');
+
+        // Security Scoping
+        if ($user->role === 'member') {
+            $query->where('user_id', $user->id);
+        } elseif ($user->role === 'admin') {
+            $query->where('branch', $user->branch);
+        }
 
         if ($status) {
             $query->where('status', $status);
@@ -41,9 +49,14 @@ class LoanController extends Controller
 
         $config = $this->portalConfig();
         $loanNo = 'LOAN-'.now()->year.'-'.str_pad((string) random_int(1, 9999), 4, '0', STR_PAD_LEFT);
+        $user = auth()->user();
 
         $loan = Loan::query()->create([
             ...$payload,
+            'user_id' => $payload['user_id'] ?? $user->id,
+            'member_no' => $payload['member_no'] ?? $user->member_no,
+            'branch' => $payload['branch'] ?? $user->branch,
+            'mob' => $payload['mob'] ?? $user->phone,
             'loan_no' => $loanNo,
             'status' => 'pending',
             'submitted_date' => now()->toDateString(),
