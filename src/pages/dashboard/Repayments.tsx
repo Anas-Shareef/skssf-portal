@@ -103,22 +103,15 @@ export default function Repayments() {
     setLoans([...fresh]);
   };
 
-  /* filtered loans */
+  /* filtered loans: Already scoped by backend API */
   const activeLoan = loans.filter((l: any) => {
     if (!['approved', 'completed'].includes(l.status)) return false;
-    
-    // Robust branch check
-    const lBranch = (l.branch || '').trim().toLowerCase();
-    const pBranch = (profile?.branch || '').trim().toLowerCase();
-    const matchBranch = role === 'super' || (role === 'admin' && (lBranch === pBranch || !lBranch || !pBranch));
-    
-    const matchMe = isMember && (l.applicant_id === profile?.id || l.memId === profile?.id || l.email === profile?.email);
     const q = search.toLowerCase();
-    const matchSearch = (l.name || '').toLowerCase().includes(q) || 
+    const matchSearch = !q ||
+                       (l.name || '').toLowerCase().includes(q) || 
                        (l.id || '').toLowerCase().includes(q) ||
-                       (l.memId || '').toLowerCase().includes(q) ||
                        String(l.amt).includes(q);
-    return (matchBranch || matchMe) && matchSearch;
+    return matchSearch;
   });
 
   /* admin pending queue + recently reviewed */
