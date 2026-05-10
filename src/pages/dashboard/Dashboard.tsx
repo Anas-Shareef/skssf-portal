@@ -33,16 +33,8 @@ export default function Dashboard() {
   const isMember = profile?.role === 'member';
   const branch   = profile?.branch || '';
 
-  const loans = allLoans.filter((l: any) => {
-    if (isSuper) return true;
-    if (isMember) return (l.applicant_id === profile?.id || l.memId === profile?.id || l.email === profile?.email);
-    if (isAdmin) {
-      const lBranch = (l.branch || '').trim().toLowerCase();
-      const pBranch = (branch || '').trim().toLowerCase();
-      return lBranch === pBranch || !lBranch || !pBranch;
-    }
-    return false;
-  });
+  // Results are already scoped by the backend API
+  const loans = allLoans;
   
   const totalDisbursed = loans.filter(l => ['approved', 'completed'].includes(l.status)).reduce((s, l) => s + l.amt, 0);
   const totalCollected = loans.reduce((acc, l) => acc + (l.total_paid || 0), 0);

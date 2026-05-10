@@ -57,22 +57,9 @@ export default function LoanManagement() {
   // Real-time permission check (Global)
   const isGlobalApprover = profile?.role === 'super' || localDb.getUserById(profile?.id || '')?.is_approver;
 
-  // Scope: members see only their own loans; admins see branch loans
-  const scopedLoans = loans.filter((l: any) => {
-    if (profile?.role === 'super') return true;
-    
-    const isMember = profile?.role === 'member';
-    const matchMe = isMember && (l.applicant_id === profile?.id || l.memId === profile?.id || l.email === profile?.email);
-    if (isMember) return matchMe;
-    
-    if (profile?.role === 'admin') {
-      const lBranch = (l.branch || '').trim().toLowerCase();
-      const pBranch = (profile?.branch || '').trim().toLowerCase();
-      return lBranch === pBranch || !lBranch || !pBranch;
-    }
-    
-    return false;
-  });
+  // Scope: results are already scoped by the backend API.
+  // We just trust the 'loans' array as returned by localDb.
+  const scopedLoans = loans;
 
   // Personal stats for this member
   const myTotal    = scopedLoans.length;
