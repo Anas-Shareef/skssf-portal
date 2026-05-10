@@ -239,6 +239,7 @@ export default function Repayments() {
     // Pass isFullClearance to DB
     const data = { 
       ...form, 
+      mode: form.mode.toLowerCase() === 'cash' ? 'cash' : 'transfer',
       notes: `${form.isFullClearance ? 'FULL CLEARANCE | ' : ''}Mode: ${form.mode}|Ref: ${form.ref}|Date: ${form.payDate}|Amt: ${form.amt}` 
     };
     if (submitModal.edit) {
@@ -1498,7 +1499,8 @@ export default function Repayments() {
                   if (activeReq) {
                     localDb.verifyRepaymentRequest(l.id, instIdx, 'approved', 'Confirmed via Loan Schedule manual check.', profile?.name, profile?.role, profile?.id, { amt: Number(mfAmt), payDate: mfDate, proof: mfProof });
                   } else {
-                    localDb.logRepayment(l.id, instIdx, { method: mfMode.toLowerCase() as any, amt: Number(mfAmt), notes: mfRef, proof: mfProof, payDate: mfDate });
+                    const mappedMode = mfMode.toLowerCase() === 'cash' ? 'cash' : 'transfer';
+                    localDb.logRepayment(l.id, instIdx, { method: mappedMode as any, amt: Number(mfAmt), notes: mfRef, proof: mfProof, payDate: mfDate });
                   }
                   refresh(); setRecordPaymentModal(null); 
                 }}>{reps[parseInt(mfInst)]?.request ? 'Verify & Credit' : 'Credit Now'}</button>

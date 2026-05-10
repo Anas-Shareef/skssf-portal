@@ -60,7 +60,7 @@ class PortalConfigController extends Controller
         } elseif ($user->role === 'admin') {
             $loanQuery->where('branch', $user->branch);
             $userQuery->where('branch', $user->branch);
-            // Admins see branch donations? For now yes.
+            $donationQuery->where('branch', $user->branch);
         }
 
         return response()->json([

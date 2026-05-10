@@ -167,7 +167,21 @@ export default function DashboardLayout() {
             <div>
               <div className="sb-uname">{profile?.name || 'User'}</div>
               <div className="sb-uemail">{profile?.email || ''}</div>
-              <div className="sb-badge">{roleLabel.badge}</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                <div className="sb-badge" style={{ margin: 0 }}>{roleLabel.badge}</div>
+                <button 
+                  title="Force refresh data from server"
+                  onClick={() => {
+                    if (window.confirm('Clear local cache and re-sync from server?')) {
+                      Object.keys(localStorage).forEach(k => {
+                        if (k.startsWith('db_') || k === 'portal_config') localStorage.removeItem(k);
+                      });
+                      window.location.reload();
+                    }
+                  }}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, padding: 0, opacity: 0.6, display: 'flex' }}
+                >🔄</button>
+              </div>
             </div>
           </div>
         </div>

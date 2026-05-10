@@ -434,7 +434,7 @@ export default function Inventory() {
     });
   };
 
-  if (!isAdmin) return <div style={{ padding: 40, textAlign: 'center', color: 'var(--red)' }}>Unauthorized.</div>;
+  // No hard unauthorized block; we will hide admin controls instead below.
 
   return (
     <>
@@ -483,12 +483,14 @@ export default function Inventory() {
             <div className="pg-title">📦 Inventory & Catalog</div>
             <div className="pg-sub">Manage assets, assemble kits, generate barcodes, and rapidly deploy to missions.</div>
           </div>
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-            <button className="bsm s" onClick={() => setShowScanner(true)}>📷 Scan Item</button>
-            <button className="bsm o" style={{ background: 'linear-gradient(135deg,#7c3aed,#5b21b6)', color: '#fff', border: 'none' }} onClick={() => setIsAddingMission(true)}>📍 Add Mission</button>
-            <button className="bsm o" style={{ background: 'linear-gradient(135deg,#7c3aed,#5b21b6)', color: '#fff', border: 'none' }} onClick={() => setIsKitting(true)}>🧰 Assemble Kit</button>
-            <button className="bsm s" onClick={() => setIsAdding(true)}>+ Add Product</button>
-          </div>
+          {isAdmin && (
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              <button className="bsm s" onClick={() => setShowScanner(true)}>📷 Scan Item</button>
+              <button className="bsm o" style={{ background: 'linear-gradient(135deg,#7c3aed,#5b21b6)', color: '#fff', border: 'none' }} onClick={() => setIsAddingMission(true)}>📍 Add Mission</button>
+              <button className="bsm o" style={{ background: 'linear-gradient(135deg,#7c3aed,#5b21b6)', color: '#fff', border: 'none' }} onClick={() => setIsKitting(true)}>🧰 Assemble Kit</button>
+              <button className="bsm s" onClick={() => setIsAdding(true)}>+ Add Product</button>
+            </div>
+          )}
         </div>
 
         {/* Tab Toggle */}
@@ -555,16 +557,18 @@ export default function Inventory() {
                   </button>
                 )}
                 
-                <div style={{ display: 'flex', gap: 4, background: '#f1f5f9', borderRadius: 12, padding: 4, height: 44, alignItems: 'center' }}>
-                  <button className="bsm-mini" style={{ background: '#fff', border: '1px solid #eef2f6' }} onClick={() => handleExport('products')}>📊 Export</button>
-                  <button className="bsm-mini" style={{ 
-                    background: selectedPrintIds.length > 0 ? 'var(--teal)' : '#fff', 
-                    color: selectedPrintIds.length > 0 ? '#fff' : 'var(--teal)',
-                    border: '1px solid #eef2f6'
-                  }} onClick={handlePrint}>
-                    🖨️ {selectedPrintIds.length > 0 ? `Print (${selectedPrintIds.length})` : 'Print'}
-                  </button>
-                </div>
+                {isAdmin && (
+                  <div style={{ display: 'flex', gap: 4, background: '#f1f5f9', borderRadius: 12, padding: 4, height: 44, alignItems: 'center' }}>
+                    <button className="bsm-mini" style={{ background: '#fff', border: '1px solid #eef2f6' }} onClick={() => handleExport('products')}>📊 Export</button>
+                    <button className="bsm-mini" style={{ 
+                      background: selectedPrintIds.length > 0 ? 'var(--teal)' : '#fff', 
+                      color: selectedPrintIds.length > 0 ? '#fff' : 'var(--teal)',
+                      border: '1px solid #eef2f6'
+                    }} onClick={handlePrint}>
+                      🖨️ {selectedPrintIds.length > 0 ? `Print (${selectedPrintIds.length})` : 'Print'}
+                    </button>
+                  </div>
+                )}
                 
                 <div style={{ display: 'flex', gap: 4, background: '#f1f5f9', padding: 4, borderRadius: 12, height: 44, alignItems: 'center' }}>
                   <button onClick={() => setProductMode('gallery')} className={`toggle-btn ${productMode === 'gallery' ? 'on' : ''}`}>🖼️ Grid</button>
@@ -617,16 +621,18 @@ export default function Inventory() {
                           <div style={{ width: `${(ulist.filter(u => u.status === 'checked_out').length / p.total_quantity)*100}%`, background: '#2563eb', transition: 'width 0.4s' }} />
                           <div style={{ width: `${(ulist.filter(u => ['damaged','lost'].includes(u.status)).length / p.total_quantity)*100}%`, background: '#f59e0b', transition: 'width 0.4s' }} />
                         </div>
-
+ 
                         <div style={{ display: 'flex', gap: 10, fontSize: 11, marginBottom: 14 }}>
                           <span style={{ color: '#64748b', fontWeight: 700 }}>Total: {p.total_quantity}</span>
                           <span style={{ color: '#166534', fontWeight: 700 }}>Available: {available}</span>
                         </div>
-                        <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: 12, textAlign: 'center' }}>
-                          <BarcodeImg value={p.sku} width={1} height={28} fontSize={9} />
-                        </div>
+                        {isAdmin && (
+                          <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: 12, textAlign: 'center' }}>
+                            <BarcodeImg value={p.sku} width={1} height={28} fontSize={9} />
+                          </div>
+                        )}
                       </div>
-                      <div className="inv-overlay">View Units</div>
+                      <div className="inv-overlay">{isAdmin ? 'Track Units' : 'View Details'}</div>
                     </div>
                   );
                 })}
@@ -689,7 +695,9 @@ export default function Inventory() {
                           </td>
                           <td style={{ padding: '14px 24px', textAlign: 'right' }}>
                             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                              <button className="bsm s" style={{ fontSize: 12, padding: '10px 20px', borderRadius: 12, fontWeight: 800 }} onClick={() => setActiveProduct(p)}>Track Units</button>
+                              <button className="bsm s" style={{ fontSize: 12, padding: '10px 20px', borderRadius: 12, fontWeight: 800 }} onClick={() => setActiveProduct(p)}>
+                                {isAdmin ? 'Track Units' : 'View Details'}
+                              </button>
                               {profile?.role === 'super' && (
                                 <button className="bsm r" style={{ padding: '10px', background: '#fee2e2', color: '#ef4444', borderRadius: 12, border: 'none', cursor: 'pointer' }} onClick={() => handleDeleteProduct(p.id, p.name)}>🗑️</button>
                               )}
