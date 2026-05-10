@@ -45,14 +45,30 @@ class PortalConfigController extends Controller
         return response()->json(['data' => $config]);
     }
 
-    public function bootstrap(): JsonResponse
+    public function bootstrap(Request $request): JsonResponse
     {
+        $user = $request->user();
+        
+        $loanQuery = Loan::query()->latest('id');
+        $userQuery = User::query()->orderBy('id');
+        $donationQuery = Donation::query()->latest('id');
+
+        if ($user->role === 'member') {
+            $loanQuery->where('user_id', $user->id);
+            $userQuery->where('id', $user->id); // Members only see themselves
+            $donationQuery->where('user_id', $user->id);
+        } elseif ($user->role === 'admin') {
+            $loanQuery->where('branch', $user->branch);
+            $userQuery->where('branch', $user->branch);
+            // Admins see branch donations? For now yes.
+        }
+
         return response()->json([
             'portal_config' => $this->config(),
-            'users' => User::query()->orderBy('id')->get(),
-            'loans' => Loan::query()->latest('id')->get(),
+            'users' => $userQuery->get(),
+            'loans' => $loanQuery->get(),
             'campaigns' => Campaign::query()->latest('id')->get(),
-            'donations' => Donation::query()->latest('id')->get(),
+            'donations' => $donationQuery->get(),
             'products' => Product::query()->latest('id')->get(),
             'units' => Unit::query()->latest('id')->get(),
             'kits' => Kit::query()->latest('id')->get(),
