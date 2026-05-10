@@ -332,45 +332,50 @@ export default function LoanManagement() {
                     <input type="checkbox" checked={allSelected} onChange={toggleAll} style={{ cursor: 'pointer' }} />
                   </th>
                   <th>App No.</th>
-                  <th>Applicant</th>
+                  {!isMember && <th>Applicant</th>}
                   <th>Amount / Purpose</th>
                   <th>Submitted</th>
                   <th>Status</th>
-                  <th>Action</th>
+                  <th style={{ textAlign: 'right' }}>Action</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredLoans.map(l => (
-                  <tr key={l.id} style={{ background: selectedIds.includes(l.id) ? 'var(--teal-pale)' : '' }}>
-                    <td><input type="checkbox" checked={selectedIds.includes(l.id)} onChange={() => toggleOne(l.id)} style={{ cursor: 'pointer' }} /></td>
-                    <td style={{ fontSize: '11.5px', color: 'var(--muted)' }}>{l.id}</td>
-                    <td><b>{l.name}</b><br /><span style={{ fontSize: '11px', color: 'var(--muted)' }}>{l.memNo}</span></td>
-                    <td><b>₹{(l.amt || 0).toLocaleString()}</b><br /><span style={{ fontSize: '11px', color: 'var(--muted)' }}>{l.purpose}</span></td>
-                    <td style={{ fontSize: '12px' }}>{l.submittedDate ? new Date(l.submittedDate).toLocaleDateString() : '—'}</td>
-                    <td>{stBadge(l)}</td>
-                    <td style={{ display: 'flex', gap: '6px' }}>
-                      <button
-                        className={`bsm ${l.status === 'pending' && !isMember ? 's' : 'g'}`}
-                        style={{ fontSize: '11px', padding: '5px 12px' }}
-                        onClick={() => { setSelectedLoanId(l.id); setActionStatus(l.status); setActionNote(''); setShowReview(true); }}
-                      >
-                        {l.status === 'pending' && !isMember ? 'Review & Act →' : 'View Details'}
-                      </button>
-                       {(l.status === 'pending' || l.status === 'rejected') && (
+                {filteredLoans.map(l => {
+                  const isAdminOrSuper = profile?.role === 'admin' || profile?.role === 'super';
+                  return (
+                    <tr key={l.id} style={{ background: selectedIds.includes(l.id) ? 'var(--teal-pale)' : '' }}>
+                      <td><input type="checkbox" checked={selectedIds.includes(l.id)} onChange={() => toggleOne(l.id)} style={{ cursor: 'pointer' }} /></td>
+                      <td style={{ fontSize: '11.5px', color: 'var(--muted)' }}>{l.id}</td>
+                      {!isMember && (
+                        <td><b>{l.name}</b><br /><span style={{ fontSize: '11px', color: 'var(--muted)' }}>{l.memNo}</span></td>
+                      )}
+                      <td><b>₹{(l.amt || 0).toLocaleString()}</b><br /><span style={{ fontSize: '11px', color: 'var(--muted)' }}>{l.purpose}</span></td>
+                      <td style={{ fontSize: '12px' }}>{l.submittedDate ? new Date(l.submittedDate).toLocaleDateString() : '—'}</td>
+                      <td>{stBadge(l)}</td>
+                      <td style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
                         <button
-                          className="bsm o"
+                          className={`bsm ${l.status === 'pending' && isAdminOrSuper ? 's' : 'g'}`}
                           style={{ fontSize: '11px', padding: '5px 12px' }}
-                          onClick={() => setEditingLoan(l)}
+                          onClick={() => { setSelectedLoanId(l.id); setActionStatus(l.status); setActionNote(''); setShowReview(true); }}
                         >
-                          Edit
+                          {l.status === 'pending' && isAdminOrSuper ? 'Review & Act →' : 'View Details'}
                         </button>
-                      )}
-                      {(!isMember || l.status === 'pending') && (
-                        <button className="bsm r" style={{ fontSize: '11px', padding: '5px 10px' }} onClick={() => setConfirmDelete({ open: true, loan: l })}>🗑</button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                        {((l.status === 'pending' || l.status === 'rejected') && (isMember || isAdminOrSuper)) && (
+                          <button
+                            className="bsm o"
+                            style={{ fontSize: '11px', padding: '5px 12px' }}
+                            onClick={() => setEditingLoan(l)}
+                          >
+                            Edit
+                          </button>
+                        )}
+                        {(isAdminOrSuper || (isMember && l.status === 'pending')) && (
+                          <button className="bsm r" style={{ fontSize: '11px', padding: '5px 10px' }} onClick={() => setConfirmDelete({ open: true, loan: l })}>🗑</button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
