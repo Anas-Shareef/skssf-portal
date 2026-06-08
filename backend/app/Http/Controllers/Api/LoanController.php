@@ -45,6 +45,8 @@ class LoanController extends Controller
             'months' => ['required', 'integer', 'min:1'],
             'guarantors' => ['nullable', 'array'],
             'repayments' => ['nullable', 'array'],
+            'signature' => ['nullable', 'string'],
+            'witnesses' => ['nullable', 'array'],
         ]);
 
         $config = $this->portalConfig();
@@ -76,6 +78,8 @@ class LoanController extends Controller
             ]],
             'repayments' => $payload['repayments'] ?? [],
             'guarantors' => $payload['guarantors'] ?? [],
+            'signature' => $payload['signature'] ?? null,
+            'witnesses' => $payload['witnesses'] ?? [],
         ]);
 
         return response()->json(['data' => $loan], 201);
@@ -97,6 +101,8 @@ class LoanController extends Controller
             'approved_by' => ['sometimes', 'nullable', 'string'],
             'approved_date' => ['sometimes', 'nullable', 'date'],
             'disbursed_date' => ['sometimes', 'nullable', 'date'],
+            'signature' => ['sometimes', 'nullable', 'string'],
+            'witnesses' => ['sometimes', 'nullable', 'array'],
         ]);
 
         $loan->fill($payload);

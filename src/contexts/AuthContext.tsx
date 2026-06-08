@@ -88,6 +88,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (res?.token && res?.user) {
         sessionStorage.setItem('active_api_token', res.token);
         sessionStorage.setItem('active_user_id', res.user.code || res.user.id);
+        clearFrontendCache();
         setProfile({
           ...res.user,
           id: res.user.code || res.user.id,

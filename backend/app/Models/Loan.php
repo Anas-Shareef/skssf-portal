@@ -29,6 +29,8 @@ class Loan extends Model
         'repayments',
         'request',
         'audit',
+        'signature',
+        'witnesses',
     ];
 
     protected function casts(): array
@@ -39,6 +41,7 @@ class Loan extends Model
             'repayments' => 'array',
             'request' => 'array',
             'audit' => 'array',
+            'witnesses' => 'array',
             'submitted_date' => 'date',
             'approved_date' => 'date',
             'disbursed_date' => 'date',

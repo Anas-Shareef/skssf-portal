@@ -104,6 +104,8 @@ const mapLoanFromApi = (l: any, usersByNumericId: Map<number, any>) => {
     approvals,
     assignedReviewers,
     audit: l.audit || [],
+    signature: l.signature || '',
+    witnesses: l.witnesses || [],
     total_paid: 0,
     remaining_balance: 0
   };
@@ -746,6 +748,8 @@ export const localDb = {
           months: Number(loanData.months || 1),
           guarantors: loanData.guarantors || [],
           repayments: loanData.repayments || [],
+          signature: loanData.signature || null,
+          witnesses: loanData.witnesses || [],
         }).then(() => syncFromBackend())
       );
     }
@@ -870,6 +874,8 @@ export const localDb = {
           approved_by: loans[idx].approvedBy || '',
           approved_date: loans[idx].approvedDate || null,
           disbursed_date: loans[idx].disbursedDate || null,
+          signature: loans[idx].signature || null,
+          witnesses: loans[idx].witnesses || [],
         }).then(() => syncFromBackend()));
       }
     }
