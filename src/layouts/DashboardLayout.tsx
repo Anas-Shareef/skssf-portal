@@ -91,13 +91,14 @@ export default function DashboardLayout() {
   }, []);
 
   const role = profile?.role || 'member';
+  const prefix = role === 'super' ? '/super-admin/dashboard' : role === 'admin' ? '/admin/dashboard' : '/member/dashboard';
   const nav = buildNav(role);
   const roleLabel = ROLE_LABELS[role] || ROLE_LABELS.member;
   const initials = (profile?.name || 'U').split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase();
 
-  const isActive = (path: string) => path === '' ? location.pathname === '/dashboard' : location.pathname.startsWith(`/dashboard${path}`);
+  const isActive = (path: string) => path === '' ? location.pathname === prefix : location.pathname.startsWith(`${prefix}${path}`);
   const getPageTitle = () => {
-    if (location.pathname === '/dashboard') return 'Dashboard';
+    if (location.pathname === prefix) return 'Dashboard';
     const seg = location.pathname.split('/').pop() || '';
     const t: Record<string, string> = {
       admins: 'Manage Admins',
@@ -193,7 +194,7 @@ export default function DashboardLayout() {
               {g.items.map((item: any, ii: number) => {
                 const Icon = item.ic;
                 return (
-                  <Link to={`/dashboard${item.path}`} key={ii} onClick={() => setIsSidebarOpen(false)} className={`ni ${isActive(item.path) ? 'on' : ''}`} style={{ textDecoration: 'none' }}>
+                  <Link to={`${prefix}${item.path}`} key={ii} onClick={() => setIsSidebarOpen(false)} className={`ni ${isActive(item.path) ? 'on' : ''}`} style={{ textDecoration: 'none' }}>
                     <span className="ni-ic"><Icon size={17} /></span>
                     {item.lbl}
                     {item.badge > 0 && <span className={`ni-badge ${item.bc || 't'}`}>{item.badge}</span>}
@@ -256,7 +257,7 @@ export default function DashboardLayout() {
               <div className="notice-banner">
                 <CheckCircle2 size={20} />
                 <span>You have <b>{pendingRepaymentCount}</b> repayment submission{pendingRepaymentCount > 1 ? 's' : ''} waiting for review.</span>
-                <Link to="/dashboard/repayments">Review Now <ChevronRight size={14} /></Link>
+                <Link to={`${prefix}/repayments`}>Review Now <ChevronRight size={14} /></Link>
               </div>
             )}
 

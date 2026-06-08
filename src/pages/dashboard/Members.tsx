@@ -8,8 +8,9 @@ export default function Members() {
   const { profile } = useAuth();
   const currentRole = profile?.role || 'member';
 
+  const prefix = currentRole === 'super' ? '/super-admin/dashboard' : currentRole === 'admin' ? '/admin/dashboard' : '/member/dashboard';
   if (currentRole === 'member') {
-    return <Navigate to="/dashboard" replace />;
+    return <Navigate to={prefix} replace />;
   }
 
   // Live from localDb

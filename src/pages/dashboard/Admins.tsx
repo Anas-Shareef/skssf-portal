@@ -34,8 +34,9 @@ export default function Admins() {
   const permDon = useRef<HTMLInputElement>(null);
   const permReviewer = useRef<HTMLInputElement>(null);
 
+  const prefix = currentRole === 'super' ? '/super-admin/dashboard' : currentRole === 'admin' ? '/admin/dashboard' : '/member/dashboard';
   if (currentRole !== 'super') {
-    return <Navigate to="/dashboard" replace />;
+    return <Navigate to={prefix} replace />;
   }
 
   const activeCount = admins.filter(a => a.active).length;

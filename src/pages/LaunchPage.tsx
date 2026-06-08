@@ -12,7 +12,7 @@ export default function LaunchPage() {
   const [isLaunching, setIsLaunching] = useState(false);
 
   if (isLaunching) {
-    return <LaunchPreloader onComplete={() => navigate('/portal')} />;
+    return <LaunchPreloader onComplete={() => navigate('/')} />;
   }
 
   return (

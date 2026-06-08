@@ -6,6 +6,8 @@ import { localDb, syncFromBackend } from '../../lib/localDb';
 export default function Dashboard() {
   const navigate = useNavigate();
   const { profile } = useAuth();
+  const role = profile?.role || 'member';
+  const prefix = role === 'super' ? '/super-admin/dashboard' : role === 'admin' ? '/admin/dashboard' : '/member/dashboard';
 
   const [allLoans, setAllLoans] = useState(() => localDb.getLoans());
   const [allUsers, setAllUsers] = useState(() => localDb.getUsers());
@@ -94,7 +96,7 @@ export default function Dashboard() {
           <div className="card" style={{ padding: 24, borderRadius: 24 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
               <h3 style={{ fontSize: 16, fontWeight: 900, color: '#0f172a', margin: 0 }}>📝 Loan Management Dashboard</h3>
-              <button className="bsm s" onClick={() => navigate('/dashboard/loans')}>Review All Apps →</button>
+              <button className="bsm s" onClick={() => navigate(`${prefix}/loans`)}>Review All Apps →</button>
             </div>
             <div className="dash-loan-stats" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 20 }}>
                {[
@@ -160,7 +162,7 @@ export default function Dashboard() {
           <div className="card" style={{ padding: 24, borderRadius: 24 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
               <h3 style={{ fontSize: 16, fontWeight: 900, color: '#0f172a', margin: 0 }}>⚡ Repayment Portal Activity</h3>
-              <button className="bsm s" onClick={() => navigate('/dashboard/repayments')}>View Portal →</button>
+              <button className="bsm s" onClick={() => navigate(`${prefix}/repayments`)}>View Portal →</button>
             </div>
             <div className="mobile-table-hide tbl-wrap">
                <table style={{ width: '100%' }}>
@@ -237,7 +239,7 @@ export default function Dashboard() {
           <div className="card" style={{ padding: 24, borderRadius: 24 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
               <h3 style={{ fontSize: 16, fontWeight: 900, color: '#0f172a', margin: 0 }}>📦 Catalog & Inventory Pulse</h3>
-              <button className="bsm s" onClick={() => navigate('/dashboard/inventory')}>Manage Catalog →</button>
+              <button className="bsm s" onClick={() => navigate(`${prefix}/inventory`)}>Manage Catalog →</button>
             </div>
             <div className="dash-inv-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
               {products.slice(0, 6).map((p: any, i: number) => (
@@ -314,6 +316,8 @@ export default function Dashboard() {
 }
 
 function MemberDashboard({ loans, profile, navigate, totalCollected }: any) {
+  const role = profile?.role || 'member';
+  const prefix = role === 'super' ? '/super-admin/dashboard' : role === 'admin' ? '/admin/dashboard' : '/member/dashboard';
   const activeLoan = loans.find((l: any) => l.status === 'approved' || l.status === 'completed');
   const pending    = loans.filter((l: any) => l.status === 'pending').length;
   
@@ -358,7 +362,7 @@ function MemberDashboard({ loans, profile, navigate, totalCollected }: any) {
             <div className="card" style={{ padding: 24, borderRadius: 24 }}>
                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
                   <h3 style={{ fontSize: 16, fontWeight: 900, color: '#0f172a', margin: 0 }}>📊 Active Loan Summary</h3>
-                  <button className="bsm s" onClick={() => navigate('/dashboard/repayments')}>View Portal →</button>
+                  <button className="bsm s" onClick={() => navigate(`${prefix}/repayments`)}>View Portal →</button>
                </div>
                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16, marginBottom: 24 }}>
                   {[
@@ -379,7 +383,7 @@ function MemberDashboard({ loans, profile, navigate, totalCollected }: any) {
                   </div>
                   <button className="bsm s" onClick={() => {
                     const nextIdx = (activeLoan.repayments.filter((r: any) => r.paid).length || 0);
-                    navigate(`/dashboard/repayments?action=pay&loanId=${activeLoan.id}&idx=${nextIdx}`);
+                    navigate(`${prefix}/repayments?action=pay&loanId=${activeLoan.id}&idx=${nextIdx}`);
                   }}>Pay Now →</button>
                </div>
             </div>
@@ -388,7 +392,7 @@ function MemberDashboard({ loans, profile, navigate, totalCollected }: any) {
                <div style={{ fontSize: 40, marginBottom: 12 }}>📝</div>
                <div style={{ fontSize: 18, fontWeight: 900, color: '#0f172a' }}>No Active Loans</div>
                <div style={{ fontSize: 14, color: '#64748b', marginTop: 4 }}>Apply for a loan to get started with the SKSSF scheme.</div>
-               <button className="bsm s" style={{ marginTop: 20, padding: '12px 24px' }} onClick={() => navigate('/dashboard/apply')}>Start Application →</button>
+               <button className="bsm s" style={{ marginTop: 20, padding: '12px 24px' }} onClick={() => navigate(`${prefix}/apply`)}>Start Application →</button>
             </div>
           )}
 
@@ -431,9 +435,9 @@ function MemberDashboard({ loans, profile, navigate, totalCollected }: any) {
              <h3 style={{ fontSize: 15, fontWeight: 900, color: '#0f172a', marginBottom: 20 }}>Quick Links</h3>
              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {[
-                  { lbl: 'Apply for Loan', ic: '➕', path: '/dashboard/apply' },
-                  { lbl: 'Repayment Portal', ic: '💸', path: '/dashboard/repayments' },
-                  { lbl: 'Support Chat', ic: '💬', path: '/dashboard/help' },
+                  { lbl: 'Apply for Loan', ic: '➕', path: `${prefix}/apply` },
+                  { lbl: 'Repayment Portal', ic: '💸', path: `${prefix}/repayments` },
+                  { lbl: 'Support Chat', ic: '💬', path: `${prefix}/help` },
                 ].map((act, i) => (
                   <button key={i} onClick={() => navigate(act.path)} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px', borderRadius: 16, border: '1.5px solid #f1f5f9', background: '#fff', cursor: 'pointer', textAlign: 'left', transition: 'all 0.2s' }} className="card-hover">
                      <span style={{ fontSize: 20 }}>{act.ic}</span>

@@ -46,7 +46,10 @@ export default function RoleLogin() {
     e.preventDefault();
     setError('');
     const ok = await signIn(siEmail.current?.value || '', siPass.current?.value || '');
-    if (ok) navigate('/dashboard');
+    if (ok) {
+      const prefix = role === 'super-admin' ? '/super-admin/dashboard' : role === 'admin' ? '/admin/dashboard' : '/member/dashboard';
+      navigate(prefix);
+    }
     else setError('Invalid email or password. Please try again.');
   };
 
@@ -71,7 +74,10 @@ export default function RoleLogin() {
     }
 
     const ok = await signIn(email, password);
-    if (ok) navigate('/dashboard');
+    if (ok) {
+      const prefix = role === 'super-admin' ? '/super-admin/dashboard' : role === 'admin' ? '/admin/dashboard' : '/member/dashboard';
+      navigate(prefix);
+    }
     else {
       setTab('si');
       setError('Registered successfully. Please sign in.');

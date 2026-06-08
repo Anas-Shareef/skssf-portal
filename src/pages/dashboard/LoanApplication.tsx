@@ -145,7 +145,8 @@ export default function LoanApplication() {
     });
 
     await new Promise(r => setTimeout(r, 800)); // Simulate processing
-    navigate('/dashboard/loans');
+    const prefix = profile?.role === 'super' ? '/super-admin/dashboard' : profile?.role === 'admin' ? '/admin/dashboard' : '/member/dashboard';
+    navigate(`${prefix}/loans`);
   };
 
   return (

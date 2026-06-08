@@ -20,8 +20,9 @@ export default function Reports() {
     Pending: true, Approved: true, Completed: true, Rejected: true, Overdue: true
   });
   
+  const prefix = currentRole === 'super' ? '/super-admin/dashboard' : currentRole === 'admin' ? '/admin/dashboard' : '/member/dashboard';
   if (currentRole === 'member') {
-    return <Navigate to="/dashboard" replace />;
+    return <Navigate to={prefix} replace />;
   }
 
   const downloadExcel = () => {

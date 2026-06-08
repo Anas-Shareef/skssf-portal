@@ -24,14 +24,16 @@ function App() {
       <BrowserRouter>
         <SEOManager />
         <Routes>
-          <Route path="/" element={<LaunchPage />} />
-          <Route path="/portal" element={<PortalSelector />} />
+          <Route path="/" element={<PortalSelector />} />
+          <Route path="/portal" element={<Navigate to="/" replace />} />
+          <Route path="/inagurate" element={<LaunchPage />} />
           <Route path="/login/:role" element={<RoleLogin />} />
 
+          {/* Super Admin Dashboard Routes */}
           <Route
-            path="/dashboard"
+            path="/super-admin/dashboard"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute allowedRoles={['super']}>
                 <DashboardLayout />
               </ProtectedRoute>
             }
@@ -44,6 +46,46 @@ function App() {
             <Route path="sahachari" element={<Sahachari />} />
             <Route path="donations" element={<Donations />} />
             <Route path="reports" element={<Reports />} />
+            <Route path="settings" element={<Settings />} />
+            <Route path="apply" element={<LoanApplication />} />
+            <Route path="inventory" element={<Inventory />} />
+          </Route>
+
+          {/* Admin Dashboard Routes */}
+          <Route
+            path="/admin/dashboard"
+            element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <DashboardLayout />
+              </ProtectedRoute>
+            }
+          >
+            <Route index element={<Dashboard />} />
+            <Route path="members" element={<Members />} />
+            <Route path="loans" element={<LoanManagement />} />
+            <Route path="repayments" element={<Repayments />} />
+            <Route path="sahachari" element={<Sahachari />} />
+            <Route path="donations" element={<Donations />} />
+            <Route path="reports" element={<Reports />} />
+            <Route path="settings" element={<Settings />} />
+            <Route path="apply" element={<LoanApplication />} />
+            <Route path="inventory" element={<Inventory />} />
+          </Route>
+
+          {/* Member Dashboard Routes */}
+          <Route
+            path="/member/dashboard"
+            element={
+              <ProtectedRoute allowedRoles={['member']}>
+                <DashboardLayout />
+              </ProtectedRoute>
+            }
+          >
+            <Route index element={<Dashboard />} />
+            <Route path="loans" element={<LoanManagement />} />
+            <Route path="repayments" element={<Repayments />} />
+            <Route path="sahachari" element={<Sahachari />} />
+            <Route path="donations" element={<Donations />} />
             <Route path="settings" element={<Settings />} />
             <Route path="apply" element={<LoanApplication />} />
             <Route path="inventory" element={<Inventory />} />

@@ -217,7 +217,10 @@ export default function LoanManagement() {
         </div>
         {isMember && (
           <div className="pg-acts" style={{ marginLeft: 'auto' }}>
-            <button className="bsm s" style={{ height: 48, padding: '0 24px', borderRadius: 14 }} onClick={() => navigate('/dashboard/apply')}>+ Apply for Loan</button>
+            <button className="bsm s" style={{ height: 48, padding: '0 24px', borderRadius: 14 }} onClick={() => {
+              const prefix = profile?.role === 'super' ? '/super-admin/dashboard' : profile?.role === 'admin' ? '/admin/dashboard' : '/member/dashboard';
+              navigate(`${prefix}/apply`);
+            }}>+ Apply for Loan</button>
           </div>
         )}
       </div>
@@ -321,7 +324,10 @@ export default function LoanManagement() {
           <div style={{ textAlign: 'center', padding: '40px', color: 'var(--muted)' }}>
             <div style={{ fontSize: '36px', marginBottom: '10px' }}>💰</div>
             <div>{search || activeFilterCount > 0 ? 'No loans match your filters.' : isMember ? 'You have no loan requests yet.' : 'No loan applications yet.'}</div>
-            {isMember && <button className="bsm s" style={{ marginTop: '16px' }} onClick={() => navigate('/dashboard/apply')}>Apply for Loan →</button>}
+            {isMember && <button className="bsm s" style={{ marginTop: '16px' }} onClick={() => {
+              const prefix = profile?.role === 'super' ? '/super-admin/dashboard' : profile?.role === 'admin' ? '/admin/dashboard' : '/member/dashboard';
+              navigate(`${prefix}/apply`);
+            }}>Apply for Loan →</button>}
           </div>
         ) : (
           <div className="tbl-wrap">

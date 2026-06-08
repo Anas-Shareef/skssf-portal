@@ -2,7 +2,7 @@ import { Navigate } from 'react-router-dom';
 import { MoonStar } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
-export default function ProtectedRoute({ children }: { children: React.ReactNode }) {
+export default function ProtectedRoute({ children, allowedRoles }: { children: React.ReactNode; allowedRoles?: ('super' | 'admin' | 'member')[] }) {
   const { profile, loading } = useAuth();
 
   if (loading) {
@@ -17,6 +17,10 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
   }
 
   if (!profile) return <Navigate to="/" replace />;
+
+  if (allowedRoles && !allowedRoles.includes(profile.role)) {
+    return <Navigate to="/" replace />;
+  }
 
   return <>{children}</>;
 }
