@@ -215,7 +215,7 @@ export default function LoanManagement() {
             {isMember ? 'Track your loan requests and their status.' : 'Review applications, set status, and view the full audit trail.'}
           </div>
         </div>
-        {isMember && (
+        {(isMember || profile?.role === 'super' || profile?.role === 'admin') && (
           <div className="pg-acts" style={{ marginLeft: 'auto' }}>
             <button className="bsm s" style={{ height: 48, padding: '0 24px', borderRadius: 14 }} onClick={() => {
               const prefix = profile?.role === 'super' ? '/super-admin/dashboard' : profile?.role === 'admin' ? '/admin/dashboard' : '/member/dashboard';

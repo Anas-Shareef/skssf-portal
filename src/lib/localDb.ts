@@ -51,6 +51,7 @@ export const clearFrontendCache = () => {
 
 const mapUserFromApi = (u: any) => ({
   id: u.code || u.id,
+  db_id: Number(u.id),
   role: u.role,
   memberNo: u.member_no || '',
   name: u.name,
@@ -698,10 +699,10 @@ export const localDb = {
       if (hasBackendSession()) {
         syncLater(api.post(`/loans/${loanId}/repayments/${monthIdx}/verify`, {
           status,
-          adminNotes,
-          adminBy,
-          adminRole,
-          adminId,
+          adminNotes: adminNotes || '',
+          adminBy: adminBy || 'Admin',
+          adminRole: adminRole || 'admin',
+          adminId: adminId || null,
         }).then(() => syncFromBackend()));
       }
       return true;
@@ -738,10 +739,11 @@ export const localDb = {
     if (hasBackendSession()) {
       syncLater(
         api.post('/loans', {
-          member_no: loanData.memNo || loanData.memberNo || '',
+          user_id: loanData.db_id || null,
+          member_no: loanData.memberNo || loanData.memNo || '',
           name: loanData.name,
           branch: loanData.branch || '',
-          mob: loanData.mob || '',
+          mob: loanData.phone || loanData.mob || '',
           amount: Number(loanData.amt || loanData.amount || 0),
           purpose: loanData.purpose || 'Other',
           purpose_desc: loanData.purpDesc || loanData.purposeDesc || '',

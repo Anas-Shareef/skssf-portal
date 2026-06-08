@@ -215,7 +215,7 @@ export default function DashboardLayout() {
       <div className="main-wrap">
         <header className="top-bar">
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <button className="ico-btn" style={{ display: window.innerWidth <= 1024 ? 'flex' : 'none' }} onClick={() => setIsSidebarOpen(true)}>
+            <button className="ico-btn menu-btn" onClick={() => setIsSidebarOpen(true)}>
               <Menu size={18} />
             </button>
             <div className="tb-title">{getPageTitle()}</div>

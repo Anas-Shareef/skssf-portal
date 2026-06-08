@@ -4,6 +4,7 @@ import { api } from '../lib/api';
 
 export type Profile = {
   id: string;
+  db_id?: number;
   role: 'super' | 'admin' | 'member';
   memberNo?: string;
   name: string;
@@ -58,6 +59,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setProfile({
               ...res.user,
               id: res.user.code || res.user.id,
+              db_id: Number(res.user.id),
               unit: res.user.branch || res.user.unit
             } as Profile);
           }
@@ -92,6 +94,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setProfile({
           ...res.user,
           id: res.user.code || res.user.id,
+          db_id: Number(res.user.id),
           unit: res.user.branch || res.user.unit
         } as Profile);
         return true;

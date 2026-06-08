@@ -11,6 +11,10 @@ export default function LoanApplication() {
   const [step, setStep] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const members = useMemo(() => localDb.getUsers().filter((u: any) => u.role === 'member'), []);
+  const [selectedMemberId, setSelectedMemberId] = useState('');
+  const isAdminOrSuper = profile?.role === 'super' || profile?.role === 'admin';
+
   // --- Step 1: Personal (Pre-filled but EDITABLE) ---
   const [personal, setPersonal] = useState({
     name: '',
@@ -27,7 +31,7 @@ export default function LoanApplication() {
 
   // Pre-fill from profile
   useEffect(() => {
-    if (profile) {
+    if (profile && profile.role === 'member') {
       setPersonal(prev => ({
         ...prev,
         name: prev.name || profile.name || '',
@@ -111,7 +115,17 @@ export default function LoanApplication() {
   };
 
   // --- Step Validation ---
-  const isStep1Valid = !!(personal.name?.trim() && personal.fatherName?.trim() && personal.dob && personal.occupation?.trim() && personal.memberNo?.trim() && personal.address?.trim() && personal.phone?.trim() && personal.aadhaar?.trim());
+  const isStep1Valid = !!(
+    (!isAdminOrSuper || selectedMemberId) &&
+    personal.name?.trim() &&
+    personal.fatherName?.trim() &&
+    personal.dob &&
+    personal.occupation?.trim() &&
+    personal.memberNo?.trim() &&
+    personal.address?.trim() &&
+    personal.phone?.trim() &&
+    personal.aadhaar?.trim()
+  );
   const isStep2Valid = loanAmt > 0 && !!(loanType && loanDesc?.trim() && tenure > 0);
   const isStep3Valid = !!(signature && witnesses[0].name.trim() && witnesses[0].phone.trim() && witnesses[0].signature && witnesses[1].name.trim() && witnesses[1].phone.trim() && witnesses[1].signature);
 
@@ -131,8 +145,18 @@ export default function LoanApplication() {
         });
     }
 
+    const finalApplicantId = isAdminOrSuper ? selectedMemberId : profile?.id;
+    const finalDbId = isAdminOrSuper
+      ? members.find((m: any) => m.id === selectedMemberId)?.db_id
+      : profile?.db_id;
+    const finalBranch = isAdminOrSuper
+      ? (members.find((m: any) => m.id === selectedMemberId)?.branch || '')
+      : (profile?.branch || '');
+
     localDb.addLoan({
-      applicant_id: profile?.id,
+      applicant_id: finalApplicantId,
+      db_id: finalDbId,
+      branch: finalBranch,
       ...personal,
       amt: loanAmt,
       purpose: loanType,
@@ -176,6 +200,55 @@ export default function LoanApplication() {
         {step === 1 && (
           <div className="fstep on">
             <div className="review-hd" style={{ marginBottom: '25px' }}>👤 Personal Information</div>
+            {isAdminOrSuper && (
+              <div style={{ marginBottom: '25px', background: '#f8fafc', padding: '20px', borderRadius: '12px', border: '1.5px solid var(--border)' }}>
+                <label className="fl2" style={{ fontWeight: '700', color: 'var(--teal)', marginBottom: '8px' }}>Select Member to Apply For *</label>
+                <select
+                  className="sel2"
+                  value={selectedMemberId}
+                  onChange={e => {
+                    const id = e.target.value;
+                    setSelectedMemberId(id);
+                    const m = members.find((u: any) => u.id === id);
+                    if (m) {
+                      setPersonal({
+                        name: m.name || '',
+                        fatherName: m.fname || '',
+                        dob: m.dob || '',
+                        occupation: m.occupation || '',
+                        memberNo: m.memberNo || '',
+                        address: m.addr || '',
+                        phone: m.phone || '',
+                        whatsapp: m.phone || '',
+                        salary: String(m.salary || ''),
+                        aadhaar: m.aadhaar || '',
+                      });
+                    } else {
+                      setPersonal({
+                        name: '',
+                        fatherName: '',
+                        dob: '',
+                        occupation: '',
+                        memberNo: '',
+                        address: '',
+                        phone: '',
+                        whatsapp: '',
+                        salary: '',
+                        aadhaar: ''
+                      });
+                    }
+                  }}
+                  style={{ border: '2px solid var(--teal)', fontWeight: '600' }}
+                >
+                  <option value="">-- Choose Member --</option>
+                  {members.map((m: any) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name} ({m.memberNo || 'No ID'} · {m.branch})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div className="fgrid">
               <div className="fg2"><label className="fl2">Applicant's Name <span className="req">*</span></label><input className="fi2" value={personal.name} onChange={e => updatePers('name', e.target.value)} placeholder="Full Name" /></div>
               <div className="fg2"><label className="fl2">Father's Name <span className="req">*</span></label><input className="fi2" value={personal.fatherName} onChange={e => updatePers('fatherName', e.target.value)} placeholder="Father's Name" /></div>
