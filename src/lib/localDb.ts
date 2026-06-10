@@ -919,6 +919,7 @@ export const localDb = {
           disbursed_date: loans[idx].disbursedDate || null,
           signature: loans[idx].signature || null,
           witnesses: loans[idx].witnesses || [],
+          request: loans[idx].request || null,
         }).then(() => syncFromBackend()));
       }
     }
@@ -1024,10 +1025,13 @@ export const localDb = {
   toggleReviewerPool: (adminId: string) => {
     const config = localDb.getPortalConfig();
     const pool = config.authorizedReviewers || [];
-    const newPool = pool.includes(adminId)
-      ? pool.filter((id: string) => id !== adminId)
-      : [...pool, adminId];
+    const isAdding = !pool.includes(adminId);
+    const newPool = isAdding
+      ? [...pool, adminId]
+      : pool.filter((id: string) => id !== adminId);
     localDb.updatePortalConfig({ authorizedReviewers: newPool });
+    // Also sync the is_approver flag on the user so they can actually sign reviews
+    localDb.updateUser(adminId, { is_approver: isAdding });
   },
 
   // ════════════ INVENTORY SYSTEM ════════════

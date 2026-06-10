@@ -88,7 +88,6 @@ function App() {
             <Route path="donations" element={<Donations />} />
             <Route path="settings" element={<Settings />} />
             <Route path="apply" element={<LoanApplication />} />
-            <Route path="inventory" element={<Inventory />} />
           </Route>
 
           <Route path="*" element={<Navigate to="/" replace />} />

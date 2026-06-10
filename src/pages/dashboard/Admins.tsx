@@ -86,26 +86,23 @@ export default function Admins() {
     }
 
     // Sync reviewer pool in portal config AND is_approver flag on user
-    if (editingAdmin) {
-      const updatedAdmin = localDb.getUsers().find((u: any) => u.email === email);
-      if (updatedAdmin) {
-        localDb.updateUser(updatedAdmin.id, { is_approver: adminData.perms.isReviewer });
-      }
-    }
+    const savedAdmin = localDb.getUsers().find((u: any) => u.email === email);
+    if (savedAdmin) {
+      // Always sync is_approver to match isReviewer permission
+      localDb.updateUser(savedAdmin.id, { is_approver: !!adminData.perms.isReviewer });
 
-    if (adminData.perms.isReviewer) {
-      const config = localDb.getPortalConfig();
-      const pool = config.authorizedReviewers || [];
-      const updatedAdmin = localDb.getUsers().find((u: any) => u.email === email);
-      if (updatedAdmin && !pool.includes(updatedAdmin.id)) {
-        localDb.updatePortalConfig({ authorizedReviewers: [...pool, updatedAdmin.id] });
-      }
-    } else {
-      const config = localDb.getPortalConfig();
-      const pool = config.authorizedReviewers || [];
-      const updatedAdmin = localDb.getUsers().find((u: any) => u.email === email);
-      if (updatedAdmin && pool.includes(updatedAdmin.id)) {
-        localDb.updatePortalConfig({ authorizedReviewers: pool.filter((id: string) => id !== updatedAdmin.id) });
+      if (adminData.perms.isReviewer) {
+        const config = localDb.getPortalConfig();
+        const pool = config.authorizedReviewers || [];
+        if (!pool.includes(savedAdmin.id)) {
+          localDb.updatePortalConfig({ authorizedReviewers: [...pool, savedAdmin.id] });
+        }
+      } else {
+        const config = localDb.getPortalConfig();
+        const pool = config.authorizedReviewers || [];
+        if (pool.includes(savedAdmin.id)) {
+          localDb.updatePortalConfig({ authorizedReviewers: pool.filter((id: string) => id !== savedAdmin.id) });
+        }
       }
     }
 

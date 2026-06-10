@@ -103,7 +103,14 @@ class LoanController extends Controller
             'disbursed_date' => ['sometimes', 'nullable', 'date'],
             'signature' => ['sometimes', 'nullable', 'string'],
             'witnesses' => ['sometimes', 'nullable', 'array'],
+            'request' => ['sometimes', 'nullable', 'array'],
         ]);
+
+        // Merge request field instead of overwriting, to preserve existing approvals
+        if (isset($payload['request'])) {
+            $existingRequest = $loan->request ?? [];
+            $payload['request'] = array_merge($existingRequest, $payload['request']);
+        }
 
         $loan->fill($payload);
         $loan->save();

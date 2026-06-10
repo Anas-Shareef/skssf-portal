@@ -56,7 +56,6 @@ const buildNav = (role: string) => {
     { sec: 'Main', items: [{ ic: BarChart3, lbl: 'My Dashboard', path: '' }] },
     { sec: 'Loan', items: [{ ic: CircleDollarSign, lbl: 'My Loans', path: '/loans' }, { ic: CalendarCheck, lbl: 'Repayment Portal', path: '/repayments' }, { ic: ClipboardPenLine, lbl: 'New Application', path: '/apply' }] },
     { sec: 'Finance', items: [{ ic: HandHeart, lbl: 'Sahachari', path: '/sahachari' }, { ic: Gift, lbl: 'My Donations', path: '/donations' }] },
-    { sec: 'Inventory', items: [{ ic: Boxes, lbl: 'View Catalog', path: '/inventory' }] },
     { sec: 'Account', items: [{ ic: Settings, lbl: 'Settings', path: '/settings' }] },
   ];
 };

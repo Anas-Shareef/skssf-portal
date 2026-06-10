@@ -547,7 +547,9 @@ export default function LoanManagement() {
                           const newAssigned = isAssignedTag
                             ? assignedIds.filter((id: string) => id !== admin.id)
                             : [...assignedIds, admin.id];
-                          localDb.updateLoan(selectedLoanId!, { assignedReviewers: newAssigned });
+                          // Update both top-level assignedReviewers and request.assignedReviewers so backend persists it
+                          const updatedRequest = { ...(selectedLoan.request || {}), assignedReviewers: newAssigned };
+                          localDb.updateLoan(selectedLoanId!, { assignedReviewers: newAssigned, request: updatedRequest });
                           localDb.addAuditLog(selectedLoanId!, 'Committee Updated', profile?.name || 'Super Admin', `${isAssignedTag ? 'Removed' : 'Assigned'} ${admin.name} to reviewers.`);
                           refreshLoans();
                         };
