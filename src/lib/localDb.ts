@@ -241,7 +241,7 @@ export const syncFromBackend = async () => {
         if (existing && existing.repayments) {
           mapped.repayments = mapped.repayments.map((r: any, idx: number) => {
             const localRep = existing.repayments[idx];
-            if (localRep?.request && !r.request) {
+            if (localRep?.request && localRep.request.status === 'pending' && !r.request) {
               return { ...r, request: localRep.request };
             }
             return r;
