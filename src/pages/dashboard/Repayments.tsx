@@ -233,6 +233,15 @@ export default function Repayments() {
     if (!form.amt) { setToast({ m: 'Please enter the transfer amount.', t: 'r' }); return; }
     if (form.mode !== 'Cash' && !form.ref) { setToast({ m: 'Please enter the transaction Reference ID or linked number.', t: 'r' }); return; }
 
+    if (form.isFullClearance) {
+      const totalPaid = (submitModal.loan.repayments || []).reduce((acc: number, r: any) => acc + (r.paid ? Number(r.paid_amount || r.request?.amt || r.amt) : 0), 0);
+      const remainingBalance = submitModal.loan.amt - totalPaid;
+      if (Number(form.amt) < remainingBalance - 10) {
+        setToast({ m: `Amount (₹${Number(form.amt).toLocaleString()}) is less than the remaining balance (₹${remainingBalance.toLocaleString()}) for full clearance.`, t: 'r' });
+        return;
+      }
+    }
+
     setIsSubmitting(true);
     await new Promise(r => setTimeout(r, 800));
     
@@ -1577,13 +1586,15 @@ export default function Repayments() {
       {/* 3. HISTORY MODAL */}
       {historyModal && (() => {
         const { loan } = historyModal;
-        const acts = (loan.repayments || []).filter((r: any) => r.paid || r.request);
+        const acts = (loan.repayments || [])
+          .map((r: any, idx: number) => ({ r, idx }))
+          .filter(({ r }) => r.paid || r.request);
         return (
           <div className="rp-modal">
             <div className="rp-modal-inner" style={{ maxWidth: 580 }}>
               <div className="rp-modal-hd"><div style={{ fontWeight: 800 }}>History — {loan.id}</div><button onClick={() => setHistoryModal(null)} className="cls-btn">×</button></div>
               <div style={{ padding: 24 }}>
-                {acts.length === 0 ? <p>No activity yet.</p> : acts.map((r: any, i: number) => {
+                {acts.length === 0 ? <p>No activity yet.</p> : acts.map(({ r, idx }, i: number) => {
                   const s = statusFor(r);
                   const req = r.request;
                   return (
@@ -1602,10 +1613,10 @@ export default function Repayments() {
                         <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
                             {isMember && req && s !== 'paid' && (
                               <>
-                                <button className="bsm o" style={{ fontSize: 11, padding: '6px 12px' }} onClick={() => { setHistoryModal(null); openSubmit(loan, i, true); }}>Edit Request</button>
+                                <button className="bsm o" style={{ fontSize: 11, padding: '6px 12px' }} onClick={() => { setHistoryModal(null); openSubmit(loan, idx, true); }}>Edit Request</button>
                                 <button className="bsm g" style={{ fontSize: 11, padding: '6px 12px', background: 'rgba(239,68,68,0.05)', color: 'var(--red)', border: '1px solid var(--red)' }} onClick={() => {
                                   if (window.confirm('Cancel this payment request?')) {
-                                    localDb.deleteRepaymentsBulk(loan.id, [i]);
+                                    localDb.deleteRepaymentsBulk(loan.id, [idx]);
                                     refresh(); setHistoryModal(null);
                                   }
                                 }}>Cancel Request</button>
@@ -1614,7 +1625,7 @@ export default function Repayments() {
                            {isAdmin && (r.paid || s === 'paid') && (
                              <button className="bsm r" style={{ fontSize: 11, padding: '6px 12px' }} onClick={() => {
                                if (window.confirm('Delete this payment record?')) {
-                                 localDb.deleteRepaymentsBulk(loan.id, [i]);
+                                 localDb.deleteRepaymentsBulk(loan.id, [idx]);
                                  refresh(); setHistoryModal(null);
                                }
                              }}>🗑️ Delete</button>

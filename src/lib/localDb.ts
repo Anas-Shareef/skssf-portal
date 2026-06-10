@@ -463,7 +463,17 @@ export const localDb = {
         status: 'approved' 
       };
 
-      if (metadata?.isFullClearance === true || metadata?.isFullClearance === 1 || metadata?.isFullClearance === 'true') {
+      let isFullClearance = metadata?.isFullClearance === true || metadata?.isFullClearance === 1 || metadata?.isFullClearance === 'true';
+      if (isFullClearance) {
+        const totalPaid = loan.repayments.reduce((acc: number, r: any) => acc + (r.paid ? Number(r.paid_amount || r.request?.amt || r.amt) : 0), 0);
+        const remainingBalance = loan.amt - totalPaid;
+        const loggedAmt = Number(metadata?.amt || loan.repayments[monthIdx].amt);
+        if (loggedAmt < remainingBalance - 10) {
+          isFullClearance = false;
+        }
+      }
+
+      if (isFullClearance) {
         loan.repayments.forEach((r: any) => {
           if (!r.paid) {
             Object.assign(r, { ...respBase, notes: (r.notes || '') + ' (Full Settlement Logged)' });
@@ -477,10 +487,10 @@ export const localDb = {
 
       // Update audit
       loan.audit.push({
-        action: metadata?.isFullClearance ? 'Full Loan Settlement Logged' : 'Repayment Logged',
+        action: isFullClearance ? 'Full Loan Settlement Logged' : 'Repayment Logged',
         by: 'Admin',
         date: new Date().toLocaleString(),
-        note: metadata?.isFullClearance ? `All remaining installments cleared manually.` : `EMI #${monthIdx + 1} marked as paid via ${respBase.method}.`,
+        note: isFullClearance ? `All remaining installments cleared manually.` : `EMI #${monthIdx + 1} marked as paid via ${respBase.method}.`,
         category: 'repayment'
       });
       
@@ -508,6 +518,15 @@ export const localDb = {
         ? data.assignedReviewers
         : (config.defaultCommittee?.length > 0 ? config.defaultCommittee : []);
 
+      let isFullClearance = !!data.isFullClearance;
+      if (isFullClearance) {
+        const totalPaid = loan.repayments.reduce((acc: number, r: any) => acc + (r.paid ? Number(r.paid_amount || r.request?.amt || r.amt) : 0), 0);
+        const remainingBalance = loan.amt - totalPaid;
+        if (Number(data.amt) < remainingBalance - 10) {
+          isFullClearance = false;
+        }
+      }
+
       loan.repayments[monthIdx].request = {
         proof: data.proof,
         notes: data.notes,
@@ -519,7 +538,7 @@ export const localDb = {
         installment_no: monthIdx + 1,
         submittedAt: new Date().toISOString(),
         status: 'pending',
-        isFullClearance: data.isFullClearance || false,
+        isFullClearance: isFullClearance,
         approvals: [],
         assignedReviewers: autoAssigned
       };
@@ -528,7 +547,7 @@ export const localDb = {
         action: 'Payment Proof Submitted',
         by: 'Member',
         date: new Date().toLocaleString(),
-        note: `Member submitted proof for EMI #${monthIdx + 1}.${data.isFullClearance ? ' (Requested Full Clearance)' : ''}`,
+        note: `Member submitted proof for EMI #${monthIdx + 1}.${isFullClearance ? ' (Requested Full Clearance)' : ''}`,
         category: 'repayment'
       });
 
@@ -545,6 +564,15 @@ export const localDb = {
     const loans = localDb.getLoans();
     const loan = loans.find((l: any) => l.id === loanId);
     if (loan && loan.repayments[monthIdx]?.request) {
+      let isFullClearance = !!data.isFullClearance;
+      if (isFullClearance) {
+        const totalPaid = loan.repayments.reduce((acc: number, r: any) => acc + (r.paid ? Number(r.paid_amount || r.request?.amt || r.amt) : 0), 0);
+        const remainingBalance = loan.amt - totalPaid;
+        if (Number(data.amt) < remainingBalance - 10) {
+          isFullClearance = false;
+        }
+      }
+
       loan.repayments[monthIdx].request = {
         ...loan.repayments[monthIdx].request,
         proof: data.proof,
@@ -554,6 +582,7 @@ export const localDb = {
         ref: data.ref,
         payDate: data.payDate,
         memberNote: data.memberNote,
+        isFullClearance: isFullClearance,
         updatedAt: new Date().toISOString(),
         status: 'pending',
         approvals: []
@@ -565,7 +594,7 @@ export const localDb = {
         action: 'Payment Proof Resubmitted',
         by: 'Member',
         date: new Date().toLocaleString(),
-        note: `Member updated proof for EMI #${monthIdx + 1}.`,
+        note: `Member updated proof for EMI #${monthIdx + 1}.${isFullClearance ? ' (Requested Full Clearance)' : ''}`,
         category: 'repayment'
       });
       backendCacheStorage.setItem('db_loans', JSON.stringify(loans));
@@ -669,16 +698,28 @@ export const localDb = {
       }
 
       // Handle Full Clearance if finally approved
-      if (req.status === 'approved' && (req.isFullClearance === true || req.isFullClearance === 1 || req.isFullClearance === 'true')) {
-        loan.repayments.forEach((r: any) => {
-          if (!r.paid) {
-            r.paid = new Date().toISOString().split('T')[0];
-            r.paid_date = new Date().toLocaleDateString('en-GB');
-            r.method = req.mode || 'transfer';
-            r.notes = 'Cleared via Full Settlement.';
-            r.proof = req.proof || r.proof;
-          }
-        });
+      let isFullClearance = req.isFullClearance === true || req.isFullClearance === 1 || req.isFullClearance === 'true';
+      if (req.status === 'approved' && isFullClearance) {
+        // Double check amount covers remaining balance
+        const totalPaidExcludingCurrent = loan.repayments.reduce((acc: number, r: any, idx: number) => {
+          if (!r.paid || idx === monthIdx) return acc;
+          return acc + Number(r.paid_amount || r.request?.amt || r.amt);
+        }, 0);
+        const remainingBalance = loan.amt - totalPaidExcludingCurrent;
+        const approvedAmt = Number(req.amt || rep.amt);
+        if (approvedAmt >= remainingBalance - 10) {
+          loan.repayments.forEach((r: any) => {
+            if (!r.paid) {
+              r.paid = new Date().toISOString().split('T')[0];
+              r.paid_date = new Date().toLocaleDateString('en-GB');
+              r.method = req.mode || 'transfer';
+              r.notes = 'Cleared via Full Settlement.';
+              r.proof = req.proof || r.proof;
+            }
+          });
+        } else {
+          isFullClearance = false;
+        }
       }
 
       loan.audit.push({

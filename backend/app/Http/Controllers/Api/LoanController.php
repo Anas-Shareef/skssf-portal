@@ -184,9 +184,22 @@ class LoanController extends Controller
             return response()->json(['message' => 'Repayment month index invalid'], 422);
         }
 
+        // Calculate remaining balance to validate isFullClearance
+        $isFullClearance = filter_var($payload['isFullClearance'] ?? false, FILTER_VALIDATE_BOOLEAN);
+        if ($isFullClearance) {
+            $totalPaid = collect($repayments)->reduce(fn ($acc, $r) => $acc + (!empty($r['paid']) ? (float) ($r['paid_amount'] ?? ($r['request']['amt'] ?? $r['amt'])) : 0), 0);
+            $remainingBalance = (float) $loan->amount - $totalPaid;
+            if ((float) $payload['amt'] < $remainingBalance - 10.0) {
+                $isFullClearance = false;
+            }
+        }
+
         $config = $this->portalConfig();
+        $requestPayload = $payload;
+        $requestPayload['isFullClearance'] = $isFullClearance;
+
         $repayments[$month]['request'] = [
-            ...$payload,
+            ...$requestPayload,
             'installment_no' => $month + 1,
             'submittedAt' => now()->toIso8601String(),
             'status' => 'pending',
@@ -244,17 +257,29 @@ class LoanController extends Controller
             $repayments[$month]['proof'] = $requestState['proof'] ?? '';
 
             // Handle Full Clearance if requested
-            if (!empty($requestState['isFullClearance']) && ($requestState['isFullClearance'] === true || $requestState['isFullClearance'] === 1 || $requestState['isFullClearance'] === 'true')) {
-                foreach ($repayments as &$rep) {
-                    if (empty($rep['paid'])) {
-                        $rep['paid'] = now()->toDateString();
-                        $rep['paid_date'] = now()->format('d/m/Y');
-                        $rep['method'] = $requestState['mode'] ?? 'transfer';
-                        $rep['notes'] = ($requestState['memberNote'] ?? '') . ' (Full Clearance Approved)';
-                        $rep['proof'] = $requestState['proof'] ?? '';
+            $isFullClearance = filter_var($requestState['isFullClearance'] ?? false, FILTER_VALIDATE_BOOLEAN);
+            if ($isFullClearance) {
+                // Double check if the amount covers the remaining balance
+                $totalPaidExcludingCurrent = collect($repayments)->reduce(function ($acc, $r) use ($month, $repayments) {
+                    if (empty($r['paid']) || $r === $repayments[$month]) {
+                        return $acc;
                     }
+                    return $acc + (float) ($r['paid_amount'] ?? ($r['request']['amt'] ?? $r['amt']));
+                }, 0);
+                $remainingBalance = (float) $loan->amount - $totalPaidExcludingCurrent;
+                $approvedAmt = (float) ($requestState['amt'] ?? $repayments[$month]['amt']);
+                if ($approvedAmt >= $remainingBalance - 10.0) {
+                    foreach ($repayments as &$rep) {
+                        if (empty($rep['paid'])) {
+                            $rep['paid'] = now()->toDateString();
+                            $rep['paid_date'] = now()->format('d/m/Y');
+                            $rep['method'] = $requestState['mode'] ?? 'transfer';
+                            $rep['notes'] = ($requestState['memberNote'] ?? '') . ' (Full Clearance Approved)';
+                            $rep['proof'] = $requestState['proof'] ?? '';
+                        }
+                    }
+                    unset($rep);
                 }
-                unset($rep);
             }
         }
 
@@ -290,18 +315,29 @@ class LoanController extends Controller
             return response()->json(['message' => 'Repayment month index invalid'], 422);
         }
 
-        if (!empty($payload['isFullClearance']) && ($payload['isFullClearance'] === true || $payload['isFullClearance'] === 1 || $payload['isFullClearance'] === 'true')) {
-            foreach ($repayments as &$repayment) {
-                if (empty($repayment['paid'])) {
-                    $repayment['paid'] = now()->toDateString();
-                    $repayment['paid_date'] = now()->format('d/m/Y');
-                    $repayment['method'] = $payload['method'];
-                    $repayment['notes'] = trim((string) (($repayment['notes'] ?? '').' (Full Settlement Logged)'));
-                    $repayment['proof'] = $payload['proof'] ?? '';
+        $isFullClearance = filter_var($payload['isFullClearance'] ?? false, FILTER_VALIDATE_BOOLEAN);
+        if ($isFullClearance) {
+            // Double check if the amount covers the remaining balance
+            $totalPaid = collect($repayments)->reduce(fn ($acc, $r) => $acc + (!empty($r['paid']) ? (float) ($r['paid_amount'] ?? ($r['request']['amt'] ?? $r['amt'])) : 0), 0);
+            $remainingBalance = (float) $loan->amount - $totalPaid;
+            $loggedAmt = (float) ($payload['amt'] ?? $repayments[$month]['amt']);
+            if ($loggedAmt >= $remainingBalance - 10.0) {
+                foreach ($repayments as &$repayment) {
+                    if (empty($repayment['paid'])) {
+                        $repayment['paid'] = now()->toDateString();
+                        $repayment['paid_date'] = now()->format('d/m/Y');
+                        $repayment['method'] = $payload['method'];
+                        $repayment['notes'] = trim((string) (($repayment['notes'] ?? '').' (Full Settlement Logged)'));
+                        $repayment['proof'] = $payload['proof'] ?? '';
+                    }
                 }
+                unset($repayment);
+            } else {
+                $isFullClearance = false;
             }
-            unset($repayment);
-        } else {
+        }
+
+        if (!$isFullClearance) {
             $repayments[$month]['paid'] = now()->toDateString();
             $repayments[$month]['paid_date'] = now()->format('d/m/Y');
             $repayments[$month]['method'] = $payload['method'];
@@ -317,10 +353,10 @@ class LoanController extends Controller
 
         $audit = $loan->audit ?? [];
         $audit[] = [
-            'action' => !empty($payload['isFullClearance']) ? 'Full Loan Settlement Logged' : 'Repayment Logged',
+            'action' => $isFullClearance ? 'Full Loan Settlement Logged' : 'Repayment Logged',
             'by' => 'Admin',
             'date' => now()->toDateTimeString(),
-            'note' => !empty($payload['isFullClearance']) ? 'All remaining installments cleared manually.' : 'EMI #'.($month + 1).' marked as paid.',
+            'note' => $isFullClearance ? 'All remaining installments cleared manually.' : 'EMI #'.($month + 1).' marked as paid.',
             'category' => 'repayment',
         ];
         $loan->audit = $audit;
