@@ -463,7 +463,7 @@ export const localDb = {
         status: 'approved' 
       };
 
-      if (metadata?.isFullClearance) {
+      if (metadata?.isFullClearance === true || metadata?.isFullClearance === 1 || metadata?.isFullClearance === 'true') {
         loan.repayments.forEach((r: any) => {
           if (!r.paid) {
             Object.assign(r, { ...respBase, notes: (r.notes || '') + ' (Full Settlement Logged)' });
@@ -669,7 +669,7 @@ export const localDb = {
       }
 
       // Handle Full Clearance if finally approved
-      if (req.status === 'approved' && req.isFullClearance) {
+      if (req.status === 'approved' && (req.isFullClearance === true || req.isFullClearance === 1 || req.isFullClearance === 'true')) {
         loan.repayments.forEach((r: any) => {
           if (!r.paid) {
             r.paid = new Date().toISOString().split('T')[0];

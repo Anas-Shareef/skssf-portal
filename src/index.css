@@ -172,7 +172,7 @@
   .tb-right{display:flex;align-items:center;gap:9px;position:relative;}
   .ico-btn{width:36px;height:36px;border-radius:9px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:16px;transition:all .18s;position:relative;}
   .ico-btn:hover{border-color:var(--teal);background:var(--teal-pale);}
-  .menu-btn{display:none !important;}
+  .menu-btn{display:none;}
   .notif-dot{position:absolute;top:7px;right:7px;width:7px;height:7px;background:var(--red);border-radius:50%;border:1.5px solid var(--white);}
 
   .main{flex:1;overflow-y:auto;background:var(--bg);}

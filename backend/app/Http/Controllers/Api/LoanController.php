@@ -244,7 +244,7 @@ class LoanController extends Controller
             $repayments[$month]['proof'] = $requestState['proof'] ?? '';
 
             // Handle Full Clearance if requested
-            if (!empty($requestState['isFullClearance'])) {
+            if (!empty($requestState['isFullClearance']) && ($requestState['isFullClearance'] === true || $requestState['isFullClearance'] === 1 || $requestState['isFullClearance'] === 'true')) {
                 foreach ($repayments as &$rep) {
                     if (empty($rep['paid'])) {
                         $rep['paid'] = now()->toDateString();
@@ -290,7 +290,7 @@ class LoanController extends Controller
             return response()->json(['message' => 'Repayment month index invalid'], 422);
         }
 
-        if (!empty($payload['isFullClearance'])) {
+        if (!empty($payload['isFullClearance']) && ($payload['isFullClearance'] === true || $payload['isFullClearance'] === 1 || $payload['isFullClearance'] === 'true')) {
             foreach ($repayments as &$repayment) {
                 if (empty($repayment['paid'])) {
                     $repayment['paid'] = now()->toDateString();
