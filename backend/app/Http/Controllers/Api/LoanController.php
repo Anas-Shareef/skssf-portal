@@ -430,6 +430,61 @@ class LoanController extends Controller
             ];
         }
 
+    public function sendOtp(Request $request): JsonResponse
+    {
+        $payload = $request->validate([
+            'phone' => ['required', 'string', 'max:50'],
+            'name' => ['required', 'string', 'max:255'],
+        ]);
+
+        $phone = $payload['phone'];
+        $name = $payload['name'];
+
+        // Generate 6-digit code
+        $otp = (string) random_int(100000, 999999);
+
+        // Store OTP in Cache for 5 minutes
+        \Illuminate\Support\Facades\Cache::put('otp_'.$phone, $otp, now()->addMinutes(5));
+
+        // Log the OTP (for dev / audit trail)
+        \Illuminate\Support\Facades\Log::info("OTP sent to witness {$name} ({$phone}): {$otp}");
+
+        // In demo/test mode we can return it so the user can easily test it online
+        return response()->json([
+            'success' => true,
+            'message' => 'OTP sent successfully to ' . $phone,
+            'otp' => $otp,
+        ]);
+    }
+
+    public function verifyOtp(Request $request): JsonResponse
+    {
+        $payload = $request->validate([
+            'phone' => ['required', 'string', 'max:50'],
+            'code' => ['required', 'string', 'size:6'],
+        ]);
+
+        $phone = $payload['phone'];
+        $code = $payload['code'];
+
+        $cachedOtp = \Illuminate\Support\Facades\Cache::get('otp_'.$phone);
+
+        if (!$cachedOtp || $cachedOtp !== $code) {
+            return response()->json([
+                'success' => false,
+                'message' => 'The entered OTP code is invalid or has expired.'
+            ], 422);
+        }
+
+        // Clear OTP after successful verification
+        \Illuminate\Support\Facades\Cache::forget('otp_'.$phone);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'OTP verified successfully.'
+        ]);
+    }
+
     private function portalConfig(): PortalConfig
     {
         return PortalConfig::query()->firstOrCreate([], [

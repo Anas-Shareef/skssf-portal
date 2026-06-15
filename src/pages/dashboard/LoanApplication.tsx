@@ -4,6 +4,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { localDb } from '../../lib/localDb';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import SignaturePad from '../../components/SignaturePad';
+import { api } from '../../lib/api';
 
 export default function LoanApplication() {
   const navigate = useNavigate();
@@ -82,9 +83,107 @@ export default function LoanApplication() {
   const [signature, setSignature] = useState('');
   const [sigMode, setSigMode] = useState<'upload' | 'draw'>('draw');
   const [witnesses, setWitnesses] = useState<any[]>([
-    { name: '', phone: '', signature: '', sigMode: 'draw' },
-    { name: '', phone: '', signature: '', sigMode: 'draw' }
+    { name: '', phone: '', signature: '', otpSent: false, otpVerified: false, otpCode: '', inputOtp: '', timer: 0 },
+    { name: '', phone: '', signature: '', otpSent: false, otpVerified: false, otpCode: '', inputOtp: '', timer: 0 }
   ]);
+
+  // Update timers for resending OTP
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setWitnesses(prev => prev.map(w => w.timer > 0 ? { ...w, timer: w.timer - 1 } : w));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const hasBackendSession = () => !!sessionStorage.getItem('active_api_token');
+
+  const generateOtpSignatureSeal = (name: string, phone: string, code: string) => {
+    const cleanName = name.replace(/[^a-zA-Z0-9 ]/g, '');
+    const cleanPhone = phone.replace(/[^0-9]/g, '');
+    const dateStr = new Date().toLocaleString();
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="100" viewBox="0 0 300 100">
+      <rect width="298" height="98" x="1" y="1" rx="12" fill="%23f0fdf4" stroke="%2310b981" stroke-width="2" stroke-dasharray="4"/>
+      <text x="150" y="32" font-family="system-ui, sans-serif" font-size="12" font-weight="bold" fill="%23047857" text-anchor="middle">✓ OTP WITNESS SIGNATURE</text>
+      <text x="150" y="52" font-family="system-ui, sans-serif" font-size="11" font-weight="bold" fill="%231f2937" text-anchor="middle">NAME: ${cleanName.toUpperCase()}</text>
+      <text x="150" y="70" font-family="system-ui, sans-serif" font-size="11" fill="%234b5563" text-anchor="middle">MOB: +91 ${cleanPhone.slice(-10)}</text>
+      <text x="150" y="86" font-family="system-ui, sans-serif" font-size="8.5" fill="%236b7280" text-anchor="middle">Verified with OTP (${code}) on ${dateStr}</text>
+    </svg>`;
+    return `data:image/svg+xml;utf8,${svg}`;
+  };
+
+  const sendWitnessOtp = async (idx: number) => {
+    const wit = witnesses[idx];
+    if (!wit.name.trim() || !wit.phone.trim()) {
+      alert('Please fill name and mobile number first.');
+      return;
+    }
+    const cleanPhone = wit.phone.replace(/[^0-9]/g, '');
+    if (cleanPhone.length < 10) {
+      alert('Please enter a valid 10-digit mobile number.');
+      return;
+    }
+
+    try {
+      if (hasBackendSession()) {
+        const res: any = await api.post('/loans/otp/send', {
+          phone: cleanPhone,
+          name: wit.name
+        });
+        const updated = [...witnesses];
+        updated[idx] = {
+          ...wit,
+          otpSent: true,
+          otpCode: res.otp || '123456',
+          timer: 30
+        };
+        setWitnesses(updated);
+      } else {
+        const updated = [...witnesses];
+        updated[idx] = {
+          ...wit,
+          otpSent: true,
+          otpCode: '123456',
+          timer: 30
+        };
+        setWitnesses(updated);
+      }
+    } catch (e: any) {
+      alert(e.message || 'Failed to send OTP.');
+    }
+  };
+
+  const verifyWitnessOtp = async (idx: number) => {
+    const wit = witnesses[idx];
+    if (!wit.inputOtp || wit.inputOtp.length !== 6) {
+      alert('Please enter 6-digit OTP code.');
+      return;
+    }
+
+    try {
+      if (hasBackendSession()) {
+        const cleanPhone = wit.phone.replace(/[^0-9]/g, '');
+        await api.post('/loans/otp/verify', {
+          phone: cleanPhone,
+          code: wit.inputOtp
+        });
+      } else {
+        if (wit.inputOtp !== wit.otpCode) {
+          throw new Error('Invalid mock OTP code.');
+        }
+      }
+
+      const updated = [...witnesses];
+      const seal = generateOtpSignatureSeal(wit.name, wit.phone, wit.inputOtp);
+      updated[idx] = {
+        ...wit,
+        otpVerified: true,
+        signature: seal
+      };
+      setWitnesses(updated);
+    } catch (e: any) {
+      alert(e.message || 'OTP verification failed.');
+    }
+  };
 
   const handleSignatureUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -127,7 +226,7 @@ export default function LoanApplication() {
     personal.aadhaar?.trim()
   );
   const isStep2Valid = loanAmt > 0 && !!(loanType && loanDesc?.trim() && tenure > 0);
-  const isStep3Valid = !!(signature && witnesses[0].name.trim() && witnesses[0].phone.trim() && witnesses[0].signature && witnesses[1].name.trim() && witnesses[1].phone.trim() && witnesses[1].signature);
+  const isStep3Valid = !!(signature && witnesses[0].name.trim() && witnesses[0].phone.trim() && witnesses[0].otpVerified && witnesses[1].name.trim() && witnesses[1].phone.trim() && witnesses[1].otpVerified);
 
   // --- Final Submission ---
   const [showConfirm, setShowConfirm] = useState(false);
@@ -363,31 +462,114 @@ export default function LoanApplication() {
               <div className="witness-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '16px' }}>
                 {witnesses.map((w, i) => (
                   <div key={i} style={{ background: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0', position: 'relative' }}>
-                    <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--teal)', marginBottom: '8px' }}>WITNESS #{i+1}</div>
-                    <label className="fl2" style={{ fontSize: '11px' }}>Full Name</label>
-                    <input className="fi2" style={{ marginBottom: '10px' }} value={w.name} onChange={e => updateWitness(i, 'name', e.target.value)} placeholder="Witness Name" />
-                    <label className="fl2" style={{ fontSize: '11px' }}>Mobile No.</label>
-                    <input className="fi2" style={{ marginBottom: '12px' }} value={w.phone} onChange={e => updateWitness(i, 'phone', e.target.value)} placeholder="0000000000" />
-                    
-                    <div style={{ marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <label className="fl2" style={{ fontSize: '11px', marginBottom: 0 }}>Signature *</label>
-                        <div style={{ display: 'flex', gap: '4px' }}>
-                            <button onClick={() => updateWitness(i, 'sigMode', 'draw')} className={`bsm ${w.sigMode === 'draw' ? 'o' : 'g'}`} style={{ fontSize: '9px', padding: '2px 8px' }}>✏️</button>
-                            <button onClick={() => updateWitness(i, 'sigMode', 'upload')} className={`bsm ${w.sigMode === 'upload' ? 'o' : 'g'}`} style={{ fontSize: '9px', padding: '2px 8px' }}>📎</button>
-                        </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                      <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--teal)' }}>WITNESS #{i+1}</div>
+                      {w.otpVerified && (
+                        <span style={{ fontSize: '10px', fontWeight: 800, color: '#10b981', background: '#ecfdf5', padding: '2px 8px', borderRadius: '8px' }}>✓ OTP VERIFIED</span>
+                      )}
                     </div>
+                    <label className="fl2" style={{ fontSize: '11px' }}>Full Name</label>
+                    <input 
+                      className="fi2" 
+                      style={{ marginBottom: '10px' }} 
+                      value={w.name} 
+                      onChange={e => updateWitness(i, 'name', e.target.value)} 
+                      placeholder="Witness Name" 
+                      disabled={w.otpVerified || w.otpSent} 
+                    />
+                    <label className="fl2" style={{ fontSize: '11px' }}>Mobile No.</label>
+                    <input 
+                      className="fi2" 
+                      style={{ marginBottom: '12px' }} 
+                      value={w.phone} 
+                      onChange={e => updateWitness(i, 'phone', e.target.value)} 
+                      placeholder="0000000000" 
+                      disabled={w.otpVerified || w.otpSent} 
+                    />
 
-                    {w.sigMode === 'draw' ? (
-                        <div style={{ border: '1.5px solid #e2e8f0', borderRadius: '8px', background: '#fff', padding: '5px' }}>
-                           <SignaturePad height={100} onSave={(val) => updateWitness(i, 'signature', val)} placeholder="Sign here" />
+                    {w.otpVerified ? (
+                      <div style={{ textAlign: 'center', padding: '10px 0' }}>
+                        <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', background: '#fff', padding: '10px', display: 'flex', justifyContent: 'center' }}>
+                          <img src={w.signature} alt="Verified Badge" style={{ height: '60px' }} />
                         </div>
+                        <button 
+                          className="bsm g" 
+                          style={{ marginTop: '10px', width: '100%', fontSize: '11px' }}
+                          onClick={() => {
+                            const updated = [...witnesses];
+                            updated[i] = { ...w, otpSent: false, otpVerified: false, otpCode: '', inputOtp: '', signature: '', timer: 0 };
+                            setWitnesses(updated);
+                          }}
+                        >
+                          Change / Reset Witness
+                        </button>
+                      </div>
                     ) : (
-                        <div className="sig-zone" onClick={() => document.getElementById(`wit-up-${i}`)?.click()} style={{ border: '1.5px dashed #cbd5e1', borderRadius: '8px', height: '100px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', background: w.signature ? '#fff' : '#fff', fontSize: '10px' }}>
-                            {w.signature ? <img src={w.signature} alt="Sig" style={{ maxHeight: '80%' }} /> : 'Click to Upload'}
-                            <input type="file" id={`wit-up-${i}`} hidden accept="image/*" onChange={(e) => handleWitnessSigUpload(i, e)} />
-                        </div>
+                      <div>
+                        {!w.otpSent ? (
+                          <button 
+                            className="bsm s" 
+                            style={{ width: '100%', padding: '10px', fontWeight: 700 }}
+                            onClick={() => sendWitnessOtp(i)}
+                            disabled={!w.name.trim() || !w.phone.trim()}
+                          >
+                            Send Verification OTP
+                          </button>
+                        ) : (
+                          <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <label className="fl2" style={{ fontSize: '10px', margin: 0, fontWeight: 800 }}>Enter 6-Digit OTP</label>
+                              <span style={{ fontSize: '10px', color: '#64748b' }}>
+                                {w.timer > 0 ? `Resend in ${w.timer}s` : 'Ready to resend'}
+                              </span>
+                            </div>
+                            <input 
+                              type="text" 
+                              maxLength={6} 
+                              className="fi2" 
+                              style={{ textAlign: 'center', letterSpacing: '4px', fontSize: '16px', fontWeight: 800 }} 
+                              placeholder="000000"
+                              value={w.inputOtp || ''}
+                              onChange={e => updateWitness(i, 'inputOtp', e.target.value.replace(/[^0-9]/g, ''))}
+                            />
+                            
+                            {/* Dev/Demo mode indicator */}
+                            <div style={{ fontSize: '10px', background: '#fef08a', color: '#854d0e', padding: '4px 8px', borderRadius: '6px', textAlign: 'center', fontWeight: 650 }}>
+                              💡 [Test Mode] Code: <b>{w.otpCode}</b>
+                            </div>
+
+                            <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
+                              <button 
+                                className="bsm s" 
+                                style={{ flex: 1, padding: '6px', fontSize: '11px' }}
+                                onClick={() => verifyWitnessOtp(i)}
+                              >
+                                Verify OTP
+                              </button>
+                              <button 
+                                className="bsm o" 
+                                style={{ padding: '6px 12px', fontSize: '11px' }}
+                                onClick={() => sendWitnessOtp(i)}
+                                disabled={w.timer > 0}
+                              >
+                                Resend
+                              </button>
+                              <button 
+                                className="bsm g" 
+                                style={{ padding: '6px 12px', fontSize: '11px' }}
+                                onClick={() => {
+                                  const updated = [...witnesses];
+                                  updated[i] = { ...w, otpSent: false, inputOtp: '', timer: 0 };
+                                  setWitnesses(updated);
+                                }}
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     )}
-                    {w.signature && <div style={{ fontSize: '9px', color: 'var(--teal)', fontWeight: 800, marginTop: '4px' }}>✓ Recorded</div>}
                   </div>
                 ))}
               </div>
@@ -396,7 +578,7 @@ export default function LoanApplication() {
             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '30px', alignItems: 'center' }}>
               <button className="bsm g" onClick={() => setStep(2)}>← Previous</button>
               <div style={{ textAlign: 'right' }}>
-                {!isStep3Valid && <div style={{ fontSize: '11px', color: 'var(--red)', marginBottom: '8px', fontWeight: 600 }}>Collect all signatures and names</div>}
+                {!isStep3Valid && <div style={{ fontSize: '11px', color: 'var(--red)', marginBottom: '8px', fontWeight: 600 }}>Please enter names, mobile numbers, and verify OTP for both witnesses.</div>}
                 <button disabled={!isStep3Valid} className="bsm s" style={{ padding: '12px 30px', opacity: isStep3Valid ? 1 : 0.5 }} onClick={() => setStep(4)}>Review Final Application →</button>
               </div>
             </div>
@@ -442,11 +624,11 @@ export default function LoanApplication() {
                        </div>
                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                           <div style={{ textAlign: 'center' }}>
-                             <img src={witnesses[0].signature} alt="Wit1" style={{ height: '35px', maxWidth: '100%', borderBottom: '1px solid #ccc' }} />
+                             <img src={witnesses[0].signature} alt="Wit1" style={{ height: '50px', maxWidth: '100%', borderBottom: '1px solid #ccc' }} />
                              <div style={{ fontSize: '9px', marginTop: '4px' }}><b>Witness 1</b><br/>{witnesses[0].name}</div>
                           </div>
                           <div style={{ textAlign: 'center' }}>
-                             <img src={witnesses[1].signature} alt="Wit2" style={{ height: '35px', maxWidth: '100%', borderBottom: '1px solid #ccc' }} />
+                             <img src={witnesses[1].signature} alt="Wit2" style={{ height: '50px', maxWidth: '100%', borderBottom: '1px solid #ccc' }} />
                              <div style={{ fontSize: '9px', marginTop: '4px' }}><b>Witness 2</b><br/>{witnesses[1].name}</div>
                           </div>
                        </div>

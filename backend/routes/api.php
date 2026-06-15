@@ -30,6 +30,8 @@ Route::middleware('api.token')->group(function (): void {
 
     Route::get('/loans', [LoanController::class, 'index']);
     Route::post('/loans', [LoanController::class, 'store']);
+    Route::post('/loans/otp/send', [LoanController::class, 'sendOtp']);
+    Route::post('/loans/otp/verify', [LoanController::class, 'verifyOtp']);
     Route::patch('/loans/{loan}', [LoanController::class, 'update']);
     Route::post('/loans/{loan}/verify', [LoanController::class, 'verify']);
     Route::delete('/loans', [LoanController::class, 'bulkDelete']);
