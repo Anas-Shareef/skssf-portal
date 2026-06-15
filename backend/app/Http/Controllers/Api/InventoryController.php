@@ -83,8 +83,51 @@ class InventoryController extends Controller
             'photo' => ['sometimes', 'nullable', 'string'],
         ]);
 
-        $product->fill($payload);
-        $product->save();
+        DB::transaction(function () use ($product, $payload): void {
+            $oldTotal = $product->total_quantity;
+            $newTotal = $payload['total_quantity'] ?? null;
+
+            $product->fill($payload);
+            $product->save();
+
+            if ($newTotal !== null && $newTotal !== $oldTotal) {
+                $currentCount = Unit::query()->where('product_id', $product->id)->count();
+                if ($newTotal > $currentCount) {
+                    $sku = 'SKSSF-'.now()->year.'-'.strtoupper(substr($product->category, 0, 3)).'-'.str_pad((string)$product->id, 3, '0', STR_PAD_LEFT);
+                    $firstUnit = Unit::query()->where('product_id', $product->id)->first();
+                    if ($firstUnit && strpos($firstUnit->barcode, '-') !== false) {
+                        $parts = explode('-', $firstUnit->barcode);
+                        array_pop($parts);
+                        $sku = implode('-', $parts);
+                    }
+                    for ($i = $currentCount + 1; $i <= $newTotal; $i++) {
+                        $code = 'U'.str_pad((string) $i, 2, '0', STR_PAD_LEFT);
+                        Unit::query()->create([
+                            'unit_no' => 'UN-'.strtoupper(substr(md5($sku.'-'.$i), 0, 7)),
+                            'product_id' => $product->id,
+                            'barcode' => $sku.'-'.$code,
+                            'status' => 'available',
+                        ]);
+                    }
+                } elseif ($newTotal < $currentCount) {
+                    $diff = $currentCount - $newTotal;
+                    $unitsToDelete = Unit::query()
+                        ->where('product_id', $product->id)
+                        ->where('status', 'available')
+                        ->latest('id')
+                        ->limit($diff)
+                        ->get();
+                    foreach ($unitsToDelete as $u) {
+                        $u->delete();
+                    }
+                }
+            }
+
+            // Always sync available_quantity to the actual count of available units
+            $availableCount = Unit::query()->where('product_id', $product->id)->where('status', 'available')->count();
+            $product->available_quantity = $availableCount;
+            $product->save();
+        });
 
         return response()->json(['data' => $product]);
     }

@@ -25,6 +25,25 @@ export default function Inventory() {
   const { profile } = useAuth();
   const isAdmin = profile?.role === 'super' || profile?.role === 'admin';
 
+  if (profile?.role === 'member') {
+    return (
+      <div style={{ textAlign: 'center', padding: '100px 20px', background: '#fff', borderRadius: 24, border: '1.5px solid #e2e8f0', maxWidth: 500, margin: '60px auto', animation: 'fadeIn 0.5s ease' }}>
+        <div style={{ fontSize: 72, marginBottom: 20 }}>🛡️</div>
+        <h1 style={{ fontSize: 24, fontWeight: 950, color: '#0f172a', margin: 0 }}>Access Restricted</h1>
+        <p style={{ fontSize: 14, color: '#64748b', maxWidth: 400, margin: '12px auto 24px', lineHeight: 1.5 }}>
+          The Inventory &amp; Catalog Management page is reserved for authorized administrators only.
+        </p>
+        <button 
+          className="bsm s" 
+          onClick={() => window.location.href = '/member/dashboard'}
+          style={{ padding: '12px 24px', borderRadius: 14, border: 'none', background: 'var(--teal)', color: '#fff', fontWeight: 800, cursor: 'pointer' }}
+        >
+          Return to Dashboard
+        </button>
+      </div>
+    );
+  }
+
   // Core data state
   const [view, setView] = useState<'products' | 'kits' | 'missions' | 'history'>('products');
   const [productMode, setProductMode] = useState<'gallery' | 'table'>('gallery');
@@ -1741,8 +1760,8 @@ export default function Inventory() {
                     <input type="number" className="fi2" value={editingProduct.total_quantity} onChange={e => setEditingProduct({...editingProduct, total_quantity: Number(e.target.value)})} />
                   </div>
                   <div className="fg" style={{ flex: 1 }}>
-                    <label className="fl2">Available Quantity</label>
-                    <input type="number" className="fi2" value={editingProduct.available_quantity} onChange={e => setEditingProduct({...editingProduct, available_quantity: Number(e.target.value)})} />
+                    <label className="fl2">Available Quantity (Read-only)</label>
+                    <input type="number" className="fi2" value={editingProduct.available_quantity} readOnly style={{ background: '#f1f5f9', color: '#64748b', cursor: 'not-allowed' }} />
                   </div>
                 </div>
                 <div className="fg">

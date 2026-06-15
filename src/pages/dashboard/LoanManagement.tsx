@@ -42,6 +42,7 @@ export default function LoanManagement() {
   const [fStatus, setFStatus] = useState('');
   const [fPurpose, setFPurpose] = useState('');
   const [fBranch, setFBranch] = useState('');
+  const [reviewerSearch, setReviewerSearch] = useState('');
 
   // Bulk selection
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -55,7 +56,7 @@ export default function LoanManagement() {
   const refreshLoans = () => setLoans(localDb.getLoans());
   
   // Real-time permission check (Global)
-  const isGlobalApprover = profile?.role === 'super' || localDb.getUserById(profile?.id || '')?.is_approver;
+  const isGlobalApprover = profile?.role === 'super' || config.authorizedReviewers?.includes(profile?.id || '') || localDb.getUserById(profile?.id || '')?.is_approver;
 
   // Scope: results are already scoped by the backend API.
   // We just trust the 'loans' array as returned by localDb.
@@ -572,6 +573,55 @@ export default function LoanManagement() {
                         );
                       })}
                     </div>
+                    {profile?.role === 'super' && (
+                      <div style={{ marginTop: '16px', borderTop: '1px solid #e2e8f0', paddingTop: '14px' }}>
+                        <div style={{ fontSize: '10px', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', marginBottom: '8px', letterSpacing: '0.5px' }}>Authorize New Reviewer (Predictive Search)</div>
+                        <div style={{ position: 'relative' }}>
+                          <span style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', fontSize: '12px', pointerEvents: 'none' }}>🔍</span>
+                          <input
+                            className="fi2"
+                            list="loan-admin-list"
+                            placeholder="Type admin name to authorize & assign..."
+                            value={reviewerSearch}
+                            onChange={e => setReviewerSearch(e.target.value)}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') {
+                                const val = reviewerSearch.trim();
+                                const found = allAdmins.find((a: any) =>
+                                  a.name === val ||
+                                  `${a.name} (${a.desig})` === val ||
+                                  a.name.toLowerCase().includes(val.toLowerCase())
+                                );
+                                if (found) {
+                                  const assignedIds: string[] = selectedLoan.assignedReviewers || [];
+                                  if (!(config.authorizedReviewers || []).includes(found.id)) {
+                                    localDb.toggleReviewerPool(found.id);
+                                  }
+                                  if (!assignedIds.includes(found.id)) {
+                                    const newAssigned = [...assignedIds, found.id];
+                                    const updatedRequest = { ...(selectedLoan.request || {}), assignedReviewers: newAssigned };
+                                    localDb.updateLoan(selectedLoanId!, { assignedReviewers: newAssigned, request: updatedRequest });
+                                    localDb.addAuditLog(selectedLoanId!, 'Committee Updated', profile?.name || 'Super Admin', `Authorized and assigned ${found.name} to reviewers.`);
+                                    refreshLoans();
+                                  }
+                                  setToast({ m: `✅ ${found.name} authorized & assigned to loan!`, t: 's' });
+                                  setTimeout(() => setToast(null), 3000);
+                                  setReviewerSearch('');
+                                }
+                              }
+                            }}
+                            style={{ paddingLeft: '32px', background: '#fff', border: '1.5px solid #cbd5e1', color: '#0f172a', borderRadius: '10px', width: '100%', fontSize: '12px', height: '36px' }}
+                          />
+                          <datalist id="loan-admin-list">
+                            {allAdmins
+                              .filter((a: any) => !(config.authorizedReviewers || []).includes(a.id))
+                              .map((a: any) => (
+                                <option key={a.id} value={`${a.name} (${a.desig})`} />
+                              ))}
+                          </datalist>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {!canSign && isGlobalApprover && (

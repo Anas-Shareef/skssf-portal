@@ -1089,8 +1089,51 @@ export const localDb = {
     const products = localDb.getProducts();
     const idx = products.findIndex((p: any) => p.id === id);
     if (idx > -1) {
+      const oldTotal = Number(products[idx].total_quantity || 0);
+      const newTotal = Number(updates.total_quantity || 0);
+
       products[idx] = { ...products[idx], ...updates };
       backendCacheStorage.setItem('db_products', JSON.stringify(products));
+
+      if (newTotal !== oldTotal) {
+        const units = localDb.getUnits();
+        const productUnits = units.filter((u: any) => String(u.product_id) === String(id));
+        const currentCount = productUnits.length;
+        const sku = products[idx].sku || products[idx].id;
+
+        if (newTotal > currentCount) {
+          for (let i = currentCount + 1; i <= newTotal; i++) {
+            const uCode = `U${String(i).padStart(2, '0')}`;
+            units.push({
+              id: `UN-${uuid().toUpperCase()}`,
+              product_id: id,
+              unit_code: `${sku}-${uCode}`,
+              barcode: `${sku}-${uCode}`,
+              status: 'available',
+              current_holder_id: null,
+              current_mission_id: null,
+              created_at: new Date().toISOString()
+            });
+          }
+        } else if (newTotal < currentCount) {
+          const diff = currentCount - newTotal;
+          let removed = 0;
+          for (let i = units.length - 1; i >= 0; i--) {
+            if (String(units[i].product_id) === String(id) && units[i].status === 'available') {
+              units.splice(i, 1);
+              removed++;
+              if (removed >= diff) break;
+            }
+          }
+        }
+        backendCacheStorage.setItem('db_units', JSON.stringify(units));
+      }
+
+      // Sync available_quantity to match actual available units locally
+      const finalUnits = localDb.getUnits().filter((u: any) => String(u.product_id) === String(id));
+      products[idx].available_quantity = finalUnits.filter((u: any) => u.status === 'available').length;
+      backendCacheStorage.setItem('db_products', JSON.stringify(products));
+
       if (hasBackendSession()) {
         syncLater(api.patch(`/inventory/products/${id}`, {
           name: products[idx].name,

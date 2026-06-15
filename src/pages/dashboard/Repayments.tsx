@@ -95,6 +95,7 @@ export default function Repayments() {
   const [toast, setToast] = useState<{ m: string; t: 's' | 'r' } | null>(null);
   const [showManualSearch, setShowManualSearch] = useState(false);
   const [lastAction] = useState<{ id: string; type: 'approved' | 'rejected' } | null>(null);
+  const [reviewerSearch, setReviewerSearch] = useState('');
 
   const refresh = () => {
     localDb.healCorruptedLoanData();
@@ -102,6 +103,18 @@ export default function Repayments() {
     console.log('Refreshing Repayments Data:', fresh.length, 'loans found');
     setLoans([...fresh]);
   };
+
+  useEffect(() => {
+    const handleUpdate = () => {
+      refresh();
+    };
+    window.addEventListener('appDataUpdated', handleUpdate);
+    window.addEventListener('portalConfigUpdated', handleUpdate);
+    return () => {
+      window.removeEventListener('appDataUpdated', handleUpdate);
+      window.removeEventListener('portalConfigUpdated', handleUpdate);
+    };
+  }, []);
 
   /* filtered loans: Already scoped by backend API */
   const activeLoan = loans.filter((l: any) => {
@@ -922,124 +935,126 @@ export default function Repayments() {
             {/* 🛡️ UNIFIED AUTHORIZATION HUB (SUPER ADMIN ONLY) */}
             {role === 'super' && (
               <div className="card" style={{ padding: '24px 30px', borderRadius: 24, background: '#fff', border: '1.5px solid #e2e8f0', boxShadow: '0 8px 30px rgba(0,0,0,0.03)' }}>
-                <div className="auth-hub-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid #f1f5f9', paddingBottom: 24, marginBottom: 24 }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                      <div style={{ width: 44, height: 44, background: 'var(--teal-pale)', borderRadius: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22 }}>🛡️</div>
-                      <div>
-                        <div style={{ fontWeight: 950, fontSize: 19, color: '#0f172a' }}>Repayment Portal Authorization Hub</div>
-                        <div style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>Reviewer management and consensus policy console</div>
-                      </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <div style={{ width: 44, height: 44, background: 'var(--teal-pale)', borderRadius: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22 }}>🛡️</div>
+                    <div>
+                      <div style={{ fontWeight: 950, fontSize: 17, color: '#0f172a' }}>Repayment Portal Authorization Hub</div>
+                      <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>Reviewer pool · Consensus policy · Default committee</div>
                     </div>
                   </div>
-                
-                <div style={{ width: 280 }}>
-                  <div style={{ fontSize: 10, fontWeight: 950, color: '#94a3b8', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.8px' }}>Consensus Policy</div>
-                  <div style={{ display: 'flex', gap: 10 }}>
-                    <select 
-                      className="sel2" 
-                      style={{ height: 46, borderRadius: 12, fontSize: 14, fontWeight: 800, border: '1.5px solid #e2e8f0', flex: 1 }}
-                      value={config.repaymentApprovalsNeeded || 1}
-                      onChange={e => { localDb.updatePortalConfig({ repaymentApprovalsNeeded: Number(e.target.value) }); refresh(); }}
-                    >
-                      {[1,2,3,4,5,6,7,8,9,10].map(n => (
-                        <option key={n} value={n}>{n} Signature{n > 1 ? 's' : ''} {n === 1 ? '(Fast)' : n <= 3 ? '(Secure)' : '(High Audit)'}</option>
-                      ))}
-                    </select>
+                  <Link
+                    to={`/super-admin/dashboard/settings#reviewer-management`}
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 8,
+                      padding: '10px 20px', borderRadius: 14, fontSize: 12, fontWeight: 800,
+                      background: 'linear-gradient(135deg, var(--teal), #0891b2)',
+                      color: '#fff', textDecoration: 'none',
+                      boxShadow: '0 4px 14px rgba(20,184,166,0.3)', transition: 'all .2s'
+                    }}
+                  >
+                    ⚙️ Manage Reviewers
+                  </Link>
+                </div>
+
+                {/* Reviewer Pool Summary */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16, marginBottom: 20 }}>
+                  <div style={{ background: '#f8fafc', borderRadius: 16, padding: '16px 20px', border: '1px solid #e2e8f0' }}>
+                    <div style={{ fontSize: 10, fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 8 }}>Authorized Reviewers</div>
+                    <div style={{ fontSize: 28, fontWeight: 950, color: '#0f172a' }}>
+                      {allAdmins.filter((a: any) => (config.authorizedReviewers || []).includes(a.id)).length}
+                    </div>
+                    <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>admins in pool</div>
+                  </div>
+                  <div style={{ background: '#f8fafc', borderRadius: 16, padding: '16px 20px', border: '1px solid #e2e8f0' }}>
+                    <div style={{ fontSize: 10, fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 8 }}>Loan Signatures</div>
+                    <div style={{ fontSize: 28, fontWeight: 950, color: '#6366f1' }}>{config.loanApprovalsNeeded || 2}</div>
+                    <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>required to approve</div>
+                  </div>
+                  <div style={{ background: '#f8fafc', borderRadius: 16, padding: '16px 20px', border: '1px solid #e2e8f0' }}>
+                    <div style={{ fontSize: 10, fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 8 }}>Repayment Signatures</div>
+                    <div style={{ fontSize: 28, fontWeight: 950, color: 'var(--teal)' }}>{config.repaymentApprovalsNeeded || 1}</div>
+                    <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>required to approve</div>
                   </div>
                 </div>
-              </div>
-
-              <div className="auth-hub-grid" style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: 40 }}>
-                {/* LEFT: AUTHORIZATION SEARCH */}
-                <div>
-                  <label className="fl2" style={{ marginBottom: 10, fontSize: 12, fontWeight: 800, color: '#475569' }}>Authorize New Reviewer (Predictive Search)</label>
-                  <div className="fiw" style={{ background: '#f8fafc', height: 48, borderRadius: 14, border: '1.5px solid #e2e8f0' }}>
-                    <span className="fic" style={{ fontSize: 18 }}>🔍</span>
-                    <input 
-                      className="fi" 
-                      list="admin-list" 
-                      placeholder="Type admin name or designation..." 
-                      style={{ fontSize: 14 }}
-                      onKeyPress={e => {
+                {/* Authorize New Reviewer (Predictive Search) */}
+                <div style={{ marginBottom: 20 }}>
+                  <div style={{ fontSize: 10, fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 8, letterSpacing: '0.5px' }}>Authorize New Reviewer (Predictive Search)</div>
+                  <div style={{ position: 'relative', maxWidth: 450 }}>
+                    <span style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', fontSize: 15, pointerEvents: 'none' }}>🔍</span>
+                    <input
+                      className="fi2"
+                      list="repayment-admin-list"
+                      placeholder="Type admin name to authorize..."
+                      value={reviewerSearch}
+                      onChange={e => setReviewerSearch(e.target.value)}
+                      onKeyDown={e => {
                         if (e.key === 'Enter') {
-                          const val = (e.target as HTMLInputElement).value;
-                          const found = allAdmins.find((a: any) => a.name === val || `${a.name} (${a.desig})` === val);
+                          const val = reviewerSearch.trim();
+                          const found = allAdmins.find((a: any) =>
+                            a.name === val ||
+                            `${a.name} (${a.desig})` === val ||
+                            a.name.toLowerCase().includes(val.toLowerCase())
+                          );
                           if (found) {
                             if (!(config.authorizedReviewers || []).includes(found.id)) {
                               localDb.toggleReviewerPool(found.id);
-                              refresh();
-                              setToast({ m: `Authorized ${found.name} successfully.`, t: 's' });
+                              // Trigger state/event update
+                              window.dispatchEvent(new Event('portalConfigUpdated'));
+                              setToast({ m: `✅ ${found.name} authorized as reviewer!`, t: 's' });
+                              setTimeout(() => setToast(null), 3000);
+                            } else {
+                              setToast({ m: `ℹ️ ${found.name} is already an authorized reviewer.`, t: 's' });
+                              setTimeout(() => setToast(null), 3000);
                             }
-                            (e.target as HTMLInputElement).value = '';
+                            setReviewerSearch('');
                           }
                         }
                       }}
+                      style={{ paddingLeft: 40, background: '#f8fafc', border: '1.5px solid #cbd5e1', color: '#0f172a', borderRadius: 12, width: '100%', fontSize: 13, height: 42 }}
                     />
-                    <datalist id="admin-list">
-                      {allAdmins.filter((a: any) => !(config.authorizedReviewers || []).includes(a.id)).map((a: any) => (
-                        <option key={a.id} value={`${a.name} (${a.desig})`} />
-                      ))}
+                    <datalist id="repayment-admin-list">
+                      {allAdmins
+                        .filter((a: any) => !(config.authorizedReviewers || []).includes(a.id))
+                        .map((a: any) => (
+                          <option key={a.id} value={`${a.name} (${a.desig})`} />
+                        ))}
                     </datalist>
-                  </div>
-                  
-                  <div style={{ marginTop: 20 }}>
-                    <div style={{ fontSize: 11, fontWeight: 800, color: '#94a3b8', marginBottom: 10, textTransform: 'uppercase' }}>Active Pool Control</div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                      {allAdmins.filter((a: any) => (config.authorizedReviewers || []).includes(a.id)).map((a: any) => (
-                        <div key={a.id} style={{ 
-                          display: 'flex', alignItems: 'center', gap: 8, padding: '6px 14px', 
-                          background: '#fff', border: '1.5px solid var(--teal)', color: 'var(--teal)', 
-                          borderRadius: 25, fontSize: 11, fontWeight: 800, boxShadow: '0 2px 8px rgba(20,184,166,0.1)'
-                        }}>
-                          {a.name} 
-                          <span onClick={() => { localDb.toggleReviewerPool(a.id); refresh(); }} style={{ cursor: 'pointer', opacity: 0.6, fontSize: 14, fontWeight: 400 }}>✕</span>
-                        </div>
-                      ))}
-                      {allAdmins.filter((a: any) => (config.authorizedReviewers || []).includes(a.id)).length === 0 && (
-                        <div style={{ fontSize: 12, color: '#94a3b8', fontStyle: 'italic' }}>No reviewers authorized yet.</div>
-                      )}
-                    </div>
                   </div>
                 </div>
 
-                {/* RIGHT: DEFAULT COMMITTEE OUTPUT */}
-                <div style={{ borderLeft: '1px solid #f1f5f9', paddingLeft: 40 }}>
-                  <div style={{ fontSize: 11, fontWeight: 800, color: '#94a3b8', marginBottom: 12, textTransform: 'uppercase' }}>Default Committee (Auto-Assigned)</div>
+                {/* Active Reviewer Chips */}
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 10 }}>Active Reviewer Pool</div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                    {allAdmins.filter((a: any) => config.authorizedReviewers?.includes(a.id)).map((admin: any) => {
+                    {allAdmins.filter((a: any) => (config.authorizedReviewers || []).includes(a.id)).map((admin: any) => {
                       const inDefault = (config.defaultCommittee || []).includes(admin.id);
                       return (
-                        <button key={admin.id}
-                          onClick={() => {
-                            const cur = config.defaultCommittee || [];
-                            const next = cur.includes(admin.id) ? cur.filter((id: string) => id !== admin.id) : [...cur, admin.id];
-                            localDb.updatePortalConfig({ defaultCommittee: next }); refresh();
-                          }}
-                          style={{
-                            padding: '8px 16px', borderRadius: 14, fontSize: 11, fontWeight: 800, cursor: 'pointer',
-                            border: inDefault ? '1.5px solid var(--teal)' : '1px solid #e2e8f0',
-                            background: inDefault ? 'rgba(20,184,166,0.06)' : '#fff',
-                            color: inDefault ? 'var(--teal)' : '#64748b', transition: 'all .2s'
-                          }}
-                        >
-                          {inDefault ? '✓ ' : ''}{admin.name}
-                        </button>
+                        <div key={admin.id} style={{
+                          display: 'flex', alignItems: 'center', gap: 8, padding: '6px 14px',
+                          background: inDefault ? 'rgba(20,184,166,0.08)' : '#fff',
+                          border: `1.5px solid ${inDefault ? 'var(--teal)' : '#e2e8f0'}`,
+                          color: inDefault ? 'var(--teal)' : '#475569',
+                          borderRadius: 25, fontSize: 12, fontWeight: 800
+                        }}>
+                          <div className="sb-av" style={{ width: 22, height: 22, fontSize: 9, flexShrink: 0, overflow: 'hidden' }}>
+                            {admin.avatar ? <img src={admin.avatar} alt="" style={{ width: '100%', height: '100%', borderRadius: '50%' }} /> : admin.name[0]}
+                          </div>
+                          {admin.name}
+                          {inDefault && <span style={{ fontSize: 9, opacity: 0.7 }}>· Default</span>}
+                        </div>
                       );
                     })}
-                  </div>
-                  <div style={{ marginTop: 12, fontSize: 10, color: '#94a3b8', lineHeight: 1.4 }}>
-                    Click authorized reviewers to toggle them into the default committee for new requests.
+                    {allAdmins.filter((a: any) => (config.authorizedReviewers || []).includes(a.id)).length === 0 && (
+                      <div style={{ fontSize: 12, color: '#94a3b8', fontStyle: 'italic', padding: '10px 0' }}>
+                        No reviewers authorized. <Link to="/super-admin/dashboard/settings#reviewer-management" style={{ color: 'var(--teal)', fontWeight: 700 }}>Go to Settings → Reviewer Management</Link>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
-            </div>
             )}
           </div>
-
-
-
-
           
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 30 }}>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
