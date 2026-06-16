@@ -9,6 +9,10 @@ use App\Http\Controllers\Api\LoanController;
 use App\Http\Controllers\Api\PortalConfigController;
 use App\Http\Controllers\Api\UserController;
 
+Route::get('/test-deploy', function () {
+    return response()->json(['commit' => 'ecd8944_diagnostic_v2']);
+});
+
 Route::prefix('auth')->group(function (): void {
     Route::post('/login', [AuthController::class, 'login']);
     Route::post('/register', [AuthController::class, 'register']);
