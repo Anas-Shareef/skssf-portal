@@ -8,6 +8,8 @@ use App\Models\PortalConfig;
 use App\Models\WitnessOtp;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 class LoanController extends Controller
@@ -431,6 +433,23 @@ class LoanController extends Controller
             ];
         }
 
+    private function ensureOtpTableExists(): void
+    {
+        if (!Schema::hasTable('witness_otps')) {
+            try {
+                Schema::create('witness_otps', function (Blueprint $table) {
+                    $table->id();
+                    $table->string('phone')->index();
+                    $table->string('code');
+                    $table->dateTime('expires_at');
+                    $table->timestamps();
+                });
+            } catch (\Exception $e) {
+                \Illuminate\Support\Facades\Log::error("Failed to dynamically create witness_otps table: " . $e->getMessage());
+            }
+        }
+    }
+
     public function sendOtp(Request $request): JsonResponse
     {
         $payload = $request->validate([
@@ -441,8 +460,14 @@ class LoanController extends Controller
         $phone = $payload['phone'];
         $name = $payload['name'];
 
+        $this->ensureOtpTableExists();
+
         // Clean up any old/expired OTPs first
-        WitnessOtp::query()->where('expires_at', '<', now())->delete();
+        try {
+            WitnessOtp::query()->where('expires_at', '<', now())->delete();
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error("Failed to clean up expired OTPs: " . $e->getMessage());
+        }
 
         // Generate 6-digit code
         $otp = (string) random_int(100000, 999999);
@@ -473,6 +498,8 @@ class LoanController extends Controller
 
         $phone = $payload['phone'];
         $code = $payload['code'];
+
+        $this->ensureOtpTableExists();
 
         $otpRecord = WitnessOtp::query()
             ->where('phone', $phone)
