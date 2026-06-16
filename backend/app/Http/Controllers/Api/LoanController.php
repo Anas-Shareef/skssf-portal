@@ -5,7 +5,6 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Loan;
 use App\Models\PortalConfig;
-use App\Models\WitnessOtp;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
@@ -461,7 +460,7 @@ class LoanController extends Controller
 
             // Clean up any old/expired OTPs first
             try {
-                WitnessOtp::query()->where('expires_at', '<', now())->delete();
+                DB::table('witness_otps')->where('expires_at', '<', now())->delete();
             } catch (\Exception $e) {
                 \Illuminate\Support\Facades\Log::error("Failed to clean up expired OTPs: " . $e->getMessage());
             }
@@ -470,10 +469,25 @@ class LoanController extends Controller
             $otp = (string) random_int(100000, 999999);
 
             // Store OTP in database, updating if this phone already has an active record
-            WitnessOtp::query()->updateOrCreate(
-                ['phone' => $phone],
-                ['code' => $otp, 'expires_at' => now()->addMinutes(5)]
-            );
+            $existing = DB::table('witness_otps')->where('phone', $phone)->first();
+            if ($existing) {
+                DB::table('witness_otps')
+                    ->where('phone', $phone)
+                    ->update([
+                        'code' => $otp,
+                        'expires_at' => now()->addMinutes(5),
+                        'updated_at' => now()
+                    ]);
+            } else {
+                DB::table('witness_otps')
+                    ->insert([
+                        'phone' => $phone,
+                        'code' => $otp,
+                        'expires_at' => now()->addMinutes(5),
+                        'created_at' => now(),
+                        'updated_at' => now()
+                    ]);
+            }
 
             // Log the OTP (for dev / audit trail)
             \Illuminate\Support\Facades\Log::info("OTP sent to witness {$name} ({$phone}): {$otp}");
@@ -507,7 +521,7 @@ class LoanController extends Controller
 
             $this->ensureOtpTableExists();
 
-            $otpRecord = WitnessOtp::query()
+            $otpRecord = DB::table('witness_otps')
                 ->where('phone', $phone)
                 ->where('code', $code)
                 ->where('expires_at', '>', now())
@@ -521,7 +535,9 @@ class LoanController extends Controller
             }
 
             // Clear OTP after successful verification
-            $otpRecord->delete();
+            DB::table('witness_otps')
+                ->where('phone', $phone)
+                ->delete();
 
             return response()->json([
                 'success' => true,
