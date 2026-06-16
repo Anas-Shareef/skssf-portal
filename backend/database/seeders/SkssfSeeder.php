@@ -12,9 +12,11 @@ class SkssfSeeder extends Seeder
 {
     public function run(): void
     {
-        $super = User::query()->firstOrCreate(
-            ['email' => 'admin@skssf.org'],
-            [
+        // 1. Super Admin
+        $super = User::query()->where('email', 'admin@skssf.org')->orWhere('code', 'S001')->first();
+        if (!$super) {
+            $super = User::query()->create([
+                'email' => 'admin@skssf.org',
                 'code' => 'S001',
                 'role' => 'super',
                 'name' => 'Super Admin',
@@ -28,12 +30,14 @@ class SkssfSeeder extends Seeder
                 'total_donated' => 0,
                 'password' => Hash::make('admin123'),
                 'is_approver' => true,
-            ]
-        );
+            ]);
+        }
 
-        User::query()->firstOrCreate(
-            ['email' => 'president@skssf.org'],
-            [
+        // 2. Admin (President)
+        $admin = User::query()->where('email', 'president@skssf.org')->orWhere('code', 'A001')->first();
+        if (!$admin) {
+            User::query()->create([
+                'email' => 'president@skssf.org',
                 'code' => 'A001',
                 'role' => 'admin',
                 'name' => 'Mohammed Ashraf',
@@ -47,12 +51,14 @@ class SkssfSeeder extends Seeder
                 'total_donated' => 0,
                 'password' => Hash::make('pres2025'),
                 'is_approver' => true,
-            ]
-        );
+            ]);
+        }
 
-        $member = User::query()->firstOrCreate(
-            ['email' => 'faris@gmail.com'],
-            [
+        // 3. Member
+        $member = User::query()->where('email', 'faris@gmail.com')->orWhere('code', 'M001')->orWhere('member_no', 'SKSSF-2024-1042')->first();
+        if (!$member) {
+            $member = User::query()->create([
+                'email' => 'faris@gmail.com',
                 'code' => 'M001',
                 'role' => 'member',
                 'member_no' => 'SKSSF-2024-1042',
@@ -67,8 +73,8 @@ class SkssfSeeder extends Seeder
                 'total_donated' => 3500,
                 'password' => Hash::make('member123'),
                 'is_approver' => false,
-            ]
-        );
+            ]);
+        }
 
         PortalConfig::query()->firstOrCreate(
             [],
