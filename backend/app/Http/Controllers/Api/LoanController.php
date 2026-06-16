@@ -436,91 +436,105 @@ class LoanController extends Controller
     private function ensureOtpTableExists(): void
     {
         if (!Schema::hasTable('witness_otps')) {
-            try {
-                Schema::create('witness_otps', function (Blueprint $table) {
-                    $table->id();
-                    $table->string('phone')->index();
-                    $table->string('code');
-                    $table->dateTime('expires_at');
-                    $table->timestamps();
-                });
-            } catch (\Exception $e) {
-                \Illuminate\Support\Facades\Log::error("Failed to dynamically create witness_otps table: " . $e->getMessage());
-            }
+            Schema::create('witness_otps', function (Blueprint $table) {
+                $table->id();
+                $table->string('phone')->index();
+                $table->string('code');
+                $table->dateTime('expires_at');
+                $table->timestamps();
+            });
         }
     }
 
     public function sendOtp(Request $request): JsonResponse
     {
-        $payload = $request->validate([
-            'phone' => ['required', 'string', 'max:50'],
-            'name' => ['required', 'string', 'max:255'],
-        ]);
-
-        $phone = $payload['phone'];
-        $name = $payload['name'];
-
-        $this->ensureOtpTableExists();
-
-        // Clean up any old/expired OTPs first
         try {
-            WitnessOtp::query()->where('expires_at', '<', now())->delete();
+            $payload = $request->validate([
+                'phone' => ['required', 'string', 'max:50'],
+                'name' => ['required', 'string', 'max:255'],
+            ]);
+
+            $phone = $payload['phone'];
+            $name = $payload['name'];
+
+            $this->ensureOtpTableExists();
+
+            // Clean up any old/expired OTPs first
+            try {
+                WitnessOtp::query()->where('expires_at', '<', now())->delete();
+            } catch (\Exception $e) {
+                \Illuminate\Support\Facades\Log::error("Failed to clean up expired OTPs: " . $e->getMessage());
+            }
+
+            // Generate 6-digit code
+            $otp = (string) random_int(100000, 999999);
+
+            // Store OTP in database, updating if this phone already has an active record
+            WitnessOtp::query()->updateOrCreate(
+                ['phone' => $phone],
+                ['code' => $otp, 'expires_at' => now()->addMinutes(5)]
+            );
+
+            // Log the OTP (for dev / audit trail)
+            \Illuminate\Support\Facades\Log::info("OTP sent to witness {$name} ({$phone}): {$otp}");
+
+            // In demo/test mode we can return it so the user can easily test it online
+            return response()->json([
+                'success' => true,
+                'message' => 'OTP sent successfully to ' . $phone,
+                'otp' => $otp,
+            ]);
         } catch (\Exception $e) {
-            \Illuminate\Support\Facades\Log::error("Failed to clean up expired OTPs: " . $e->getMessage());
+            \Illuminate\Support\Facades\Log::error("sendOtp Exception: " . $e->getMessage() . "\n" . $e->getTraceAsString());
+            return response()->json([
+                'success' => false,
+                'message' => 'Server Error: ' . $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ], 500);
         }
-
-        // Generate 6-digit code
-        $otp = (string) random_int(100000, 999999);
-
-        // Store OTP in database, updating if this phone already has an active record
-        WitnessOtp::query()->updateOrCreate(
-            ['phone' => $phone],
-            ['code' => $otp, 'expires_at' => now()->addMinutes(5)]
-        );
-
-        // Log the OTP (for dev / audit trail)
-        \Illuminate\Support\Facades\Log::info("OTP sent to witness {$name} ({$phone}): {$otp}");
-
-        // In demo/test mode we can return it so the user can easily test it online
-        return response()->json([
-            'success' => true,
-            'message' => 'OTP sent successfully to ' . $phone,
-            'otp' => $otp,
-        ]);
     }
 
     public function verifyOtp(Request $request): JsonResponse
     {
-        $payload = $request->validate([
-            'phone' => ['required', 'string', 'max:50'],
-            'code' => ['required', 'string', 'size:6'],
-        ]);
+        try {
+            $payload = $request->validate([
+                'phone' => ['required', 'string', 'max:50'],
+                'code' => ['required', 'string', 'size:6'],
+            ]);
 
-        $phone = $payload['phone'];
-        $code = $payload['code'];
+            $phone = $payload['phone'];
+            $code = $payload['code'];
 
-        $this->ensureOtpTableExists();
+            $this->ensureOtpTableExists();
 
-        $otpRecord = WitnessOtp::query()
-            ->where('phone', $phone)
-            ->where('code', $code)
-            ->where('expires_at', '>', now())
-            ->first();
+            $otpRecord = WitnessOtp::query()
+                ->where('phone', $phone)
+                ->where('code', $code)
+                ->where('expires_at', '>', now())
+                ->first();
 
-        if (!$otpRecord) {
+            if (!$otpRecord) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'The entered OTP code is invalid or has expired.'
+                ], 422);
+            }
+
+            // Clear OTP after successful verification
+            $otpRecord->delete();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'OTP verified successfully.'
+            ]);
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error("verifyOtp Exception: " . $e->getMessage() . "\n" . $e->getTraceAsString());
             return response()->json([
                 'success' => false,
-                'message' => 'The entered OTP code is invalid or has expired.'
-            ], 422);
+                'message' => 'Server Error: ' . $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ], 500);
         }
-
-        // Clear OTP after successful verification
-        $otpRecord->delete();
-
-        return response()->json([
-            'success' => true,
-            'message' => 'OTP verified successfully.'
-        ]);
     }
 
     private function portalConfig(): PortalConfig
