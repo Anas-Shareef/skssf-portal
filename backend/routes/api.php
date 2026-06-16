@@ -10,7 +10,59 @@ use App\Http\Controllers\Api\PortalConfigController;
 use App\Http\Controllers\Api\UserController;
 
 Route::get('/test-deploy', function () {
-    return response()->json(['commit' => 'ecd8944_diagnostic_v3']);
+    return response()->json(['commit' => 'ecd8944_diagnostic_v4']);
+});
+
+Route::get('/test-otp-send', function () {
+    try {
+        $phone = '1234567890';
+        $name = 'Test Witness';
+
+        if (!\Illuminate\Support\Facades\Schema::hasTable('witness_otps')) {
+            \Illuminate\Support\Facades\Schema::create('witness_otps', function ($table) {
+                $table->id();
+                $table->string('phone')->index();
+                $table->string('code');
+                $table->dateTime('expires_at');
+                $table->timestamps();
+            });
+        }
+
+        \Illuminate\Support\Facades\DB::table('witness_otps')->where('expires_at', '<', now())->delete();
+
+        $otp = '999999';
+        $existing = \Illuminate\Support\Facades\DB::table('witness_otps')->where('phone', $phone)->first();
+        if ($existing) {
+            \Illuminate\Support\Facades\DB::table('witness_otps')
+                ->where('phone', $phone)
+                ->update([
+                    'code' => $otp,
+                    'expires_at' => now()->addMinutes(5),
+                    'updated_at' => now()
+                ]);
+        } else {
+            \Illuminate\Support\Facades\DB::table('witness_otps')
+                ->insert([
+                    'phone' => $phone,
+                    'code' => $otp,
+                    'expires_at' => now()->addMinutes(5),
+                    'created_at' => now(),
+                    'updated_at' => now()
+                ]);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Test DB write succeeded!',
+            'data' => \Illuminate\Support\Facades\DB::table('witness_otps')->where('phone', $phone)->first()
+        ]);
+    } catch (\Exception $e) {
+        return response()->json([
+            'success' => false,
+            'error' => $e->getMessage(),
+            'trace' => $e->getTraceAsString()
+        ], 500);
+    }
 });
 
 Route::prefix('auth')->group(function (): void {
