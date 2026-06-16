@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Loan;
 use App\Models\PortalConfig;
+use App\Models\WitnessOtp;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -440,11 +441,17 @@ class LoanController extends Controller
         $phone = $payload['phone'];
         $name = $payload['name'];
 
+        // Clean up any old/expired OTPs first
+        WitnessOtp::query()->where('expires_at', '<', now())->delete();
+
         // Generate 6-digit code
         $otp = (string) random_int(100000, 999999);
 
-        // Store OTP in Cache for 5 minutes
-        \Illuminate\Support\Facades\Cache::put('otp_'.$phone, $otp, now()->addMinutes(5));
+        // Store OTP in database, updating if this phone already has an active record
+        WitnessOtp::query()->updateOrCreate(
+            ['phone' => $phone],
+            ['code' => $otp, 'expires_at' => now()->addMinutes(5)]
+        );
 
         // Log the OTP (for dev / audit trail)
         \Illuminate\Support\Facades\Log::info("OTP sent to witness {$name} ({$phone}): {$otp}");
@@ -467,9 +474,13 @@ class LoanController extends Controller
         $phone = $payload['phone'];
         $code = $payload['code'];
 
-        $cachedOtp = \Illuminate\Support\Facades\Cache::get('otp_'.$phone);
+        $otpRecord = WitnessOtp::query()
+            ->where('phone', $phone)
+            ->where('code', $code)
+            ->where('expires_at', '>', now())
+            ->first();
 
-        if (!$cachedOtp || $cachedOtp !== $code) {
+        if (!$otpRecord) {
             return response()->json([
                 'success' => false,
                 'message' => 'The entered OTP code is invalid or has expired.'
@@ -477,7 +488,7 @@ class LoanController extends Controller
         }
 
         // Clear OTP after successful verification
-        \Illuminate\Support\Facades\Cache::forget('otp_'.$phone);
+        $otpRecord->delete();
 
         return response()->json([
             'success' => true,
