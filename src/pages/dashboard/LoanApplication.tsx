@@ -83,8 +83,8 @@ export default function LoanApplication() {
   const [signature, setSignature] = useState('');
   const [sigMode, setSigMode] = useState<'upload' | 'draw'>('draw');
   const [witnesses, setWitnesses] = useState<any[]>([
-    { name: '', phone: '', signature: '', otpSent: false, otpVerified: false, otpCode: '', inputOtp: '', timer: 0 },
-    { name: '', phone: '', signature: '', otpSent: false, otpVerified: false, otpCode: '', inputOtp: '', timer: 0 }
+    { name: '', email: '', signature: '', otpSent: false, otpVerified: false, otpCode: '', inputOtp: '', timer: 0 },
+    { name: '', email: '', signature: '', otpSent: false, otpVerified: false, otpCode: '', inputOtp: '', timer: 0 }
   ]);
 
   // Update timers for resending OTP
@@ -97,15 +97,15 @@ export default function LoanApplication() {
 
   const hasBackendSession = () => !!sessionStorage.getItem('active_api_token');
 
-  const generateOtpSignatureSeal = (name: string, phone: string, code: string) => {
+  const generateOtpSignatureSeal = (name: string, email: string, code: string) => {
     const cleanName = name.replace(/[^a-zA-Z0-9 ]/g, '');
-    const cleanPhone = phone.replace(/[^0-9]/g, '');
+    const cleanEmail = email.replace(/[^a-zA-Z0-9@._-]/g, '');
     const dateStr = new Date().toLocaleString();
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="100" viewBox="0 0 300 100">
       <rect width="298" height="98" x="1" y="1" rx="12" fill="%23f0fdf4" stroke="%2310b981" stroke-width="2" stroke-dasharray="4"/>
       <text x="150" y="32" font-family="system-ui, sans-serif" font-size="12" font-weight="bold" fill="%23047857" text-anchor="middle">✓ OTP WITNESS SIGNATURE</text>
       <text x="150" y="52" font-family="system-ui, sans-serif" font-size="11" font-weight="bold" fill="%231f2937" text-anchor="middle">NAME: ${cleanName.toUpperCase()}</text>
-      <text x="150" y="70" font-family="system-ui, sans-serif" font-size="11" fill="%234b5563" text-anchor="middle">MOB: +91 ${cleanPhone.slice(-10)}</text>
+      <text x="150" y="70" font-family="system-ui, sans-serif" font-size="9.5" fill="%234b5563" text-anchor="middle">EMAIL: ${cleanEmail}</text>
       <text x="150" y="86" font-family="system-ui, sans-serif" font-size="8.5" fill="%236b7280" text-anchor="middle">Verified with OTP (${code}) on ${dateStr}</text>
     </svg>`;
     return `data:image/svg+xml;utf8,${svg}`;
@@ -113,20 +113,20 @@ export default function LoanApplication() {
 
   const sendWitnessOtp = async (idx: number) => {
     const wit = witnesses[idx];
-    if (!wit.name.trim() || !wit.phone.trim()) {
-      alert('Please fill name and mobile number first.');
+    if (!wit.name.trim() || !wit.email.trim()) {
+      alert('Please fill name and email first.');
       return;
     }
-    const cleanPhone = wit.phone.replace(/[^0-9]/g, '');
-    if (cleanPhone.length < 10) {
-      alert('Please enter a valid 10-digit mobile number.');
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(wit.email.trim())) {
+      alert('Please enter a valid email address.');
       return;
     }
 
     try {
       if (hasBackendSession()) {
         const res: any = await api.post('/loans/otp/send', {
-          phone: cleanPhone,
+          email: wit.email.trim(),
           name: wit.name
         });
         const updated = [...witnesses];
@@ -161,9 +161,8 @@ export default function LoanApplication() {
 
     try {
       if (hasBackendSession()) {
-        const cleanPhone = wit.phone.replace(/[^0-9]/g, '');
         await api.post('/loans/otp/verify', {
-          phone: cleanPhone,
+          email: wit.email.trim(),
           code: wit.inputOtp
         });
       } else {
@@ -173,7 +172,7 @@ export default function LoanApplication() {
       }
 
       const updated = [...witnesses];
-      const seal = generateOtpSignatureSeal(wit.name, wit.phone, wit.inputOtp);
+      const seal = generateOtpSignatureSeal(wit.name, wit.email.trim(), wit.inputOtp);
       updated[idx] = {
         ...wit,
         otpVerified: true,
@@ -226,7 +225,7 @@ export default function LoanApplication() {
     personal.aadhaar?.trim()
   );
   const isStep2Valid = loanAmt > 0 && !!(loanType && loanDesc?.trim() && tenure > 0);
-  const isStep3Valid = !!(signature && witnesses[0].name.trim() && witnesses[0].phone.trim() && witnesses[0].otpVerified && witnesses[1].name.trim() && witnesses[1].phone.trim() && witnesses[1].otpVerified);
+  const isStep3Valid = !!(signature && witnesses[0].name.trim() && witnesses[0].email?.trim() && witnesses[0].otpVerified && witnesses[1].name.trim() && witnesses[1].email?.trim() && witnesses[1].otpVerified);
 
   // --- Final Submission ---
   const [showConfirm, setShowConfirm] = useState(false);
@@ -477,13 +476,14 @@ export default function LoanApplication() {
                       placeholder="Witness Name" 
                       disabled={w.otpVerified || w.otpSent} 
                     />
-                    <label className="fl2" style={{ fontSize: '11px' }}>Mobile No.</label>
+                    <label className="fl2" style={{ fontSize: '11px' }}>Email Address</label>
                     <input 
+                      type="email"
                       className="fi2" 
                       style={{ marginBottom: '12px' }} 
-                      value={w.phone} 
-                      onChange={e => updateWitness(i, 'phone', e.target.value)} 
-                      placeholder="0000000000" 
+                      value={w.email || ''} 
+                      onChange={e => updateWitness(i, 'email', e.target.value)} 
+                      placeholder="witness@example.com" 
                       disabled={w.otpVerified || w.otpSent} 
                     />
 
@@ -578,7 +578,7 @@ export default function LoanApplication() {
             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '30px', alignItems: 'center' }}>
               <button className="bsm g" onClick={() => setStep(2)}>← Previous</button>
               <div style={{ textAlign: 'right' }}>
-                {!isStep3Valid && <div style={{ fontSize: '11px', color: 'var(--red)', marginBottom: '8px', fontWeight: 600 }}>Please enter names, mobile numbers, and verify OTP for both witnesses.</div>}
+                {!isStep3Valid && <div style={{ fontSize: '11px', color: 'var(--red)', marginBottom: '8px', fontWeight: 600 }}>Please enter names, email addresses, and verify OTP for both witnesses.</div>}
                 <button disabled={!isStep3Valid} className="bsm s" style={{ padding: '12px 30px', opacity: isStep3Valid ? 1 : 0.5 }} onClick={() => setStep(4)}>Review Final Application →</button>
               </div>
             </div>

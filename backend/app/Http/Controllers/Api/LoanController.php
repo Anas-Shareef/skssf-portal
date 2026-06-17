@@ -435,13 +435,19 @@ class LoanController extends Controller
     private function ensureOtpTableExists(): void
     {
         if (!Schema::hasTable('witness_otps')) {
-            Schema::create('witness_otps', function (Blueprint $table) {
+            Schema::create('witness_otps', function (\Illuminate\Database\Schema\Blueprint $table) {
                 $table->id();
-                $table->string('phone')->index();
+                $table->string('email')->index();
                 $table->string('code');
                 $table->dateTime('expires_at');
                 $table->timestamps();
             });
+        } else {
+            if (!Schema::hasColumn('witness_otps', 'email')) {
+                Schema::table('witness_otps', function (\Illuminate\Database\Schema\Blueprint $table) {
+                    $table->string('email')->nullable()->index();
+                });
+            }
         }
     }
 
@@ -449,11 +455,11 @@ class LoanController extends Controller
     {
         try {
             $payload = $request->validate([
-                'phone' => ['required', 'string', 'max:50'],
+                'email' => ['required', 'email', 'max:255'],
                 'name' => ['required', 'string', 'max:255'],
             ]);
 
-            $phone = $payload['phone'];
+            $email = $payload['email'];
             $name = $payload['name'];
 
             $this->ensureOtpTableExists();
@@ -468,34 +474,47 @@ class LoanController extends Controller
             // Generate 6-digit code
             $otp = (string) random_int(100000, 999999);
 
-            // Store OTP in database, updating if this phone already has an active record
-            $existing = DB::table('witness_otps')->where('phone', $phone)->first();
+            // Store OTP in database, updating if this email already has an active record
+            $existing = DB::table('witness_otps')->where('email', $email)->first();
             if ($existing) {
                 DB::table('witness_otps')
-                    ->where('phone', $phone)
+                    ->where('email', $email)
                     ->update([
                         'code' => $otp,
-                        'expires_at' => now()->addMinutes(5),
+                        'expires_at' => now()->addMinutes(10),
                         'updated_at' => now()
                     ]);
             } else {
                 DB::table('witness_otps')
                     ->insert([
-                        'phone' => $phone,
+                        'email' => $email,
                         'code' => $otp,
-                        'expires_at' => now()->addMinutes(5),
+                        'expires_at' => now()->addMinutes(10),
                         'created_at' => now(),
                         'updated_at' => now()
                     ]);
             }
 
+            // Send Email OTP via Laravel Mail facade
+            try {
+                \Illuminate\Support\Facades\Mail::raw(
+                    "Hello {$name},\n\nYour OTP code for verifying your signature as a witness is: {$otp}\n\nThis code will expire in 10 minutes.\n\nThank you,\nSKSSF Poyanad Branch",
+                    function ($message) use ($email, $name) {
+                        $message->to($email, $name)
+                                ->subject('SKSSF Loan - Witness OTP Verification');
+                    }
+                );
+            } catch (\Exception $e) {
+                \Illuminate\Support\Facades\Log::error("Failed to send OTP email to {$email}: " . $e->getMessage());
+            }
+
             // Log the OTP (for dev / audit trail)
-            \Illuminate\Support\Facades\Log::info("OTP sent to witness {$name} ({$phone}): {$otp}");
+            \Illuminate\Support\Facades\Log::info("OTP sent to witness {$name} ({$email}): {$otp}");
 
             // In demo/test mode we can return it so the user can easily test it online
             return response()->json([
                 'success' => true,
-                'message' => 'OTP sent successfully to ' . $phone,
+                'message' => 'OTP sent successfully to ' . $email,
                 'otp' => $otp,
             ]);
         } catch (\Exception $e) {
@@ -512,17 +531,17 @@ class LoanController extends Controller
     {
         try {
             $payload = $request->validate([
-                'phone' => ['required', 'string', 'max:50'],
+                'email' => ['required', 'email', 'max:255'],
                 'code' => ['required', 'string', 'size:6'],
             ]);
 
-            $phone = $payload['phone'];
+            $email = $payload['email'];
             $code = $payload['code'];
 
             $this->ensureOtpTableExists();
 
             $otpRecord = DB::table('witness_otps')
-                ->where('phone', $phone)
+                ->where('email', $email)
                 ->where('code', $code)
                 ->where('expires_at', '>', now())
                 ->first();
@@ -536,7 +555,7 @@ class LoanController extends Controller
 
             // Clear OTP after successful verification
             DB::table('witness_otps')
-                ->where('phone', $phone)
+                ->where('email', $email)
                 ->delete();
 
             return response()->json([
