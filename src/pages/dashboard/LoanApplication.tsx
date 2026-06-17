@@ -133,7 +133,7 @@ export default function LoanApplication() {
         updated[idx] = {
           ...wit,
           otpSent: true,
-          otpCode: res.otp || '123456',
+          otpCode: res.otp || '',
           timer: 30
         };
         setWitnesses(updated);
@@ -533,10 +533,11 @@ export default function LoanApplication() {
                               onChange={e => updateWitness(i, 'inputOtp', e.target.value.replace(/[^0-9]/g, ''))}
                             />
                             
-                            {/* Dev/Demo mode indicator */}
-                            <div style={{ fontSize: '10px', background: '#fef08a', color: '#854d0e', padding: '4px 8px', borderRadius: '6px', textAlign: 'center', fontWeight: 650 }}>
-                              💡 [Test Mode] Code: <b>{w.otpCode}</b>
-                            </div>
+                            {w.otpCode && (
+                              <div style={{ fontSize: '10px', background: '#fef08a', color: '#854d0e', padding: '4px 8px', borderRadius: '6px', textAlign: 'center', fontWeight: 650 }}>
+                                💡 [Test Mode] Code: <b>{w.otpCode}</b>
+                              </div>
+                            )}
 
                             <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
                               <button 
