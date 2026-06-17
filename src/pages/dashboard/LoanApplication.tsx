@@ -511,7 +511,7 @@ export default function LoanApplication() {
                             className="bsm s" 
                             style={{ width: '100%', padding: '10px', fontWeight: 700 }}
                             onClick={() => sendWitnessOtp(i)}
-                            disabled={!w.name.trim() || !w.phone.trim()}
+                            disabled={!w.name.trim() || !w.email?.trim()}
                           >
                             Send Verification OTP
                           </button>
