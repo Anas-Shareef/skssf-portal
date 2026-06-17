@@ -438,15 +438,33 @@ class LoanController extends Controller
             Schema::create('witness_otps', function (\Illuminate\Database\Schema\Blueprint $table) {
                 $table->id();
                 $table->string('email')->index();
+                $table->string('phone')->nullable()->index();
                 $table->string('code');
                 $table->dateTime('expires_at');
                 $table->timestamps();
             });
         } else {
             if (!Schema::hasColumn('witness_otps', 'email')) {
-                Schema::table('witness_otps', function (\Illuminate\Database\Schema\Blueprint $table) {
-                    $table->string('email')->nullable()->index();
-                });
+                try {
+                    Schema::table('witness_otps', function (\Illuminate\Database\Schema\Blueprint $table) {
+                        $table->string('email')->nullable()->index();
+                    });
+                } catch (\Exception $e) {
+                    \Illuminate\Support\Facades\Log::error("Failed to add email column: " . $e->getMessage());
+                }
+            }
+
+            // Make phone column nullable on existing tables to avoid 1364 errors in MySQL
+            try {
+                if (DB::getDriverName() === 'mysql') {
+                    DB::statement("ALTER TABLE witness_otps MODIFY phone VARCHAR(255) NULL");
+                } else {
+                    Schema::table('witness_otps', function (\Illuminate\Database\Schema\Blueprint $table) {
+                        $table->string('phone')->nullable()->change();
+                    });
+                }
+            } catch (\Exception $e) {
+                \Illuminate\Support\Facades\Log::error("Failed to make phone column nullable: " . $e->getMessage());
             }
         }
     }
