@@ -529,16 +529,10 @@ class LoanController extends Controller
             // Log the OTP (for dev / audit trail)
             \Illuminate\Support\Facades\Log::info("OTP sent to witness {$name} ({$email}): {$otp}");
 
-            $responseData = [
+            return response()->json([
                 'success' => true,
                 'message' => 'OTP sent successfully to ' . $email,
-            ];
-
-            if (config('app.env') !== 'production') {
-                $responseData['otp'] = $otp;
-            }
-
-            return response()->json($responseData);
+            ]);
         } catch (\Exception $e) {
             \Illuminate\Support\Facades\Log::error("sendOtp Exception: " . $e->getMessage() . "\n" . $e->getTraceAsString());
             return response()->json([

@@ -533,11 +533,6 @@ export default function LoanApplication() {
                               onChange={e => updateWitness(i, 'inputOtp', e.target.value.replace(/[^0-9]/g, ''))}
                             />
                             
-                            {w.otpCode && (
-                              <div style={{ fontSize: '10px', background: '#fef08a', color: '#854d0e', padding: '4px 8px', borderRadius: '6px', textAlign: 'center', fontWeight: 650 }}>
-                                💡 [Test Mode] Code: <b>{w.otpCode}</b>
-                              </div>
-                            )}
 
                             <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
                               <button 
