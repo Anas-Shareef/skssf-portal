@@ -9,6 +9,21 @@ use App\Http\Controllers\Api\LoanController;
 use App\Http\Controllers\Api\PortalConfigController;
 use App\Http\Controllers\Api\UserController;
 
+Route::get('/view-log', function (\Illuminate\Http\Request $request) {
+    if ($request->query('key') !== 'skssf123') {
+        return response()->json(['message' => 'Unauthorized'], 401);
+    }
+    $path = storage_path('logs/laravel.log');
+    if (!file_exists($path)) {
+        return response()->json(['message' => 'No log file found.']);
+    }
+    $lines = file($path);
+    $lastLines = array_slice($lines, -150);
+    return response()->json([
+        'log' => implode('', $lastLines)
+    ]);
+});
+
 Route::prefix('auth')->group(function (): void {
     Route::post('/login', [AuthController::class, 'login']);
     Route::post('/register', [AuthController::class, 'register']);
