@@ -408,8 +408,8 @@ export default function Inventory() {
   };
 
   const handleDeleteProduct = (id: string, name: string) => {
-    if (!profile || profile.role !== 'super') {
-      popToast('e', 'Only Super Admin can delete products.');
+    if (!isAdmin) {
+      popToast('e', 'Only Admins can delete products.');
       return;
     }
     setDialog({
@@ -431,8 +431,8 @@ export default function Inventory() {
   };
 
   const handleDeleteMission = (id: string, name: string) => {
-    if (!profile || profile.role !== 'super') {
-      popToast('e', 'Only Super Admin can delete missions.');
+    if (!isAdmin) {
+      popToast('e', 'Only Admins can delete missions.');
       return;
     }
     setDialog({
@@ -623,7 +623,7 @@ export default function Inventory() {
                       <div style={{ height: 160, background: p.photo ? `url(${p.photo}) center/cover` : 'linear-gradient(135deg,#f1f5f9,#e2e8f0)', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
                         {!p.photo && <span style={{ fontSize: 52, opacity: 0.4 }}>📦</span>}
                         {isLow && !selectedPrintIds.includes(p.id) && <div style={{ position: 'absolute', bottom: 12, right: 12, background: '#f59e0b', color: '#fff', fontSize: 10, fontWeight: 900, padding: '3px 10px', borderRadius: 99 }}>⚠️ LOW STOCK</div>}
-                        {profile?.role === 'super' && (
+                        {isAdmin && (
                           <button 
                             onClick={(e) => { e.stopPropagation(); handleDeleteProduct(p.id, p.name); }}
                             style={{ position: 'absolute', top: 12, left: 12, background: 'rgba(239,68,68,0.9)', color: '#fff', border: 'none', width: 32, height: 32, borderRadius: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, zIndex: 10 }}
@@ -717,7 +717,7 @@ export default function Inventory() {
                               <button className="bsm s" style={{ fontSize: 12, padding: '10px 20px', borderRadius: 12, fontWeight: 800 }} onClick={() => setActiveProduct(p)}>
                                 {isAdmin ? 'Track Units' : 'View Details'}
                               </button>
-                              {profile?.role === 'super' && (
+                              {isAdmin && (
                                 <button className="bsm r" style={{ padding: '10px', background: '#fee2e2', color: '#ef4444', borderRadius: 12, border: 'none', cursor: 'pointer' }} onClick={() => handleDeleteProduct(p.id, p.name)}>🗑️</button>
                               )}
                             </div>
@@ -808,7 +808,7 @@ export default function Inventory() {
                             onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.25)'}
                             onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.15)'}
                           >✏️</button>
-                          {profile?.role === 'super' && (
+                          {isAdmin && (
                             <button 
                               onClick={(e) => { e.stopPropagation(); handleDeleteMission(camp.id, missionTitle); }}
                               style={{ background: 'rgba(239,68,68,0.15)', color: '#f87171', border: 'none', width: 40, height: 40, borderRadius: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }}
@@ -1042,7 +1042,7 @@ export default function Inventory() {
                                 style={{ background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', width: 34, height: 34, borderRadius: 10, cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                                 title="Print Labels"
                               >🖨️</button>
-                              {profile?.role === 'super' && (
+                              {isAdmin && (
                                 <button 
                                   onClick={() => {
                                     setDialog({
@@ -1135,7 +1135,7 @@ export default function Inventory() {
                             </div>
                             <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
                               <span style={{ background: 'rgba(255,255,255,0.2)', padding: '5px 16px', borderRadius: 99, fontSize: 14, fontWeight: 900 }}>{campUnits.length} Assets</span>
-                              {profile?.role === 'super' && (
+                              {isAdmin && (
                                 <button 
                                   onClick={() => handleDeleteMission(camp.id, camp.title || camp.name)}
                                   style={{ background: 'rgba(239,68,68,0.2)', color: '#fff', border: '1px solid rgba(255,255,255,0.3)', borderRadius: 10, width: 34, height: 34, cursor: 'pointer' }}
@@ -1200,7 +1200,7 @@ export default function Inventory() {
                 >
                   🧪 Seed Demo
                 </button>
-                {profile?.role === 'super' && (
+                {isAdmin && (
                   <button 
                     className="bsm r" 
                     style={{ padding: '0 20px', fontSize: 13, height: 48 }}
