@@ -780,6 +780,7 @@ export const localDb = {
     if (hasBackendSession()) {
       syncLater(
         api.post('/loans', {
+          loan_no: loanId,
           user_id: loanData.db_id || null,
           member_no: loanData.memberNo || loanData.memNo || '',
           name: loanData.name,
@@ -789,8 +790,12 @@ export const localDb = {
           purpose: loanData.purpose || 'Other',
           purpose_desc: loanData.purpDesc || loanData.purposeDesc || '',
           months: Number(loanData.months || 1),
+          status: 'pending',
+          submitted_date: newLoan.submittedDate,
           guarantors: loanData.guarantors || [],
           repayments: loanData.repayments || [],
+          request: newLoan.request,
+          audit: newLoan.audit,
           signature: loanData.signature || null,
           witnesses: loanData.witnesses || [],
         }).then(() => syncFromBackend())

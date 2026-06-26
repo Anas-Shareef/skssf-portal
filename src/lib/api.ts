@@ -5,9 +5,11 @@ export const api = {
 
   get: async <T>(path: string, _token?: string): Promise<T> => {
     if (path === '/auth/me') {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error('Unauthenticated');
-      const { data: profile, error } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
+      const token = _token || sessionStorage.getItem('active_api_token') || '';
+      if (!token) throw new Error('Unauthenticated');
+      const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+      if (userError || !user) throw new Error('Unauthenticated');
+      const { data: profile, error } = await supabase.from('profiles').select('*').eq('id', user.id).single();
       if (error || !profile) throw new Error('Profile not found');
       return { user: { ...profile, address: profile.addr } } as T;
     }
