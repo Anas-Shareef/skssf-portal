@@ -24,7 +24,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ message: 'Method Not Allowed' });
   }
 
-  const { email, name } = req.body;
+  const { email, name, applicantName, applicantEmail } = req.body;
   if (!email || !name) {
     return res.status(400).json({ message: 'Email and name are required' });
   }
@@ -73,16 +73,20 @@ export default async function handler(req, res) {
       },
     });
 
+    const nominationText = applicantName && applicantEmail
+      ? `You have been nominated as a witness for a loan application from ${applicantName} from his email : ${applicantEmail} on the SKSSF Poyanad Branch Portal.`
+      : `You have been nominated as a witness for a loan application on the SKSSF Poyanad Branch Portal.`;
+
     await transporter.sendMail({
       from: `"SKSSF Portal" <${mailFrom}>`,
       to: email.trim(),
       subject: 'SKSSF Loan - Witness OTP Verification',
-      text: `Hello ${name},\n\nYour OTP code for verifying your signature as a witness is: ${otp}\n\nThis code will expire in 10 minutes.\n\nThank you,\nSKSSF Poyanad Branch`,
+      text: `Hello ${name},\n\n${nominationText}\n\nYour OTP code for verifying your signature as a witness is: ${otp}\n\nThis code will expire in 10 minutes.\n\nThank you,\nSKSSF Poyanad Branch`,
       html: `
         <div style="font-family: Arial, sans-serif; padding: 20px; color: #333; line-height: 1.6;">
           <h2 style="color: #047857;">SKSSF Loan Witness Verification</h2>
           <p>Hello <strong>${name}</strong>,</p>
-          <p>You have been nominated as a witness for a loan application on the SKSSF Poyanad Branch Portal.</p>
+          <p>${nominationText}</p>
           <p>Your one-time verification code (OTP) is:</p>
           <div style="background: #f0fdf4; border: 1px solid #10b981; padding: 15px; font-size: 24px; font-weight: bold; letter-spacing: 5px; text-align: center; color: #047857; margin: 20px 0; border-radius: 8px;">
             ${otp}

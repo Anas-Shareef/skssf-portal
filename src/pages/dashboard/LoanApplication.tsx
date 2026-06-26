@@ -125,9 +125,15 @@ export default function LoanApplication() {
 
     try {
       if (hasBackendSession()) {
+        const selectedMember = isAdminOrSuper ? members.find((m: any) => m.id === selectedMemberId) : null;
+        const applicantName = selectedMember ? (selectedMember.name || personal.name) : (profile?.name || personal.name || '');
+        const applicantEmail = selectedMember ? (selectedMember.email || '') : (profile?.email || '');
+
         const res: any = await api.post('/loans/otp/send', {
           email: wit.email.trim(),
-          name: wit.name
+          name: wit.name,
+          applicantName,
+          applicantEmail
         });
         const updated = [...witnesses];
         updated[idx] = {

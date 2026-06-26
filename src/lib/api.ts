@@ -74,6 +74,18 @@ export const api = {
   },
 
   post: async <T>(path: string, body?: any, _token?: string): Promise<T> => {
+    if (path === '/loans/otp/send' || path === '/loans/otp/verify') {
+      const functionPath = path === '/loans/otp/send' ? '/api/send-otp' : '/api/verify-otp';
+      const res = await fetch(functionPath, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.message || 'Failed to process OTP request');
+      return json as T;
+    }
+
     if (path === '/auth/login') {
       const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
         email: body.email,
@@ -608,17 +620,7 @@ export const api = {
       return { data: updatedUnit } as T;
     }
 
-    if (path === '/loans/otp/send' || path === '/loans/otp/verify') {
-      const functionPath = path === '/loans/otp/send' ? '/api/send-otp' : '/api/verify-otp';
-      const res = await fetch(functionPath, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed to process OTP request');
-      return json as T;
-    }
+
 
     throw new Error(`Endpoint POST ${path} not implemented`);
   },
