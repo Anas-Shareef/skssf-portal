@@ -35,6 +35,8 @@ export default function RoleLogin({ mode = 'login' }: RoleLoginProps) {
   const [tab, setTab] = useState<'si' | 'su'>(mode === 'register' ? 'su' : 'si');
   const [showPass, setShowPass] = useState(false);
   const [error, setError] = useState('');
+  const [emailVal, setEmailVal] = useState('');
+  const [passVal, setPassVal] = useState('');
 
   useEffect(() => {
     setTab(mode === 'register' ? 'su' : 'si');
@@ -53,7 +55,7 @@ export default function RoleLogin({ mode = 'login' }: RoleLoginProps) {
   const doLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    const ok = await signIn(siEmail.current?.value || '', siPass.current?.value || '');
+    const ok = await signIn(emailVal, passVal);
     if (ok) {
       const prefix = role === 'super-admin' ? '/super-admin/dashboard' : role === 'admin' ? '/admin/dashboard' : '/member/dashboard';
       navigate(prefix);
@@ -87,6 +89,8 @@ export default function RoleLogin({ mode = 'login' }: RoleLoginProps) {
       navigate(prefix);
     }
     else {
+      setEmailVal(email);
+      setPassVal(password);
       setTab('si');
       setError('Registered successfully. Please sign in.');
     }
@@ -132,14 +136,32 @@ export default function RoleLogin({ mode = 'login' }: RoleLoginProps) {
                 <label className="flbl">Email Address</label>
                 <div className="fiw">
                   <span className="fic"><Mail size={16} /></span>
-                  <input className="fi" type="email" required placeholder="your@email.com" ref={siEmail} />
+                  <input
+                    className="fi"
+                    type="email"
+                    required
+                    placeholder="your@email.com"
+                    ref={siEmail}
+                    autoComplete="username"
+                    value={emailVal}
+                    onChange={(e) => setEmailVal(e.target.value)}
+                  />
                 </div>
               </div>
               <div className="fg">
                 <label className="flbl">Password</label>
                 <div className="fiw">
                   <span className="fic"><Lock size={16} /></span>
-                  <input className="fi" type={showPass ? 'text' : 'password'} required placeholder="Password" ref={siPass} />
+                  <input
+                    className="fi"
+                    type={showPass ? 'text' : 'password'}
+                    required
+                    placeholder="Password"
+                    ref={siPass}
+                    autoComplete="current-password"
+                    value={passVal}
+                    onChange={(e) => setPassVal(e.target.value)}
+                  />
                   <button type="button" className="eye" onClick={() => setShowPass(!showPass)} aria-label="Toggle password visibility">
                     {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
                   </button>
@@ -157,19 +179,19 @@ export default function RoleLogin({ mode = 'login' }: RoleLoginProps) {
             <form onSubmit={doRegister}>
               <div className="fg">
                 <label className="flbl">Full Name *</label>
-                <div className="fiw"><span className="fic"><User size={16} /></span><input className="fi" required placeholder="Full name" ref={suName} /></div>
+                <div className="fiw"><span className="fic"><User size={16} /></span><input className="fi" required placeholder="Full name" ref={suName} autoComplete="name" /></div>
               </div>
               <div className="fg">
                 <label className="flbl">Email *</label>
-                <div className="fiw"><span className="fic"><Mail size={16} /></span><input className="fi" type="email" required placeholder="your@email.com" ref={suEmail} /></div>
+                <div className="fiw"><span className="fic"><Mail size={16} /></span><input className="fi" type="email" required placeholder="your@email.com" ref={suEmail} autoComplete="username" /></div>
               </div>
               <div className="fg">
                 <label className="flbl">Mobile *</label>
-                <div className="fiw"><span className="fic"><Phone size={16} /></span><input className="fi" type="tel" required placeholder="+91 XXXXX XXXXX" ref={suPhone} /></div>
+                <div className="fiw"><span className="fic"><Phone size={16} /></span><input className="fi" type="tel" required placeholder="+91 XXXXX XXXXX" ref={suPhone} autoComplete="tel" /></div>
               </div>
               <div className="fg">
                 <label className="flbl">Membership No. (if known)</label>
-                <div className="fiw"><span className="fic"><UserRoundPlus size={16} /></span><input className="fi" placeholder="SKSSF-XXXX" ref={suMemNo} /></div>
+                <div className="fiw"><span className="fic"><UserRoundPlus size={16} /></span><input className="fi" placeholder="SKSSF-XXXX" ref={suMemNo} autoComplete="off" /></div>
               </div>
               <div className="fg">
                 <label className="flbl">Unit *</label>
@@ -185,7 +207,7 @@ export default function RoleLogin({ mode = 'login' }: RoleLoginProps) {
                 <label className="flbl">Password *</label>
                 <div className="fiw">
                   <span className="fic"><Lock size={16} /></span>
-                  <input className="fi" type={showPass ? 'text' : 'password'} required placeholder="Min 6 characters" minLength={6} ref={suPass} />
+                  <input className="fi" type={showPass ? 'text' : 'password'} required placeholder="Min 6 characters" minLength={6} ref={suPass} autoComplete="new-password" />
                   <button type="button" className="eye" onClick={() => setShowPass(!showPass)} aria-label="Toggle password visibility">
                     {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
                   </button>
