@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, Eye, EyeOff, Lock, Mail, Phone, User, UserRoundPlus } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
@@ -24,13 +24,21 @@ const ROLE_CFG: Record<string, { headline: React.ReactNode; copy: string; label:
   },
 };
 
-export default function RoleLogin() {
+interface RoleLoginProps {
+  mode?: 'login' | 'register';
+}
+
+export default function RoleLogin({ mode = 'login' }: RoleLoginProps) {
   const { role } = useParams<{ role: string }>();
   const navigate = useNavigate();
   const { signIn } = useAuth();
-  const [tab, setTab] = useState<'si' | 'su'>('si');
+  const [tab, setTab] = useState<'si' | 'su'>(mode === 'register' ? 'su' : 'si');
   const [showPass, setShowPass] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    setTab(mode === 'register' ? 'su' : 'si');
+  }, [mode]);
 
   const siEmail = useRef<HTMLInputElement>(null);
   const siPass = useRef<HTMLInputElement>(null);
@@ -111,8 +119,8 @@ export default function RoleLogin() {
 
           {role === 'member' && (
             <div className="tabs">
-              <button className={`tab ${tab === 'si' ? 'on' : ''}`} onClick={() => { setTab('si'); setError(''); }}>Sign In</button>
-              <button className={`tab ${tab === 'su' ? 'on' : ''}`} onClick={() => { setTab('su'); setError(''); }}>Register</button>
+              <button className={`tab ${tab === 'si' ? 'on' : ''}`} onClick={() => { navigate(`/${role}/login`); setError(''); }}>Sign In</button>
+              <button className={`tab ${tab === 'su' ? 'on' : ''}`} onClick={() => { navigate(`/${role}/register`); setError(''); }}>Register</button>
             </div>
           )}
 
@@ -185,7 +193,7 @@ export default function RoleLogin() {
               </div>
               <button type="submit" className="btn-login">Create Account <ArrowRight size={16} /></button>
               <div className="div">or</div>
-              <div className="lfoot">Have an account? <button type="button" onClick={() => { setTab('si'); setError(''); }}>Sign In</button></div>
+              <div className="lfoot">Have an account? <button type="button" onClick={() => { navigate(`/${role}/login`); setError(''); }}>Sign In</button></div>
             </form>
           )}
         </div>

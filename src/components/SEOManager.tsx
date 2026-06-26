@@ -7,6 +7,10 @@ const SEO_MAP: Record<string, string> = {
   '/login/super-admin': 'Super Admin Login | SKSSF',
   '/login/admin': 'Admin Login | SKSSF',
   '/login/member': 'Member Access | SKSSF',
+  '/super-admin/login': 'Super Admin Login | SKSSF',
+  '/admin/login': 'Admin Login | SKSSF',
+  '/member/login': 'Member Access | SKSSF',
+  '/member/register': 'Member Register | SKSSF',
 };
 
 export default function SEOManager() {

@@ -9,7 +9,7 @@ export const api = {
       if (!session) throw new Error('Unauthenticated');
       const { data: profile, error } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
       if (error || !profile) throw new Error('Profile not found');
-      return { ...profile, address: profile.addr } as T;
+      return { user: { ...profile, address: profile.addr } } as T;
     }
 
     if (path === '/bootstrap') {
@@ -113,7 +113,7 @@ export const api = {
           code: body.code,
           member_no: body.member_no,
           phone: body.phone,
-          branch: body.branch,
+          branch: body.branch || body.unit,
           designation: body.designation,
           occupation: body.occupation,
           addr: body.addr || body.address,

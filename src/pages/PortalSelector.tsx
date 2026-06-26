@@ -52,10 +52,10 @@ export default function PortalSelector() {
               The all-in-one digital infrastructure for SKSSF unit administration. Securely manage inventory, welfare loans, and mission deployment.
             </p>
             <div className="hero-btns fu fu3">
-              <button className="btn-solid" onClick={() => navigate('/login/admin')} style={{ padding: '16px 32px', fontSize: 15, background: 'var(--teal)', color: '#fff' }}>
+              <button className="btn-solid" onClick={() => navigate('/admin/login')} style={{ padding: '16px 32px', fontSize: 15, background: 'var(--teal)', color: '#fff' }}>
                 Enter Admin Portal <ArrowRight size={18} />
               </button>
-              <button className="btn-ghost" onClick={() => navigate('/login/member')} style={{ padding: '16px 32px', fontSize: 15, borderColor: 'var(--border2)', color: 'var(--dark)' }}>Member Access</button>
+              <button className="btn-ghost" onClick={() => navigate('/member/login')} style={{ padding: '16px 32px', fontSize: 15, borderColor: 'var(--border2)', color: 'var(--dark)' }}>Member Access</button>
             </div>
 
             <div className="hero-kpi fu fu4" style={{ gap: 40, marginTop: 60 }}>
@@ -77,7 +77,7 @@ export default function PortalSelector() {
           </div>
 
           <div className="role-stack fu fu4" style={{ gap: 16 }}>
-            <button className="rcard rt" onClick={() => navigate('/login/super-admin')} style={{ padding: '24px', background: 'var(--white)', borderColor: 'var(--border)', color: 'var(--dark)' }}>
+            <button className="rcard rt" onClick={() => navigate('/super-admin/login')} style={{ padding: '24px', background: 'var(--white)', borderColor: 'var(--border)', color: 'var(--dark)' }}>
               <div className="rc-ic t" style={{ background: 'var(--teal-pale)', color: 'var(--teal)' }}><ShieldCheck size={26} /></div>
               <div>
                 <div className="rc-title" style={{ color: 'var(--dark)', fontSize: 18 }}>Super Admin</div>
@@ -86,7 +86,7 @@ export default function PortalSelector() {
               <div className="rc-arr"><ArrowRight size={18} /></div>
             </button>
 
-            <button className="rcard rg" onClick={() => navigate('/login/admin')} style={{ padding: '24px', background: 'var(--white)', borderColor: 'var(--border)', color: 'var(--dark)' }}>
+            <button className="rcard rg" onClick={() => navigate('/admin/login')} style={{ padding: '24px', background: 'var(--white)', borderColor: 'var(--border)', color: 'var(--dark)' }}>
               <div className="rc-ic g" style={{ background: 'var(--green-pale)', color: 'var(--green)' }}><Landmark size={26} /></div>
               <div>
                 <div className="rc-title" style={{ color: 'var(--dark)', fontSize: 18 }}>Unit Admin</div>
@@ -95,7 +95,7 @@ export default function PortalSelector() {
               <div className="rc-arr"><ArrowRight size={18} /></div>
             </button>
 
-            <button className="rcard ra" onClick={() => navigate('/login/member')} style={{ padding: '24px', background: 'var(--white)', borderColor: 'var(--border)', color: 'var(--dark)' }}>
+            <button className="rcard ra" onClick={() => navigate('/member/login')} style={{ padding: '24px', background: 'var(--white)', borderColor: 'var(--border)', color: 'var(--dark)' }}>
               <div className="rc-ic a" style={{ background: 'var(--amber-pale)', color: 'var(--amber2)' }}><GraduationCap size={26} /></div>
               <div>
                 <div className="rc-title" style={{ color: 'var(--dark)', fontSize: 18 }}>Member</div>

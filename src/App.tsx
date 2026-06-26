@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useParams } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import SEOManager from './components/SEOManager';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -18,6 +18,11 @@ import Settings from './pages/dashboard/Settings';
 import LoanApplication from './pages/dashboard/LoanApplication';
 import Inventory from './pages/dashboard/Inventory';
 
+function LegacyLoginRedirect() {
+  const { role } = useParams<{ role: string }>();
+  return <Navigate to={`/${role}/login`} replace />;
+}
+
 function App() {
   return (
     <AuthProvider>
@@ -27,7 +32,11 @@ function App() {
           <Route path="/" element={<PortalSelector />} />
           <Route path="/portal" element={<Navigate to="/" replace />} />
           <Route path="/inagurate" element={<LaunchPage />} />
-          <Route path="/login/:role" element={<RoleLogin />} />
+          <Route path="/login/member/register" element={<Navigate to="/member/register" replace />} />
+          <Route path="/login/member/register/" element={<Navigate to="/member/register" replace />} />
+          <Route path="/login/:role" element={<LegacyLoginRedirect />} />
+          <Route path="/:role/login" element={<RoleLogin mode="login" />} />
+          <Route path="/:role/register" element={<RoleLogin mode="register" />} />
 
           {/* Super Admin Dashboard Routes */}
           <Route
