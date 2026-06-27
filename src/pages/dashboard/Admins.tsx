@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { localDb } from '../../lib/localDb';
@@ -18,6 +18,14 @@ export default function Admins() {
   const [confirm, setConfirm] = useState<{ open: boolean; type: 'delete' | 'toggle'; admin: any } | null>(null);
   const [editingAdmin, setEditingAdmin] = useState<any | null>(null);
   const [avatar, setAvatar] = useState('');
+
+  useEffect(() => {
+    const handleDataUpdate = () => {
+      setAdmins(localDb.getUsers().filter((u: any) => u.role === 'admin'));
+    };
+    window.addEventListener('appDataUpdated', handleDataUpdate);
+    return () => window.removeEventListener('appDataUpdated', handleDataUpdate);
+  }, []);
 
   // Form refs
   const nameRef = useRef<HTMLInputElement>(null);
@@ -74,19 +82,21 @@ export default function Admins() {
       }
     };
 
+    let savedAdminId = '';
     if (editingAdmin) {
       localDb.updateUser(editingAdmin.id, adminData);
+      savedAdminId = editingAdmin.id;
     } else {
       // Check for duplicate email only on create
       if (localDb.getUsers().find((u: any) => u.email === email)) {
         setSaveError('An account with this email already exists.');
         return;
       }
-      localDb.saveUser(adminData);
+      savedAdminId = localDb.saveUser(adminData);
     }
 
     // Sync reviewer pool in portal config AND is_approver flag on user
-    const savedAdmin = localDb.getUsers().find((u: any) => u.email === email);
+    const savedAdmin = localDb.getUsers().find((u: any) => u.id === savedAdminId) || editingAdmin;
     if (savedAdmin) {
       // Always sync is_approver to match isReviewer permission
       localDb.updateUser(savedAdmin.id, { is_approver: !!adminData.perms.isReviewer });
@@ -107,16 +117,21 @@ export default function Admins() {
     }
 
     setAdmins(localDb.getUsers().filter((u: any) => u.role === 'admin'));
+    // Notify other pages (admin Settings) that data has changed
+    window.dispatchEvent(new Event('appDataUpdated'));
     setShowModal(false);
     setEditingAdmin(null);
     setAvatar('');
   };
 
   const openEdit = (admin: any) => {
-    setEditingAdmin(admin);
-    setAvatar(admin.avatar || '');
+    // Always read the freshest data from localDb to pick up any self-edits from the admin
+    const fresh = localDb.getUsers().find((u: any) => u.id === admin.id) || admin;
+    setEditingAdmin(fresh);
+    setAvatar(fresh.avatar || '');
     setShowModal(true);
   };
+
 
   const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

@@ -51,10 +51,12 @@ export const clearFrontendCache = () => {
 
 const mapUserFromApi = (u: any) => ({
   id: u.code || u.id,
+  auth_uid: u.id,           // raw Supabase Auth UUID — needed for backend API calls
   db_id: Number(u.id),
   role: u.role,
   memberNo: u.member_no || '',
   name: u.name,
+  fname: u.fname || u.perms?.fname || '',
   email: u.email,
   phone: u.phone || '',
   branch: u.branch || '',
@@ -66,6 +68,7 @@ const mapUserFromApi = (u: any) => ({
   dob: u.dob || '',
   gender: u.gender || '',
   salary: Number(u.salary || 0),
+  type: u.type || u.perms?.type || 'Regular',
   active: !!u.active,
   joinDate: u.join_date || new Date().toISOString().split('T')[0],
   sahachari_paid: u.sahachari_paid || [],
@@ -363,7 +366,16 @@ export const localDb = {
           occupation: user.occupation || '',
           designation: user.desig || '',
           is_approver: !!user.is_approver,
-          perms: user.perms || {},
+          dob: user.dob || '',
+          gender: user.gender || '',
+          salary: Number(user.salary || 0),
+          addr: user.addr || '',
+          address: user.addr || '',
+          perms: {
+            ...(user.perms || {}),
+            fname: user.fname || '',
+            type: user.type || 'Regular',
+          },
         }).then(() => syncFromBackend())
       );
     }
@@ -392,9 +404,11 @@ export const localDb = {
       backendCacheStorage.setItem('db_users', JSON.stringify(users));
 
       if (hasBackendSession()) {
+        // Use the raw Supabase Auth UUID for backend API calls
+        const backendId = users[idx].auth_uid || id;
         const passwordPayload = updates?.pass ? { password: updates.pass } : {};
         syncLater(
-          api.patch(`/users/${id}`, {
+          api.patch(`/users/${backendId}`, {
             role: users[idx].role,
             name: users[idx].name,
             email: users[idx].email,
@@ -409,7 +423,17 @@ export const localDb = {
             sah_miss: users[idx].sah_miss || [],
             total_donated: Number(users[idx].total_donated || 0),
             is_approver: !!users[idx].is_approver,
-            perms: users[idx].perms || {},
+            dob: users[idx].dob || '',
+            gender: users[idx].gender || '',
+            salary: Number(users[idx].salary || 0),
+            addr: users[idx].addr || '',
+            address: users[idx].addr || '',
+            join_date: users[idx].joinDate || '',
+            perms: {
+              ...(users[idx].perms || {}),
+              fname: users[idx].fname || '',
+              type: users[idx].type || 'Regular',
+            },
             ...passwordPayload,
           }).then(() => syncFromBackend())
         );
@@ -418,10 +442,14 @@ export const localDb = {
   },
 
   deleteUser: (id: string) => {
-    const all = localDb.getUsers().filter((u: any) => u.id !== id);
-    backendCacheStorage.setItem('db_users', JSON.stringify(all));
+    const all = localDb.getUsers();
+    const user = all.find((u: any) => u.id === id);
+    const remaining = all.filter((u: any) => u.id !== id);
+    backendCacheStorage.setItem('db_users', JSON.stringify(remaining));
     if (hasBackendSession()) {
-      syncLater(api.del(`/users/${id}`).then(() => syncFromBackend()));
+      // Use the raw Supabase Auth UUID for backend API calls
+      const backendId = user?.auth_uid || id;
+      syncLater(api.del(`/users/${backendId}`).then(() => syncFromBackend()));
     }
     return true;
   },
@@ -437,8 +465,9 @@ export const localDb = {
         u.sah_miss = (u.sah_miss || []).filter((m: number) => m !== month);
         backendCacheStorage.setItem('db_users', JSON.stringify(users));
         if (hasBackendSession()) {
+          const backendId = u.auth_uid || userId;
           syncLater(
-            api.patch(`/users/${userId}`, {
+            api.patch(`/users/${backendId}`, {
               sahachari_paid: u.sahachari_paid || [],
               sah_miss: u.sah_miss || [],
             }).then(() => syncFromBackend())

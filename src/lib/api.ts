@@ -11,7 +11,7 @@ export const api = {
       if (userError || !user) throw new Error('Unauthenticated');
       const { data: profile, error } = await supabase.from('profiles').select('*').eq('id', user.id).single();
       if (error || !profile) throw new Error('Profile not found');
-      return { user: { ...profile, address: profile.addr } } as T;
+      return { user: { ...profile, email: user.email, address: profile.addr } } as T;
     }
 
     if (path === '/bootstrap') {
@@ -27,7 +27,11 @@ export const api = {
         { data: inventoryTransactions }
       ] = await Promise.all([
         supabase.from('portal_configs').select('*').maybeSingle(),
-        supabase.from('profiles').select('*').order('created_at'),
+        fetch('/api/get-users', {
+          headers: {
+            'Authorization': `Bearer ${sessionStorage.getItem('active_api_token')}`
+          }
+        }).then(res => res.json()).then(json => ({ data: json.users || [] })).catch(() => ({ data: [] })),
         supabase.from('loans').select('*').order('created_at', { ascending: false }),
         supabase.from('campaigns').select('*').order('created_at', { ascending: false }),
         supabase.from('donations').select('*').order('created_at', { ascending: false }),
@@ -99,7 +103,7 @@ export const api = {
       const { data: profile, error: profileError } = await supabase.from('profiles').select('*').eq('id', user.id).single();
       if (profileError || !profile) throw new Error('User profile not found');
       sessionStorage.setItem('active_api_token', authData.session?.access_token || '');
-      return { token: authData.session?.access_token, user: { ...profile, address: profile.addr } } as T;
+      return { token: authData.session?.access_token, user: { ...profile, email: user.email, address: profile.addr } } as T;
     }
 
     if (path === '/auth/logout') {
@@ -630,34 +634,22 @@ export const api = {
   patch: async <T>(path: string, body?: any, _token?: string): Promise<T> => {
     if (path.startsWith('/users/')) {
       const id = path.split('/')[2];
-      const { data, error } = await supabase.from('profiles').update({
-        name: body.name,
-        role: body.role,
-        phone: body.phone,
-        branch: body.branch,
-        member_no: body.member_no,
-        occupation: body.occupation,
-        designation: body.designation,
-        avatar: body.avatar,
-        addr: body.addr || body.address,
-        dob: body.dob,
-        gender: body.gender,
-        salary: body.salary,
-        active: body.active,
-        join_date: body.join_date,
-        sahachari_paid: body.sahachari_paid,
-        sah_miss: body.sah_miss,
-        total_donated: body.total_donated,
-        perms: body.perms,
-        is_approver: body.is_approver
-      }).eq('id', id).select().single();
-      if (error) throw new Error(error.message);
-      return { data } as T;
+      const res = await fetch(`/api/update-user?id=${id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${sessionStorage.getItem('active_api_token')}`
+        },
+        body: JSON.stringify(body)
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.message || 'Failed to update user');
+      return { data: json.user } as T;
     }
 
     if (path.startsWith('/loans/')) {
       const id = path.split('/')[2];
-      const { data, error } = await supabase.from('loans').update(body).eq('id', id).select().single();
+      const { data, error } = await supabase.from('loans').update(body).eq('loan_no', id).select().single();
       if (error) throw new Error(error.message);
       return { data } as T;
     }
@@ -671,7 +663,7 @@ export const api = {
         status: body.status,
         note: body.note,
         period: body.period
-      }).eq('id', id).select().single();
+      }).eq('campaign_no', id).select().single();
       if (error) throw new Error(error.message);
       return { data } as T;
     }
@@ -699,7 +691,7 @@ export const api = {
         total_quantity: body.total_quantity,
         available_quantity: body.available_quantity,
         photo: body.photo
-      }).eq('id', id).select().single();
+      }).eq('product_no', id).select().single();
       if (error) throw new Error(error.message);
       return { data } as T;
     }
@@ -709,14 +701,14 @@ export const api = {
       const { data, error } = await supabase.from('kits').update({
         name: body.name,
         child_units: body.child_units || body.childUnits
-      }).eq('id', id).select().single();
+      }).eq('kit_no', id).select().single();
       if (error) throw new Error(error.message);
       return { data } as T;
     }
 
     if (path.startsWith('/inventory/units/')) {
       const id = path.split('/')[3];
-      const { data, error } = await supabase.from('units').update(body).eq('id', id).select().single();
+      const { data, error } = await supabase.from('units').update(body).eq('unit_no', id).select().single();
       if (error) throw new Error(error.message);
       return { data } as T;
     }
@@ -747,18 +739,18 @@ export const api = {
 
     if (path.startsWith('/inventory/kits/')) {
       const id = path.split('/')[3];
-      const { data: kit } = await supabase.from('kits').select('child_units').eq('id', id).single();
+      const { data: kit } = await supabase.from('kits').select('child_units').eq('kit_no', id).single();
       if (kit && kit.child_units && kit.child_units.length > 0) {
         await supabase.from('units').update({ status: 'available' }).in('id', kit.child_units);
       }
-      const { error } = await supabase.from('kits').delete().eq('id', id);
+      const { error } = await supabase.from('kits').delete().eq('kit_no', id);
       if (error) throw new Error(error.message);
       return { success: true } as T;
     }
 
     if (path.startsWith('/inventory/units/')) {
       const id = path.split('/')[3];
-      const { data: unit } = await supabase.from('units').select('product_id, status').eq('id', id).single();
+      const { data: unit } = await supabase.from('units').select('product_id, status').eq('unit_no', id).single();
       if (unit) {
         const { data: product } = await supabase.from('products').select('*').eq('id', unit.product_id).single();
         if (product) {
@@ -768,21 +760,21 @@ export const api = {
           }).eq('id', product.id);
         }
       }
-      const { error } = await supabase.from('units').delete().eq('id', id);
+      const { error } = await supabase.from('units').delete().eq('unit_no', id);
       if (error) throw new Error(error.message);
       return { success: true } as T;
     }
 
     if (path.startsWith('/inventory/products/')) {
       const id = path.split('/')[3];
-      const { error } = await supabase.from('products').delete().eq('id', id);
+      const { error } = await supabase.from('products').delete().eq('product_no', id);
       if (error) throw new Error(error.message);
       return { success: true } as T;
     }
 
     if (path.startsWith('/campaigns/')) {
       const id = path.split('/')[2];
-      const { error } = await supabase.from('campaigns').delete().eq('id', id);
+      const { error } = await supabase.from('campaigns').delete().eq('campaign_no', id);
       if (error) throw new Error(error.message);
       return { success: true } as T;
     }

@@ -1,8 +1,9 @@
 import { useRef, useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, ArrowRight, Eye, EyeOff, Lock, Mail, Phone, User, UserRoundPlus } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Eye, EyeOff, Lock, Mail, Phone, User, UserRoundPlus, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { api } from '../lib/api';
+import { supabase } from '../lib/supabaseClient';
 
 const SKSSF_LOGO = `data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgdmlld0JveD0iMCAwIDEwMCAxMDAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxwYXRoIGQ9Ik01MCA1TDg5IDI3LjdWNzIuM0w1MCA5NUwxMSA3Mi4zVjI3LjdMNTAgNVoiIGZpbGw9IndoaXRlIiBzdHJva2U9IiMxNDBCOEE2IiBzdHJva2Utd2lkdGg9IjQiLz4KPHBhdGggZD0iTTUwIDVMODkgMjcuN0w3My41IDM3TDUwIDE5LjVMMjYuNSAzN0wxMSAyNy43TDUwIDVaIiBmaWxsPSIjMDdBQUUxIi8+CjxwYXRoIGQ9Ik0xMSA3Mi4zTDUwIDk1TDg5IDcyLjNMODkgNjAuNUw1MCA4My41TDExIDYwLjVWMTcuM1oiIGZpbGw9IiMxNUEzNEEiLz4KPGcgY2xhc3M9Im1vc3F1ZSI+CjxwYXRoIGQ9Ik0zOCA3MEg2M0w2Mi41IDQ4QzYyLjUgNDggNTggMzggNTAgMzhDNDIgMzggMzcuNSA0OCAzNy41IDQ4TDY4IDcwWiIgZmlsbD0iIzMzMyIvPgo8cmVjdCB4PSIzNCIgeT0iNDgiIHdpZHRoPSIzIiBoZWlnaHQ9IjI1IiBmaWxsPSIjMzMzIi8+CjxjaXJjbGUgY3g9IjM1LjUiIGN5PSI0NyIgcj0iMS41IiBmaWxsPSIjMzMzIi8+CjwvZz4KPHBhdGggZD0iTTcwIDM1QzcwIDM4LjMxMzcgNjcuMzEzNyA0MSA2NCA0MUM2MC42ODYzIDQxIDU4IDM4LjMxMzcgNTggMzVDNTggMzEuNjg2MyA2MC42ODYzIDI5IDY0IDI5QzY3LjMxMzcgMjkgNzAgMzEuNjg2MyA3MCAzNVoiIGZpbGw9IiMzMzMiLz4KPC9zdmc+`;
 
@@ -37,6 +38,11 @@ export default function RoleLogin({ mode = 'login' }: RoleLoginProps) {
   const [error, setError] = useState('');
   const [emailVal, setEmailVal] = useState('');
   const [passVal, setPassVal] = useState('');
+  // Reset password modal
+  const [showReset, setShowReset] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetStatus, setResetStatus] = useState<'idle' | 'loading' | 'sent' | 'error'>('idle');
+  const [resetError, setResetError] = useState('');
 
   useEffect(() => {
     setTab(mode === 'register' ? 'su' : 'si');
@@ -61,6 +67,35 @@ export default function RoleLogin({ mode = 'login' }: RoleLoginProps) {
       navigate(prefix);
     }
     else setError('Invalid email or password. Please try again.');
+  };
+
+  const doResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resetEmail.trim()) { setResetError('Please enter your email address.'); return; }
+    setResetStatus('loading');
+    setResetError('');
+    try {
+      const redirectUrl = `${window.location.origin}/reset-password`;
+      const { error: resetErr } = await supabase.auth.resetPasswordForEmail(resetEmail.trim(), {
+        redirectTo: redirectUrl,
+      });
+      if (resetErr) {
+        setResetError(resetErr.message);
+        setResetStatus('error');
+      } else {
+        setResetStatus('sent');
+      }
+    } catch (err: any) {
+      setResetError(err?.message || 'Failed to send reset email.');
+      setResetStatus('error');
+    }
+  };
+
+  const closeResetModal = () => {
+    setShowReset(false);
+    setResetEmail('');
+    setResetStatus('idle');
+    setResetError('');
   };
 
   const doRegister = async (e: React.FormEvent) => {
@@ -97,6 +132,7 @@ export default function RoleLogin({ mode = 'login' }: RoleLoginProps) {
   };
 
   return (
+    <>
     <div id="s-login" className="login-screen screen active">
       <div className="ll">
         <button className="ll-back" onClick={() => navigate('/')}><ArrowLeft size={15} /> Back to Home</button>
@@ -169,7 +205,9 @@ export default function RoleLogin({ mode = 'login' }: RoleLoginProps) {
               </div>
               <div className="frow">
                 <label className="rem"><input type="checkbox" defaultChecked /> Remember me</label>
-                <span className="frgt">Reset Password?</span>
+                <button type="button" className="frgt" onClick={() => { setResetEmail(emailVal); setShowReset(true); }}>
+                  Reset Password?
+                </button>
               </div>
               <button type="submit" className="btn-login">Sign In <ArrowRight size={16} /></button>
               <div className="div">or</div>
@@ -255,5 +293,90 @@ export default function RoleLogin({ mode = 'login' }: RoleLoginProps) {
         }
       `}</style>
     </div>
+
+      {/* ── Reset Password Modal ── */}
+      {showReset && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 9999,
+          background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(6px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px',
+        }} onClick={(e) => { if (e.target === e.currentTarget) closeResetModal(); }}>
+          <div style={{
+            background: '#fff', borderRadius: '20px', padding: '36px 32px',
+            width: '100%', maxWidth: '420px', boxShadow: '0 24px 80px rgba(0,0,0,0.25)',
+            position: 'relative', animation: 'scaleIn .2s ease',
+          }}>
+            <button onClick={closeResetModal} style={{
+              position: 'absolute', top: '16px', right: '16px',
+              background: 'none', border: 'none', cursor: 'pointer', color: '#666', padding: '4px',
+            }}><X size={20} /></button>
+
+            {resetStatus === 'sent' ? (
+              <div style={{ textAlign: 'center', padding: '12px 0' }}>
+                <div style={{ fontSize: '48px', marginBottom: '16px' }}>📧</div>
+                <div style={{ fontSize: '19px', fontWeight: 700, color: '#111', marginBottom: '10px' }}>Check your email</div>
+                <p style={{ color: '#555', fontSize: '14px', lineHeight: 1.6, marginBottom: '24px' }}>
+                  We sent a password reset link to <strong>{resetEmail}</strong>.<br />
+                  Click the link in the email to set a new password.
+                </p>
+                <p style={{ color: '#888', fontSize: '12.5px', marginBottom: '20px' }}>
+                  Didn't receive it? Check your spam folder, or wait a minute and try again.
+                </p>
+                <button onClick={closeResetModal} style={{
+                  padding: '11px 28px', borderRadius: '10px', border: 'none',
+                  background: 'linear-gradient(135deg, #07AAE1, #0a8fc0)',
+                  color: '#fff', fontWeight: 600, cursor: 'pointer', fontSize: '14px',
+                }}>Done</button>
+              </div>
+            ) : (
+              <>
+                <div style={{ marginBottom: '24px' }}>
+                  <div style={{ fontSize: '19px', fontWeight: 700, color: '#111', marginBottom: '6px' }}>Reset Password</div>
+                  <div style={{ fontSize: '13.5px', color: '#666' }}>Enter your email and we'll send you a reset link.</div>
+                </div>
+
+                {resetError && (
+                  <div style={{
+                    background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '10px',
+                    padding: '11px 14px', marginBottom: '18px', color: '#dc2626', fontSize: '13.5px',
+                  }}>{resetError}</div>
+                )}
+
+                <form onSubmit={doResetPassword}>
+                  <div style={{ marginBottom: '20px' }}>
+                    <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#333', marginBottom: '8px' }}>Email Address</label>
+                    <div style={{ position: 'relative' }}>
+                      <span style={{ position: 'absolute', left: '13px', top: '50%', transform: 'translateY(-50%)', color: '#aaa' }}>
+                        <Mail size={15} />
+                      </span>
+                      <input
+                        type="email" required
+                        value={resetEmail}
+                        onChange={e => setResetEmail(e.target.value)}
+                        placeholder="your@email.com"
+                        autoComplete="email"
+                        style={{
+                          width: '100%', padding: '12px 14px 12px 38px', borderRadius: '10px',
+                          border: '1.5px solid #e5e7eb', fontSize: '14px', boxSizing: 'border-box',
+                          outline: 'none', color: '#111',
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <button type="submit" disabled={resetStatus === 'loading'} style={{
+                    width: '100%', padding: '13px', borderRadius: '10px', border: 'none',
+                    background: resetStatus === 'loading' ? '#93c5fd' : 'linear-gradient(135deg, #07AAE1, #0a8fc0)',
+                    color: '#fff', fontSize: '14.5px', fontWeight: 600,
+                    cursor: resetStatus === 'loading' ? 'not-allowed' : 'pointer',
+                  }}>
+                    {resetStatus === 'loading' ? '⏳ Sending…' : '📧 Send Reset Link'}
+                  </button>
+                </form>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </>
   );
 }

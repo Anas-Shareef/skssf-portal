@@ -140,6 +140,7 @@ export default async function handler(req, res) {
       success: true,
       user: {
         ...finalProfile,
+        email: newUser.email || email.trim(),
         address: finalProfile.addr
       }
     });

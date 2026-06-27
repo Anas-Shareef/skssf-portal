@@ -61,11 +61,18 @@ export default function Settings() {
   const location = useLocation();
 
   // Profile edit
-  const nameRef  = useRef<HTMLInputElement>(null);
-  const emailRef = useRef<HTMLInputElement>(null);
-  const phoneRef = useRef<HTMLInputElement>(null);
-  const occRef   = useRef<HTMLInputElement>(null);
-  const addrRef  = useRef<HTMLTextAreaElement>(null);
+  const nameRef   = useRef<HTMLInputElement>(null);
+  const fnameRef  = useRef<HTMLInputElement>(null);
+  const emailRef  = useRef<HTMLInputElement>(null);
+  const phoneRef  = useRef<HTMLInputElement>(null);
+  const occRef    = useRef<HTMLInputElement>(null);
+  const dobRef    = useRef<HTMLInputElement>(null);
+  const genderRef = useRef<HTMLSelectElement>(null);
+  const salaryRef = useRef<HTMLInputElement>(null);
+  const typeRef   = useRef<HTMLSelectElement>(null);
+  const branchRef = useRef<HTMLSelectElement>(null);
+  const desigRef  = useRef<HTMLSelectElement>(null);
+  const addrRef   = useRef<HTMLTextAreaElement>(null);
 
   // Portal config
   const [pConfig, setPConfig] = useState(() => localDb.getPortalConfig());
@@ -122,19 +129,45 @@ export default function Settings() {
   const [maintenace,  setMaintenance] = useState(false);
 
   const [confirmLogout, setConfirmLogout] = useState(false);
+  // Used to force re-render of form fields when profile is externally updated
+  const [formVersion, setFormVersion] = useState(0);
+
+  // Listen for external profile updates (e.g. admin edited member in Members page)
+  useEffect(() => {
+    const handleExternalUpdate = () => {
+      refreshProfile();
+      setFormVersion(v => v + 1);
+    };
+    window.addEventListener('appDataUpdated', handleExternalUpdate);
+    return () => window.removeEventListener('appDataUpdated', handleExternalUpdate);
+  }, []);
 
   const saveProfile = () => {
     if (!profile) return;
-    const updates = {
+    const updates: any = {
       name: nameRef.current?.value || profile.name,
       email: emailRef.current?.value || profile.email,
       phone: phoneRef.current?.value || (profile as any).phone,
       occupation: occRef.current?.value || (profile as any).occupation,
-      addr: addrRef.current?.value || (profile as any).addr,
       avatar: avatar
     };
     
+    if (role === 'member') {
+      updates.fname = fnameRef.current?.value !== undefined ? fnameRef.current?.value : ((profile as any).fname || '');
+      updates.dob = dobRef.current?.value !== undefined ? dobRef.current?.value : ((profile as any).dob || '');
+      updates.gender = genderRef.current?.value || (profile as any).gender || 'Male';
+      updates.salary = parseFloat(salaryRef.current?.value || String((profile as any).salary || '0'));
+      updates.type = typeRef.current?.value || (profile as any).type || 'Regular';
+      updates.branch = branchRef.current?.value || (profile as any).branch || 'Poyanad Central';
+      updates.addr = addrRef.current?.value !== undefined ? addrRef.current?.value : ((profile as any).addr || '');
+    } else if (role === 'admin') {
+      updates.desig = desigRef.current?.value || (profile as any).desig || 'President';
+      updates.branch = branchRef.current?.value || (profile as any).branch || 'Poyanad Central';
+    }
+    
     localDb.updateUser(profile.id, updates);
+    // Immediately notify all pages (Members, Admins lists) to re-render with updated data
+    window.dispatchEvent(new Event('appDataUpdated'));
     refreshProfile();
     showToast('✅ Profile updated successfully!');
   };
@@ -177,17 +210,40 @@ export default function Settings() {
 
   const removeAvatar = () => setAvatar('');
 
-  const changePassword = () => {
+  const changePassword = async () => {
     if (!profile) return;
     const cur  = curPassRef.current?.value || '';
     const next = newPassRef.current?.value || '';
     const conf = confPassRef.current?.value || '';
+
+    // Validate locally first
     const all  = localDb.getUsers();
     const me   = all.find((u: any) => u.email === profile.email);
     if (!me) { showToast('❌ User not found.'); return; }
-    if (me.pass && me.pass !== cur)  { showToast('❌ Current password is incorrect.'); return; }
-    if (next.length < 6)         { showToast('❌ New password must be at least 6 characters.'); return; }
-    if (next !== conf)           { showToast('❌ Passwords do not match.'); return; }
+    if (me.pass && me.pass !== cur) { showToast('❌ Current password is incorrect.'); return; }
+    if (next.length < 6)            { showToast('❌ New password must be at least 6 characters.'); return; }
+    if (next !== conf)              { showToast('❌ Passwords do not match.'); return; }
+
+    showToast('⏳ Updating password…');
+
+    try {
+      // Always update Supabase Auth first via backend (uses service role key)
+      const res = await fetch('/api/reset-own-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: profile.email, newPassword: next }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        showToast('❌ ' + (json.message || 'Failed to update password'));
+        return;
+      }
+    } catch {
+      showToast('❌ Network error — password not changed. Try again.');
+      return;
+    }
+
+    // Backend updated — now keep localDb in sync
     localDb.updateUser(me.id, { pass: next });
     if (curPassRef.current)  curPassRef.current.value  = '';
     if (newPassRef.current)  newPassRef.current.value  = '';
@@ -226,6 +282,7 @@ export default function Settings() {
             PROFILE — all roles
         ═══════════════════════════ */}
         <Section title="Profile Information" icon="👤">
+          <div key={formVersion}>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '24px', position: 'relative' }}>
             <div className="sb-av" style={{ width: '100px', height: '100px', fontSize: '32px', position: 'relative', overflow: 'hidden', background: avatar ? 'transparent' : 'var(--teal-pale)', border: '2px solid var(--teal)' }}>
               {avatar ? (
@@ -246,29 +303,97 @@ export default function Settings() {
           <div className="fgrid">
             <div className="fg2 full">
               <label className="fl2">Full Name</label>
-              <input className="fi2" defaultValue={profile?.name || ''} ref={nameRef} />
+              <input className="fi2" name="full-name" autoComplete="name" defaultValue={profile?.name || ''} ref={nameRef} />
             </div>
-            <div className="fg2 full">
+            
+            {role === 'member' && (
+              <div className="fg2">
+                <label className="fl2">Father's Name</label>
+                <input className="fi2" name="father-name" autoComplete="off" defaultValue={(profile as any)?.fname || ''} ref={fnameRef} placeholder="Father's name" />
+              </div>
+            )}
+            
+            <div className="fg2">
               <label className="fl2">Login Email</label>
-              <input className="fi2" defaultValue={profile?.email || ''} ref={emailRef} />
+              <input className="fi2" type="email" name="email" autoComplete="email" defaultValue={profile?.email || ''} ref={emailRef} />
             </div>
+            
             <div className="fg2">
               <label className="fl2">Phone Number</label>
-              <input className="fi2" defaultValue={(profile as any)?.phone || ''} ref={phoneRef} />
+              <input className="fi2" type="tel" name="phone" autoComplete="tel" defaultValue={(profile as any)?.phone || ''} ref={phoneRef} />
             </div>
+            
+            {role === 'member' && (
+              <>
+                <div className="fg2">
+                  <label className="fl2">Date of Birth</label>
+                  <input className="fi2" type="date" name="dob" autoComplete="bday" defaultValue={(profile as any)?.dob || ''} ref={dobRef} />
+                </div>
+                <div className="fg2">
+                  <label className="fl2">Gender</label>
+                  <select className="sel2" name="gender" autoComplete="off" defaultValue={(profile as any)?.gender || 'Male'} ref={genderRef}>
+                    <option>Male</option>
+                    <option>Female</option>
+                    <option>Other</option>
+                  </select>
+                </div>
+                <div className="fg2">
+                  <label className="fl2">Monthly Income</label>
+                  <input className="fi2" type="number" name="salary" autoComplete="off" defaultValue={(profile as any)?.salary || 0} ref={salaryRef} />
+                </div>
+                <div className="fg2">
+                  <label className="fl2">Membership Type</label>
+                  <select className="sel2" name="membership-type" autoComplete="off" defaultValue={(profile as any)?.type || 'Regular'} ref={typeRef}>
+                    <option>Regular</option>
+                    <option>Student</option>
+                    <option>Associate</option>
+                  </select>
+                </div>
+              </>
+            )}
+
+            {role === 'admin' && (
+              <div className="fg2">
+                <label className="fl2">Designation</label>
+                <select className="sel2" name="designation" autoComplete="off" defaultValue={(profile as any)?.desig || 'President'} ref={desigRef}>
+                  <option>President</option>
+                  <option>Secretary</option>
+                  <option>Joint Secretary</option>
+                  <option>Treasurer</option>
+                  <option>Co-ordinator</option>
+                  <option>Vice President</option>
+                </select>
+              </div>
+            )}
+
+            {(role === 'member' || role === 'admin') && (
+              <div className="fg2">
+                <label className="fl2">Unit / Branch</label>
+                <select className="sel2" name="branch" autoComplete="off" defaultValue={(profile as any)?.branch || 'Poyanad Central'} ref={branchRef}>
+                  <option>Poyanad Central</option>
+                  <option>Malappuram North</option>
+                  <option>Kozhikode East</option>
+                  <option>Kannur West</option>
+                  <option>Thrissur East</option>
+                </select>
+              </div>
+            )}
+
             <div className="fg2">
               <label className="fl2">Occupation</label>
-              <input className="fi2" defaultValue={(profile as any)?.occupation || ''} ref={occRef} placeholder="e.g. Teacher, Business" />
+              <input className="fi2" name="occupation" autoComplete="off" defaultValue={(profile as any)?.occupation || ''} ref={occRef} placeholder="e.g. Teacher, Business" />
             </div>
+
             {role === 'member' && (
               <div className="fg2 full">
                 <label className="fl2">Address</label>
-                <textarea className="ta2" rows={2} defaultValue={(profile as any)?.addr || ''} ref={addrRef} />
+                <textarea className="ta2" name="address" autoComplete="off" rows={2} defaultValue={(profile as any)?.addr || ''} ref={addrRef} placeholder="Full address" />
               </div>
             )}
           </div>
           <div style={{ marginTop: '18px' }}>
             <button className="bsm s" style={{ width: '100%' }} onClick={saveProfile}>💾 Save Profile</button>
+          </div>
           </div>
         </Section>
 
@@ -279,15 +404,15 @@ export default function Settings() {
           <div className="fgrid">
             <div className="fg2 full">
               <label className="fl2">Current Password</label>
-              <input className="fi2" type="password" placeholder="••••••••" ref={curPassRef} />
+              <input className="fi2" type="password" name="current-password" autoComplete="current-password" placeholder="••••••••" ref={curPassRef} />
             </div>
             <div className="fg2 full">
               <label className="fl2">New Password</label>
-              <input className="fi2" type="password" placeholder="Min 6 characters" ref={newPassRef} />
+              <input className="fi2" type="password" name="new-password" autoComplete="new-password" placeholder="Min 6 characters" ref={newPassRef} />
             </div>
             <div className="fg2 full">
               <label className="fl2">Confirm New Password</label>
-              <input className="fi2" type="password" placeholder="••••••••" ref={confPassRef} />
+              <input className="fi2" type="password" name="confirm-password" autoComplete="new-password" placeholder="••••••••" ref={confPassRef} />
             </div>
           </div>
           <div style={{ marginTop: '18px' }}>
@@ -325,11 +450,13 @@ export default function Settings() {
         {role === 'member' && (
           <Section title="My Account Details" icon="🪪">
             <InfoRow label="Member ID"    value={(profile as any)?.memberNo || '—'} />
+            <InfoRow label="Father's Name" value={(profile as any)?.fname    || '—'} />
             <InfoRow label="Unit"          value={(profile as any)?.branch   || '—'} />
             <InfoRow label="Member Type"   value={(profile as any)?.type     || '—'} />
             <InfoRow label="Date Joined"   value={(profile as any)?.joinDate || '—'} />
             <InfoRow label="Gender"        value={(profile as any)?.gender   || '—'} />
             <InfoRow label="Occupation"    value={(profile as any)?.occupation || '—'} />
+            <InfoRow label="Monthly Income" value={(profile as any)?.salary ? `₹${(profile as any).salary}` : '—'} />
             <div style={{ marginTop: '20px' }}>
               <button className="bsm r" style={{ width: '100%' }} onClick={() => setConfirmLogout(true)}>🚪 Sign Out</button>
             </div>
@@ -354,6 +481,7 @@ export default function Settings() {
                   { lbl: '⚙️ Edit Settings',     key: 'settings' },
                   { lbl: '🤝 Sahachari',         key: 'sahachari' },
                   { lbl: '🎁 Donations',         key: 'donations' },
+                  { lbl: '🛡️ Authorized Reviewer', key: 'isReviewer' },
                 ].map(p => {
                   const has = (profile as any)?.perms?.[p.key];
                   return (

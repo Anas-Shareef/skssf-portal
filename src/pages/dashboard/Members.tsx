@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { localDb } from '../../lib/localDb';
@@ -51,6 +51,16 @@ export default function Members() {
   const passRef = useRef<HTMLInputElement>(null);
 
   const refresh = () => setMembers(localDb.getUsers().filter((u: any) => u.role === 'member'));
+
+  // Auto-refresh when backend sync completes (triggered by Settings save, etc.)
+  useEffect(() => {
+    const handleDataUpdate = () => {
+      setMembers(localDb.getUsers().filter((u: any) => u.role === 'member'));
+    };
+    window.addEventListener('appDataUpdated', handleDataUpdate);
+    return () => window.removeEventListener('appDataUpdated', handleDataUpdate);
+  }, []);
+
 
   // Branch filter for admins
   const branchFilter = currentRole === 'admin' ? (profile?.branch || null) : null;
@@ -147,14 +157,18 @@ export default function Members() {
     }
 
     refresh();
+    // Notify other pages (member Settings) that data has changed
+    window.dispatchEvent(new Event('appDataUpdated'));
     setShowAddModal(false);
     setEditingMember(null);
     setAvatar('');
   };
 
   const openEdit = (m: any) => {
-    setEditingMember(m);
-    setAvatar(m.avatar || '');
+    // Always read the freshest data from localDb to pick up any self-edits from the member
+    const fresh = localDb.getUsers().find((u: any) => u.id === m.id) || m;
+    setEditingMember(fresh);
+    setAvatar(fresh.avatar || '');
     setShowAddModal(true);
   };
 
