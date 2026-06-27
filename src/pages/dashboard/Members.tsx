@@ -137,7 +137,7 @@ export default function Members() {
       salary: parseFloat(salaryRef.current?.value || '0'),
       branch: branchRef.current?.value || (branchFilter || 'Poyanad Central'),
       type: typeRef.current?.value || 'Regular',
-      pass: pass || (editingMember ? editingMember.pass : ''),
+      pass: pass || undefined,
       active: editingMember ? editingMember.active : true,
       memberNo: editingMember ? editingMember.memberNo : `SKSSF-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`,
       joinDate: editingMember ? editingMember.joinDate : new Date().toISOString().split('T')[0],

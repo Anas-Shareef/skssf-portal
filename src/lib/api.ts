@@ -127,7 +127,8 @@ export const api = {
       if (authError) throw new Error(authError.message);
       const user = authData.user;
       if (user) {
-        const { error: profileError } = await supabase.from('profiles').update({
+        const { error: profileError } = await supabase.from('profiles').upsert({
+          id: user.id,
           code: body.code,
           member_no: body.member_no,
           phone: body.phone,
@@ -140,8 +141,10 @@ export const api = {
           salary: body.salary,
           active: body.active !== undefined ? body.active : true,
           join_date: body.join_date || new Date().toISOString().split('T')[0],
-          is_approver: body.is_approver || false
-        }).eq('id', user.id);
+          is_approver: body.is_approver || false,
+          name: body.name,
+          role: body.role || 'member'
+        });
         if (profileError) throw new Error(profileError.message);
       }
       return { success: true } as T;

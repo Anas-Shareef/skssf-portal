@@ -69,7 +69,7 @@ export default function Admins() {
       phone: phoneRef.current?.value || '',
       branch: branchRef.current?.value || 'Poyanad Central',
       desig: designRef.current?.value || 'President',
-      pass: pass || (editingAdmin ? editingAdmin.pass : ''),
+      pass: pass || undefined,
       active: editingAdmin ? editingAdmin.active : true,
       perms: {
         loan: permLoan.current?.checked ?? true,
