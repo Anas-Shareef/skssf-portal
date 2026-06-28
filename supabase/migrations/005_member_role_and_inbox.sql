@@ -1,21 +1,21 @@
 -- Migration: Member Role Redesign and Loan Request Inbox System
 
--- 1. Extend Users Table
-ALTER TABLE users ADD COLUMN IF NOT EXISTS member_unique_code VARCHAR(12) UNIQUE;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS assigned_zone TEXT;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN DEFAULT true;
+-- 1. Extend Profiles Table (formerly users)
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS member_unique_code VARCHAR(12) UNIQUE;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS assigned_zone TEXT;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN DEFAULT true;
 
 -- 2. Extend Loans Table
-ALTER TABLE loans ADD COLUMN IF NOT EXISTS submitted_by_member_id UUID REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE loans ADD COLUMN IF NOT EXISTS submitted_by_member_id UUID REFERENCES profiles(id) ON DELETE SET NULL;
 ALTER TABLE loans ADD COLUMN IF NOT EXISTS submission_source VARCHAR(20) DEFAULT 'manual'; -- 'manual' or 'inbox'
 ALTER TABLE loans ADD COLUMN IF NOT EXISTS inbox_submission_id UUID; -- REFERENCES inbox_submissions(id) added below after table creation
 
 -- 3. Create Inbox Submissions Table
 CREATE TABLE IF NOT EXISTS inbox_submissions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    member_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    member_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
     requester_name TEXT NOT NULL,
     requester_phone TEXT NOT NULL,
     requester_address TEXT NOT NULL,
@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS checkout_requests (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     product_id TEXT NOT NULL,
     product_name TEXT NOT NULL,
-    member_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    member_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
     member_name TEXT NOT NULL,
     quantity INT NOT NULL DEFAULT 1,
     purpose TEXT NOT NULL,
@@ -62,7 +62,7 @@ CREATE TABLE IF NOT EXISTS return_requests (
     unit_id TEXT NOT NULL,
     unit_code TEXT NOT NULL,
     product_name TEXT NOT NULL,
-    member_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    member_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
     member_name TEXT NOT NULL,
     status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()),
@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS return_requests (
 );
 
 -- Indexes for fast lookup
-CREATE INDEX IF NOT EXISTS idx_users_member_code ON users(member_unique_code);
+CREATE INDEX IF NOT EXISTS idx_profiles_member_code ON profiles(member_unique_code);
 CREATE INDEX IF NOT EXISTS idx_inbox_submissions_member ON inbox_submissions(member_id);
 CREATE INDEX IF NOT EXISTS idx_inbox_submissions_status ON inbox_submissions(status);
 CREATE INDEX IF NOT EXISTS idx_checkout_requests_member ON checkout_requests(member_id);
