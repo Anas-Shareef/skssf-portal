@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS inbox_submissions (
     document_url TEXT,
     status TEXT DEFAULT 'new' CHECK (status IN ('new', 'under_review', 'forwarded', 'rejected')),
     rejection_reason TEXT,
-    forwarded_loan_id UUID REFERENCES loans(id) ON DELETE SET NULL,
+    forwarded_loan_id BIGINT REFERENCES loans(id) ON DELETE SET NULL,
     submitted_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()),
     reviewed_at TIMESTAMP WITH TIME ZONE,
     actioned_at TIMESTAMP WITH TIME ZONE
