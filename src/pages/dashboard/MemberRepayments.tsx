@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabaseClient';
-import { AlertTriangle, MessageSquare, Plus, Phone } from 'lucide-react';
+import { AlertTriangle, MessageSquare, Plus, Phone, CheckCircle2 } from 'lucide-react';
 
 export default function MemberRepayments() {
   const { profile } = useAuth();
