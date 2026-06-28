@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS loan_requests (
   referred_member_id    UUID REFERENCES profiles(id) ON DELETE SET NULL,
   status                TEXT NOT NULL DEFAULT 'DRAFT_UNASSIGNED'
                           CHECK (status IN ('DRAFT_UNASSIGNED','CONVERTED','DISMISSED')),
-  converted_to_loan_id  UUID,  -- FK added after loans table exists
+  converted_to_loan_id  BIGINT,  -- FK added after loans table exists
   dismissal_reason      TEXT,
   dismissed_by          UUID REFERENCES profiles(id) ON DELETE SET NULL,
   created_at            TIMESTAMPTZ DEFAULT NOW()
@@ -110,7 +110,7 @@ WHERE workflow_status IS NULL OR workflow_status = '';
 -- ── 5. loan_audit_log ─────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS loan_audit_log (
   id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  loan_id             UUID NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
+  loan_id             BIGINT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
   action              TEXT NOT NULL,
   performed_by_user_id UUID REFERENCES profiles(id) ON DELETE SET NULL,
   performed_at        TIMESTAMPTZ DEFAULT NOW(),
@@ -120,7 +120,7 @@ CREATE TABLE IF NOT EXISTS loan_audit_log (
 -- ── 6. repayment_installments ─────────────────────────────────
 CREATE TABLE IF NOT EXISTS repayment_installments (
   id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  loan_id             UUID NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
+  loan_id             BIGINT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
   installment_number  INTEGER NOT NULL,
   due_date            DATE NOT NULL,
   amount_due          DECIMAL(12,2) NOT NULL,
@@ -148,7 +148,7 @@ CREATE TABLE IF NOT EXISTS repayment_notifications_sent (
 -- ── 8. requester_notifications ───────────────────────────────
 CREATE TABLE IF NOT EXISTS requester_notifications (
   id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  loan_id             UUID NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
+  loan_id             BIGINT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
   installment_id      UUID REFERENCES repayment_installments(id) ON DELETE SET NULL,
   sent_by_member_id   UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
   sent_at             TIMESTAMPTZ DEFAULT NOW(),
