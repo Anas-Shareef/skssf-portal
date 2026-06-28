@@ -8,5 +8,11 @@
       "source": "/(.*)",
       "destination": "/index.html"
     }
+  ],
+  "crons": [
+    {
+      "path": "/api/repayment-alert-runner",
+      "schedule": "30 2 * * *"
+    }
   ]
 }

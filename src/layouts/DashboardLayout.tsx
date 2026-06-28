@@ -75,11 +75,23 @@ export default function DashboardLayout() {
   const [, setDataVersion] = useState(0);
   const [pConfig, setPConfig] = useState(() => localDb.getPortalConfig());
   const [dismissedNotifs, setDismissedNotifs] = useState<string[]>([]);
+  const [notifications, setNotifications] = useState<any[]>([]);
+
+  const fetchNotifs = async () => {
+    try {
+      const list = await localDb.getNotifications();
+      setNotifications(list);
+    } catch (err) {
+      console.warn('Failed to load notifications:', err);
+    }
+  };
 
   useEffect(() => {
+    fetchNotifs();
     const handleDataUpdate = () => {
       setPConfig(localDb.getPortalConfig());
       setDataVersion((value) => value + 1);
+      fetchNotifs();
     };
     window.addEventListener('portalConfigUpdated', handleDataUpdate);
     window.addEventListener('appDataUpdated', handleDataUpdate);
@@ -220,31 +232,89 @@ export default function DashboardLayout() {
             <div className="tb-title">{getPageTitle()}</div>
           </div>
           <div className="tb-right">
-            <button className="ico-btn" onClick={() => setShowNotifs(!showNotifs)} aria-label="Notifications">
+            <button className="ico-btn" onClick={() => setShowNotifs(!showNotifs)} aria-label="Notifications" style={{ position: 'relative' }}>
               <Bell size={18} />
-              {(recentLogs.length > 0 || pendingRepaymentCount > 0) && <div className="notif-dot"></div>}
+              {notifications.filter((n: any) => !n.is_read).length > 0 && (
+                <div style={{
+                  position: 'absolute', top: '-4px', right: '-4px',
+                  background: 'var(--red)', color: '#fff', fontSize: '9px', fontWeight: 800,
+                  borderRadius: '50%', minWidth: '14px', height: '14px',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  padding: '2px', border: '1.5px solid #fff'
+                }}>
+                  {notifications.filter((n: any) => !n.is_read).length}
+                </div>
+              )}
             </button>
             <button className="ico-btn" aria-label="Search"><Search size={18} /></button>
 
             {showNotifs && (
-              <div className="notif-pop show">
-                <div className="np-head">
-                  <span style={{ fontWeight: 700, fontSize: '13.5px' }}>Recent Activity</span>
-                  <button className="icon-clear" onClick={() => setShowNotifs(false)}><X size={15} /></button>
-                </div>
-                {recentLogs.length === 0 ? (
-                  <div className="np-item"><div className="np-text">No activity yet.</div></div>
-                ) : recentLogs.map((log: any, i: number) => (
-                  <div className="np-item" key={i}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
-                      <div>
-                        <div className="np-text">{log.action} - <b>{log.by}</b></div>
-                        <div className="np-time">{log.date}</div>
-                      </div>
-                      <div className="np-unread"></div>
-                    </div>
+              <div className="notif-pop show" style={{ width: '320px', maxHeight: '400px', overflowY: 'auto' }}>
+                <div className="np-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', borderBottom: '1px solid var(--border)' }}>
+                  <span style={{ fontWeight: 700, fontSize: '13px', color: 'var(--dark)' }}>Notifications</span>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    {notifications.filter((n: any) => !n.is_read).length > 0 && (
+                      <button 
+                        style={{ background: 'none', border: 'none', color: 'var(--teal)', fontSize: '11px', fontWeight: 700, cursor: 'pointer', padding: 0 }}
+                        onClick={async () => {
+                          await localDb.markNotificationsAsRead();
+                          fetchNotifs();
+                        }}
+                      >
+                        Mark all as read
+                      </button>
+                    )}
+                    <button className="icon-clear" onClick={() => setShowNotifs(false)} style={{ display: 'flex' }}><X size={14} /></button>
                   </div>
-                ))}
+                </div>
+                {notifications.length === 0 ? (
+                  <div style={{ padding: '24px 14px', textAlign: 'center', color: 'var(--muted)', fontSize: '12px' }}>
+                    🔔 No notifications yet.
+                  </div>
+                ) : (
+                  notifications.map((n: any) => {
+                    const icon = n.type === 'overdue' ? '⚠️' : (n.type === 'urgent' ? '⏳' : 'ℹ️');
+                    const bg = n.type === 'overdue' ? '#fee2e2' : (n.type === 'urgent' ? '#fef3c7' : '#e0f2fe');
+                    
+                    return (
+                      <div 
+                        key={n.id} 
+                        onClick={async () => {
+                          if (!n.is_read) {
+                            await localDb.markNotificationsAsRead();
+                            fetchNotifs();
+                          }
+                          setShowNotifs(false);
+                          navigate(`${prefix}/repayments?loanId=${n.loan_id}`);
+                        }}
+                        style={{
+                          display: 'flex', gap: '10px', padding: '12px 14px',
+                          borderBottom: '1px solid var(--border2)', cursor: 'pointer',
+                          background: n.is_read ? 'transparent' : 'var(--teal-pale)',
+                          transition: 'background 0.2s',
+                          textAlign: 'left'
+                        }}
+                      >
+                        <div style={{
+                          width: '28px', height: '28px', borderRadius: '50%',
+                          background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontSize: '14px', flexShrink: 0
+                        }}>
+                          {icon}
+                        </div>
+                        <div style={{ flexGrow: 1 }}>
+                          <div style={{ fontSize: '12px', fontWeight: n.is_read ? 500 : 700, color: 'var(--dark)', lineHeight: '1.4' }}>
+                            {n.message}
+                          </div>
+                          <div style={{ fontSize: '10px', color: 'var(--muted)', marginTop: '4px', display: 'flex', justifyContent: 'space-between' }}>
+                            <span>Ref: {n.loan_id}</span>
+                            <span>{new Date(n.created_at).toLocaleDateString('en-GB')}</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
               </div>
             )}
           </div>

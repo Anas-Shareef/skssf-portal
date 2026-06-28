@@ -1,5 +1,61 @@
 import { supabase } from './supabaseClient';
 
+const isTableMissingError = (err: any) => {
+  return err && (err.code === 'PGRST204' || err.code === 'PGRST205' || String(err.message || '').includes('relation') || String(err.message || '').includes('does not exist'));
+};
+
+const calculateRepaymentsOverview = (installments: any[]) => {
+  const today = new Date();
+  const nextWeek = new Date();
+  nextWeek.setDate(today.getDate() + 7);
+  const thisMonthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+  const thisMonthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+
+  let dueThisWeekCount = 0;
+  let dueThisWeekAmt = 0;
+  let overdueCount = 0;
+  let overdueAmt = 0;
+  let receivedThisMonthAmt = 0;
+  let totalOutstanding = 0;
+
+  installments.forEach(inst => {
+    const dueDate = new Date(inst.due_date);
+    const amountDue = Number(inst.amount_due || 0);
+    const paidAmount = Number(inst.paid_amount || 0);
+    const isPaid = inst.status === 'paid';
+    const isOverdue = inst.status === 'overdue' || (inst.status === 'pending' && dueDate < today);
+
+    totalOutstanding += Math.max(0, amountDue - paidAmount);
+
+    if (!isPaid) {
+      if (dueDate >= today && dueDate <= nextWeek) {
+        dueThisWeekCount++;
+        dueThisWeekAmt += (amountDue - paidAmount);
+      }
+      if (isOverdue) {
+        overdueCount++;
+        overdueAmt += (amountDue - paidAmount);
+      }
+    } else {
+      if (inst.paid_date) {
+        const paidDate = new Date(inst.paid_date);
+        if (paidDate >= thisMonthStart && paidDate <= thisMonthEnd) {
+          receivedThisMonthAmt += paidAmount;
+        }
+      }
+    }
+  });
+
+  return {
+    dueThisWeekCount,
+    dueThisWeekAmt,
+    overdueCount,
+    overdueAmt,
+    receivedThisMonthAmt,
+    totalOutstanding
+  };
+};
+
 export const api = {
   baseUrl: '',
 
@@ -76,8 +132,157 @@ export const api = {
       } as T;
     }
 
+    if (path.startsWith('/loans/') && path.endsWith('/repayments')) {
+      const loanId = path.split('/')[2];
+      try {
+        const { data, error } = await supabase.from('loan_installments').select('*').eq('loan_id', loanId).order('installment_number');
+        if (error) throw error;
+        return { data } as T;
+      } catch (err: any) {
+        if (isTableMissingError(err)) {
+          const { data: loan } = await supabase.from('loans').select('id, amt, months, repayments').eq('loan_no', loanId).maybeSingle();
+          if (loan) {
+            const installments = (loan.repayments || []).map((r: any, idx: number) => ({
+              id: r.id || `inst-${loan.id}-${idx}`,
+              loan_id: loan.id,
+              installment_number: idx + 1,
+              due_date: r.due || r.due_date || '',
+              amount_due: Number(r.amt || r.amount_due || (loan.amt / (loan.months || 1))),
+              status: r.paid ? 'paid' : (r.request?.status === 'pending' ? 'pending' : (r.due && new Date(r.due) < new Date() ? 'overdue' : 'pending')),
+              paid_date: r.paidDate || r.paid_date || null,
+              paid_amount: r.paid_amount || null,
+              payment_method: r.method || r.payment_method || null,
+              payment_reference: r.ref || r.payment_reference || null,
+              marked_by: r.marked_by || null,
+              notification_sent_at: r.notification_sent_at || {},
+              member_notified_requester_at: r.member_notified_requester_at || null,
+              notes: r.note || r.notes || null
+            }));
+            return { data: installments } as T;
+          }
+        }
+        throw err;
+      }
+    }
+
+    if (path === '/admin/repayments/overview') {
+      try {
+        const { data: installments, error } = await supabase.from('loan_installments').select('*');
+        if (error) throw error;
+        return { data: calculateRepaymentsOverview(installments || []) } as T;
+      } catch (err: any) {
+        if (isTableMissingError(err)) {
+          const { data: loans } = await supabase.from('loans').select('id, amt, repayments');
+          const allInsts: any[] = [];
+          (loans || []).forEach((loan: any) => {
+            (loan.repayments || []).forEach((r: any, idx: number) => {
+              allInsts.push({
+                due_date: r.due || r.due_date || '',
+                amount_due: Number(r.amt || (loan.amt / (loan.repayments.length || 1))),
+                status: r.paid ? 'paid' : (r.request?.status === 'pending' ? 'pending' : (r.due && new Date(r.due) < new Date() ? 'overdue' : 'pending')),
+                paid_amount: r.paid_amount || (r.paid ? r.amt : 0),
+                paid_date: r.paidDate || r.paid_date || null
+              });
+            });
+          });
+          return { data: calculateRepaymentsOverview(allInsts) } as T;
+        }
+        throw err;
+      }
+    }
+
+    if (path.startsWith('/admin/repayments')) {
+      try {
+        const { data, error } = await supabase.from('loan_installments').select('*, loans(*)').order('due_date');
+        if (error) throw error;
+        return { data } as T;
+      } catch (err: any) {
+        if (isTableMissingError(err)) {
+          const { data: loans } = await supabase.from('loans').select('*');
+          const allInsts: any[] = [];
+          (loans || []).forEach((loan: any) => {
+            (loan.repayments || []).forEach((r: any, idx: number) => {
+              allInsts.push({
+                id: r.id || `inst-${loan.id}-${idx}`,
+                loan_id: loan.id,
+                loan: {
+                  id: loan.loan_no || loan.id,
+                  loan_no: loan.loan_no,
+                  name: loan.name,
+                  user_id: loan.user_id || loan.applicant_id,
+                  branch: loan.branch
+                },
+                installment_number: idx + 1,
+                due_date: r.due || r.due_date || '',
+                amount_due: Number(r.amt || (loan.amt / (loan.repayments.length || 1))),
+                status: r.paid ? 'paid' : (r.request?.status === 'pending' ? 'pending' : (r.due && new Date(r.due) < new Date() ? 'overdue' : 'pending')),
+                paid_date: r.paidDate || r.paid_date || null,
+                paid_amount: r.paid_amount || null,
+                payment_method: r.method || r.payment_method || null,
+                payment_reference: r.ref || r.payment_reference || null,
+                member_notified_requester_at: r.member_notified_requester_at || null
+              });
+            });
+          });
+          return { data: allInsts } as T;
+        }
+        throw err;
+      }
+    }
+
+    if (path === '/notifications') {
+      const token = _token || sessionStorage.getItem('active_api_token') || '';
+      const { data: { user } } = await supabase.auth.getUser(token);
+      if (!user) throw new Error('Unauthenticated');
+
+      try {
+        const { data, error } = await supabase.from('notifications').select('*').eq('user_id', user.id).order('created_at', { ascending: false });
+        if (error) throw error;
+        return { data } as T;
+      } catch (err: any) {
+        if (isTableMissingError(err)) {
+          const notifs = JSON.parse(localStorage.getItem('db_notifications') || '[]');
+          const userNotifs = notifs.filter((n: any) => n.user_id === user.id).sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+          return { data: userNotifs } as T;
+        }
+        throw err;
+      }
+    }
+
+    if (path === '/settings/notifications') {
+      try {
+        const { data, error } = await supabase.from('notification_settings').select('*').eq('id', 1).maybeSingle();
+        if (error) throw error;
+        return { data: data || {
+          alert_days_advance_1: 15,
+          alert_days_advance_2: 7,
+          alert_days_urgent: 3,
+          alert_days_final: 1,
+          overdue_alert_daily_days: 7,
+          overdue_alert_weekly_after: 7,
+          overdue_stop_days: 60
+        } } as T;
+      } catch (err: any) {
+        if (isTableMissingError(err)) {
+          const settings = JSON.parse(localStorage.getItem('db_notification_settings') || '{}');
+          return { data: {
+            alert_days_advance_1: 15,
+            alert_days_advance_2: 7,
+            alert_days_urgent: 3,
+            alert_days_final: 1,
+            overdue_alert_daily_days: 7,
+            overdue_alert_weekly_after: 7,
+            overdue_stop_days: 60,
+            ...settings
+          } } as T;
+        }
+        throw err;
+      }
+    }
+
     throw new Error(`Endpoint GET ${path} not implemented`);
   },
+
 
   post: async <T>(path: string, body?: any, _token?: string): Promise<T> => {
     if (path === '/loans/otp/send' || path === '/loans/otp/verify') {
@@ -631,6 +836,109 @@ export const api = {
 
 
 
+    if (path.startsWith('/loans/') && path.endsWith('/repayments/generate')) {
+      const loanId = path.split('/')[2];
+      const disbursementDate = body.disbursement_date || new Date().toISOString().split('T')[0];
+      const tenureMonths = Number(body.tenure_months || 12);
+      const frequency = body.repayment_frequency || 'monthly';
+
+      const { data: loan, error: fetchErr } = await supabase.from('loans').select('*').eq('loan_no', loanId).single();
+      if (fetchErr || !loan) throw new Error('Loan not found');
+
+      const installmentsCount = frequency === 'one_time' ? 1 : (frequency === 'quarterly' ? Math.ceil(tenureMonths / 3) : tenureMonths);
+      const installmentAmount = Number((loan.amt / installmentsCount).toFixed(2));
+
+      const installments: any[] = [];
+      const repaymentsArrayForFallback: any[] = [];
+
+      for (let i = 0; i < installmentsCount; i++) {
+        const dueDate = new Date(disbursementDate);
+        if (frequency === 'monthly') {
+          dueDate.setMonth(dueDate.getMonth() + i + 1);
+        } else if (frequency === 'quarterly') {
+          dueDate.setMonth(dueDate.getMonth() + (i + 1) * 3);
+        } else {
+          dueDate.setMonth(dueDate.getMonth() + tenureMonths);
+        }
+
+        const dueDateStr = dueDate.toISOString().split('T')[0];
+
+        installments.push({
+          loan_id: loan.id,
+          installment_number: i + 1,
+          due_date: dueDateStr,
+          amount_due: installmentAmount,
+          status: 'pending',
+          notification_sent_at: {},
+          notes: ''
+        });
+
+        repaymentsArrayForFallback.push({
+          due: dueDateStr,
+          amt: installmentAmount,
+          paid: false,
+          request: null
+        });
+      }
+
+      const loanUpdates = {
+        disbursement_date: disbursementDate,
+        tenure_months: tenureMonths,
+        repayment_frequency: frequency,
+        installment_amount: installmentAmount,
+        total_installments: installmentsCount,
+        outstanding_balance: loan.amt,
+        repayment_status: 'on_track',
+        repayments: repaymentsArrayForFallback
+      };
+
+      await supabase.from('loans').update(loanUpdates).eq('id', loan.id);
+
+      try {
+        await supabase.from('loan_installments').delete().eq('loan_id', loan.id);
+        const { error: insertErr } = await supabase.from('loan_installments').insert(installments);
+        if (insertErr) throw insertErr;
+      } catch (err: any) {
+        if (isTableMissingError(err)) {
+          console.log('loan_installments table missing, stored repayments in loans JSON column.');
+        } else {
+          throw err;
+        }
+      }
+
+      return { success: true } as T;
+    }
+
+    if (path.startsWith('/loans/') && path.includes('/repayments/') && path.endsWith('/notify-requester')) {
+      const loanId = path.split('/')[2];
+      const installmentId = path.split('/')[4];
+      const timestamp = new Date().toISOString();
+
+      try {
+        const { error } = await supabase
+          .from('loan_installments')
+          .update({ member_notified_requester_at: timestamp })
+          .eq('id', installmentId);
+        if (error) throw error;
+      } catch (err: any) {
+        if (isTableMissingError(err)) {
+          const { data: loan } = await supabase.from('loans').select('*').eq('loan_no', loanId).single();
+          if (loan) {
+            const instIdx = parseInt(installmentId.split('-').pop() || '0');
+            const repayments = loan.repayments || [];
+            if (repayments[instIdx]) {
+              repayments[instIdx].member_notified_requester_at = timestamp;
+              await supabase.from('loans').update({ repayments }).eq('id', loan.id);
+            }
+          }
+        } else {
+          throw err;
+        }
+      }
+
+      return { success: true } as T;
+    }
+
     throw new Error(`Endpoint POST ${path} not implemented`);
   },
 
@@ -714,6 +1022,137 @@ export const api = {
       const { data, error } = await supabase.from('units').update(body).eq('unit_no', id).select().single();
       if (error) throw new Error(error.message);
       return { data } as T;
+    }
+
+    if (path.startsWith('/loans/') && path.includes('/repayments/') && path.endsWith('/pay')) {
+      const loanId = path.split('/')[2];
+      const installmentId = path.split('/')[4];
+      const { paid_amount, paid_date, payment_method, payment_reference, notes, marked_by } = body;
+
+      const { data: loan, error: fetchErr } = await supabase.from('loans').select('*').eq('loan_no', loanId).single();
+      if (fetchErr || !loan) throw new Error('Loan not found');
+
+      let isRelationalTableSuccess = false;
+      try {
+        const { error } = await supabase
+          .from('loan_installments')
+          .update({
+            status: Number(paid_amount) >= Number(body.amount_due) ? 'paid' : 'partially_paid',
+            paid_amount,
+            paid_date,
+            payment_method,
+            payment_reference,
+            notes,
+            marked_by
+          })
+          .eq('id', installmentId);
+        if (error) throw error;
+        isRelationalTableSuccess = true;
+      } catch (err: any) {
+        if (!isTableMissingError(err)) throw err;
+      }
+
+      const repayments = loan.repayments || [];
+      const instIdx = installmentId.includes('-') ? parseInt(installmentId.split('-').pop() || '0') : 0;
+      
+      let targetIdx = instIdx;
+      if (isNaN(targetIdx) || !repayments[targetIdx]) {
+        targetIdx = repayments.findIndex((r: any) => r.due === body.due_date);
+        if (targetIdx === -1) targetIdx = 0;
+      }
+
+      if (repayments[targetIdx]) {
+        repayments[targetIdx].paid = true;
+        repayments[targetIdx].paidDate = paid_date;
+        repayments[targetIdx].paid_amount = paid_amount;
+        repayments[targetIdx].method = payment_method;
+        repayments[targetIdx].ref = payment_reference;
+        repayments[targetIdx].note = notes;
+        repayments[targetIdx].marked_by = marked_by;
+        repayments[targetIdx].request = {
+          status: 'approved',
+          amt: paid_amount,
+          payDate: paid_date,
+          mode: payment_method,
+          ref: payment_reference,
+          memberNote: notes,
+          reviewedAt: new Date().toISOString()
+        };
+      }
+
+      let calculatedPaid = 0;
+      if (isRelationalTableSuccess) {
+        const { data: insts } = await supabase.from('loan_installments').select('paid_amount').eq('loan_id', loan.id).in('status', ['paid', 'partially_paid']);
+        calculatedPaid = (insts || []).reduce((s, i) => s + Number(i.paid_amount || 0), 0);
+      } else {
+        calculatedPaid = repayments.reduce((s, r) => s + Number(r.paid_amount || (r.paid ? r.amt : 0) || 0), 0);
+      }
+
+      const outstandingBalance = Math.max(0, loan.amt - calculatedPaid);
+      const isClosed = outstandingBalance <= 1.0;
+
+      const loanUpdates = {
+        repayments,
+        outstanding_balance: outstandingBalance,
+        repayment_status: isClosed ? 'closed' : loan.repayment_status,
+        status: isClosed ? 'completed' : loan.status
+      };
+
+      await supabase.from('loans').update(loanUpdates).eq('id', loan.id);
+
+      return { success: true } as T;
+    }
+
+    if (path === '/notifications/read') {
+      const token = _token || sessionStorage.getItem('active_api_token') || '';
+      const { data: { user } } = await supabase.auth.getUser(token);
+      if (!user) throw new Error('Unauthenticated');
+
+      try {
+        await supabase.from('notifications').update({ is_read: true }).eq('user_id', user.id);
+      } catch (err: any) {
+        if (isTableMissingError(err)) {
+          const notifs = JSON.parse(localStorage.getItem('db_notifications') || '[]');
+          notifs.forEach((n: any) => {
+            if (n.user_id === user.id) n.is_read = true;
+          });
+          localStorage.setItem('db_notifications', JSON.stringify(notifs));
+        } else {
+          throw err;
+        }
+      }
+
+      return { success: true } as T;
+    }
+
+    if (path === '/settings/notifications') {
+      const token = _token || sessionStorage.getItem('active_api_token') || '';
+      const { data: { user } } = await supabase.auth.getUser(token);
+      
+      try {
+        const { data: existing } = await supabase.from('notification_settings').select('id').eq('id', 1).maybeSingle();
+        if (existing) {
+          await supabase.from('notification_settings').update({
+            ...body,
+            updated_by: user?.id,
+            updated_at: new Date().toISOString()
+          }).eq('id', 1);
+        } else {
+          await supabase.from('notification_settings').insert({
+            id: 1,
+            ...body,
+            updated_by: user?.id
+          });
+        }
+      } catch (err: any) {
+        if (isTableMissingError(err)) {
+          localStorage.setItem('db_notification_settings', JSON.stringify(body));
+        } else {
+          throw err;
+        }
+      }
+
+      return { success: true } as T;
     }
 
     throw new Error(`Endpoint PATCH ${path} not implemented`);

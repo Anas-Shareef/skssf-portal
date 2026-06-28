@@ -40,14 +40,39 @@ export default function Repayments() {
   const isAdmin = role === 'admin' || role === 'super';
   const [loans, setLoans] = useState<any[]>(() => localDb.getLoans());
   const [search, setSearch] = useState('');
-  const [adminTab, setAdminTab] = useState<'queue' | 'schedules' | 'manual'>('queue');
+  const [adminTab, setAdminTab] = useState<'overview' | 'queue' | 'schedules'>('overview');
   const [pipelineFilter, setPipelineFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('pending');
+
+  /* overview & table filters state */
+  const [fStatus, setFStatus] = useState('');
+  const [fDateRange, setFDateRange] = useState('all');
+  const [fMember, setFMember] = useState('');
+  const [fSearch, setFSearch] = useState('');
+  const [overview, setOverview] = useState<any>(null);
+  const [installments, setInstallments] = useState<any[]>([]);
 
   /* modals */
   const [submitModal, setSubmitModal] = useState<{ loan: any; idx: number; edit?: boolean } | null>(null);
   const [historyModal, setHistoryModal] = useState<{ loan: any } | null>(null);
-  const [recordPaymentModal, setRecordPaymentModal] = useState<{ loan: any } | null>(null);
+  const [recordPaymentModal, setRecordPaymentModal] = useState<{ loan: any; installment?: any } | null>(null);
+  const [notifyModal, setNotifyModal] = useState<{ loan: any; installment: any } | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ loan: any; idx: number } | null>(null);
+
+  useEffect(() => {
+    const loadOverviewAndInstallments = async () => {
+      try {
+        const ov = await api.get<any>('/admin/repayments/overview');
+        setOverview(ov.data);
+        const insts = await api.get<any>('/admin/repayments');
+        setInstallments(insts.data || []);
+      } catch (err) {
+        console.warn('Failed to load repayments overview/installments:', err);
+      }
+    };
+    if (isAdmin) {
+      loadOverviewAndInstallments();
+    }
+  }, [adminTab, loans, isAdmin]);
   const [selectedLoans, setSelectedLoans] = useState<string[]>([]);
   const [selectedQueueIds, setSelectedQueueIds] = useState<string[]>([]);
   // All admins (for committee display)
@@ -75,6 +100,17 @@ export default function Repayments() {
       }
     }
   }, [location, loans]);
+  useEffect(() => {
+    if (recordPaymentModal?.installment) {
+      const inst = recordPaymentModal.installment;
+      setMfInst(String(inst.installment_number - 1));
+      setMfAmt(String(inst.amount_due));
+      setMfDate(new Date().toISOString().split('T')[0]);
+      setMfMode('Cash');
+      setMfRef('');
+      setMfProof('');
+    }
+  }, [recordPaymentModal]);
 
   /* review modal */
   const [showReview, setShowReview] = useState(false);
@@ -554,6 +590,78 @@ export default function Repayments() {
                   </div>
                 );
               })}
+            </div>
+            
+            {/* Repayment Schedule Tabular Table */}
+            <div style={{ marginTop: '30px', background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: '20px', overflow: 'hidden', boxShadow: '0 4px 15px rgba(0,0,0,0.02)' }}>
+              <div style={{ padding: '18px 24px', borderBottom: '1.5px solid #e2e8f0', background: '#f8fafc', textAlign: 'left' }}>
+                <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 900, color: 'var(--dark)' }}>Repayment Schedule Table</h4>
+              </div>
+              <table className="tbl" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                <thead>
+                  <tr style={{ background: '#f8fafc', borderBottom: '1.5px solid #e2e8f0' }}>
+                    <th style={{ padding: '14px 20px', fontSize: '10.5px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase' }}>#</th>
+                    <th style={{ padding: '14px 20px', fontSize: '10.5px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase' }}>Due Date</th>
+                    <th style={{ padding: '14px 20px', fontSize: '10.5px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase' }}>Amount Due</th>
+                    <th style={{ padding: '14px 20px', fontSize: '10.5px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase' }}>Status</th>
+                    <th style={{ padding: '14px 20px', fontSize: '10.5px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase' }}>Days Left</th>
+                    <th style={{ padding: '14px 20px', fontSize: '10.5px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase' }}>Paid Date</th>
+                    <th style={{ padding: '14px 20px', fontSize: '10.5px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', textAlign: 'right' }}>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {reps.map((r: any, idx: number) => {
+                    const s = statusFor(r);
+                    const isPaid = s === 'paid';
+                    const dueDate = new Date(r.due);
+                    const today = new Date();
+                    const diffTime = dueDate.getTime() - today.getTime();
+                    const daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                    
+                    const statusColors: Record<string, { bg: string, text: string }> = {
+                      paid: { bg: '#dcfce7', text: '#15803d' },
+                      under_review: { bg: '#fef3c7', text: '#d97706' },
+                      partial: { bg: '#e0e7ff', text: '#4338ca' },
+                      rejected: { bg: '#fee2e2', text: '#b91c1c' },
+                      late: { bg: '#fee2e2', text: '#b91c1c' },
+                      upcoming: { bg: '#f1f5f9', text: '#475569' }
+                    };
+                    const style = statusColors[s] || statusColors.upcoming;
+
+                    return (
+                      <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                        <td style={{ padding: '14px 20px', fontSize: '13px', fontWeight: 700 }}>{idx + 1}</td>
+                        <td style={{ padding: '14px 20px', fontSize: '13px' }}>{fmtDate(r.due)}</td>
+                        <td style={{ padding: '14px 20px', fontSize: '13px', fontWeight: 700 }}>{fmt(r.amt)}</td>
+                        <td style={{ padding: '14px 20px' }}>
+                          <span style={{ display: 'inline-block', padding: '3px 8px', borderRadius: '10px', fontSize: '10.5px', fontWeight: 800, background: style.bg, color: style.text, textTransform: 'uppercase' }}>
+                            {STATUS_LABEL[s]}
+                          </span>
+                        </td>
+                        <td style={{ padding: '14px 20px', fontSize: '13px' }}>
+                          {isPaid ? '-' : (daysRemaining === 0 ? 'Due Today' : (daysRemaining < 0 ? `${Math.abs(daysRemaining)} days overdue` : `${daysRemaining} days`))}
+                        </td>
+                        <td style={{ padding: '14px 20px', fontSize: '13px', color: 'var(--muted)' }}>
+                          {r.paid_date || r.paidDate || '-'}
+                        </td>
+                        <td style={{ padding: '14px 20px', textAlign: 'right' }}>
+                          {!isPaid && (
+                            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                              <button 
+                                onClick={() => setNotifyModal({ loan, installment: { ...r, installment_number: idx + 1 } })}
+                                className="bsm o"
+                                style={{ padding: '5px 10px', fontSize: '11px', borderRadius: '6px' }}
+                              >
+                                📣 Notify Requester
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           </div>
         </div>
@@ -1059,6 +1167,7 @@ export default function Repayments() {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 30 }}>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               {([
+                { key: 'overview', label: '📊 Repayment Overview', badge: 0 },
                 { key: 'queue', label: '⚡ Transaction Pipeline', badge: allPending.length },
                 { key: 'schedules', label: '📋 Loan Schedules', badge: 0 },
               ] as const).map(t => (
@@ -1083,6 +1192,221 @@ export default function Repayments() {
               ))}
             </div>
           </div>
+
+          {adminTab === 'overview' && (
+            <div>
+              {/* Summary Cards */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '20px', marginBottom: '30px' }}>
+                <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '20px', boxShadow: '0 4px 15px rgba(0,0,0,0.03)' }}>
+                  <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.5px' }}>Due This Week</div>
+                  <div style={{ fontSize: '24px', fontWeight: 900, color: 'var(--dark)', marginTop: '8px' }}>
+                    {fmt(overview?.dueThisWeekAmt || 0)}
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px' }}>
+                    {overview?.dueThisWeekCount || 0} installment(s) pending
+                  </div>
+                </div>
+
+                <div style={{ background: '#fff', border: '1px solid #fee2e2', borderRadius: '16px', padding: '20px', boxShadow: '0 4px 15px rgba(239,68,68,0.05)' }}>
+                  <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--red)', textTransform: 'uppercase', letterSpacing: '.5px' }}>Overdue Installments</div>
+                  <div style={{ fontSize: '24px', fontWeight: 900, color: 'var(--red)', marginTop: '8px' }}>
+                    {fmt(overview?.overdueAmt || 0)}
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--red)', opacity: 0.8, marginTop: '4px' }}>
+                    {overview?.overdueCount || 0} installment(s) overdue
+                  </div>
+                </div>
+
+                <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '20px', boxShadow: '0 4px 15px rgba(0,0,0,0.03)' }}>
+                  <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.5px' }}>Received This Month</div>
+                  <div style={{ fontSize: '24px', fontWeight: 900, color: '#10b981', marginTop: '8px' }}>
+                    {fmt(overview?.receivedThisMonthAmt || 0)}
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px' }}>
+                    Calendar month collection
+                  </div>
+                </div>
+
+                <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '20px', boxShadow: '0 4px 15px rgba(0,0,0,0.03)' }}>
+                  <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.5px' }}>Outstanding Balance</div>
+                  <div style={{ fontSize: '24px', fontWeight: 900, color: 'var(--teal)', marginTop: '8px' }}>
+                    {fmt(overview?.totalOutstanding || 0)}
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px' }}>
+                    All active loan balances
+                  </div>
+                </div>
+              </div>
+
+              {/* Filters Panel */}
+              <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '20px', marginBottom: '24px', boxShadow: '0 4px 15px rgba(0,0,0,0.02)' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
+                  <div>
+                    <label style={{ fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', display: 'block', marginBottom: '6px' }}>Search</label>
+                    <input 
+                      className="fi" 
+                      placeholder="Search requester or Loan ID..." 
+                      value={fSearch} 
+                      onChange={e => setFSearch(e.target.value)} 
+                      style={{ fontSize: '12.5px', background: '#f8fafc', border: '1px solid #e2e8f0', padding: '8px 12px', borderRadius: '10px', width: '100%', outline: 'none' }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', display: 'block', marginBottom: '6px' }}>Status</label>
+                    <select className="sel2" value={fStatus} onChange={e => setFStatus(e.target.value)} style={{ fontSize: '12.5px' }}>
+                      <option value="">All Statuses</option>
+                      <option value="pending">Pending</option>
+                      <option value="paid">Paid</option>
+                      <option value="partially_paid">Partially Paid</option>
+                      <option value="overdue">Overdue</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', display: 'block', marginBottom: '6px' }}>Date Range</label>
+                    <select className="sel2" value={fDateRange} onChange={e => setFDateRange(e.target.value)} style={{ fontSize: '12.5px' }}>
+                      <option value="all">All Time</option>
+                      <option value="week">Due This Week</option>
+                      <option value="month">Due This Month</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', display: 'block', marginBottom: '6px' }}>Member / Filer</label>
+                    <input 
+                      className="fi" 
+                      placeholder="Filter by Member Name..." 
+                      value={fMember} 
+                      onChange={e => setFMember(e.target.value)} 
+                      style={{ fontSize: '12.5px', background: '#f8fafc', border: '1px solid #e2e8f0', padding: '8px 12px', borderRadius: '10px', width: '100%', outline: 'none' }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Installments Table */}
+              <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '16px', overflow: 'hidden', boxShadow: '0 4px 15px rgba(0,0,0,0.03)', marginBottom: '30px' }}>
+                <table className="tbl" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                  <thead>
+                    <tr style={{ background: '#f8fafc', borderBottom: '1.5px solid #e2e8f0' }}>
+                      <th style={{ padding: '16px 20px', fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase' }}>Loan ID</th>
+                      <th style={{ padding: '16px 20px', fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase' }}>Requester Name</th>
+                      <th style={{ padding: '16px 20px', fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase' }}>Member Filer</th>
+                      <th style={{ padding: '16px 20px', fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase' }}>Installment #</th>
+                      <th style={{ padding: '16px 20px', fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase' }}>Due Date</th>
+                      <th style={{ padding: '16px 20px', fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase' }}>Amount Due</th>
+                      <th style={{ padding: '16px 20px', fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase' }}>Status</th>
+                      <th style={{ padding: '16px 20px', fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase' }}>Member Notified?</th>
+                      <th style={{ padding: '16px 20px', fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', textAlign: 'right' }}>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(() => {
+                      const filtered = installments.filter(inst => {
+                        const searchQ = fSearch.toLowerCase();
+                        const matchSearch = !searchQ || 
+                          (inst.loan?.id || '').toLowerCase().includes(searchQ) ||
+                          (inst.loan?.loan_no || '').toLowerCase().includes(searchQ) ||
+                          (inst.loan?.name || '').toLowerCase().includes(searchQ);
+
+                        const matchStatus = !fStatus || inst.status === fStatus;
+
+                        let matchDate = true;
+                        if (fDateRange === 'week') {
+                          const today = new Date();
+                          const nextWeek = new Date();
+                          nextWeek.setDate(today.getDate() + 7);
+                          const dueDate = new Date(inst.due_date);
+                          matchDate = dueDate >= today && dueDate <= nextWeek;
+                        } else if (fDateRange === 'month') {
+                          const today = new Date();
+                          const dueDate = new Date(inst.due_date);
+                          matchDate = dueDate.getFullYear() === today.getFullYear() && dueDate.getMonth() === today.getMonth();
+                        }
+
+                        const loanObj = loans.find(l => l.id === inst.loan?.id || l.loan_no === inst.loan?.loan_no);
+                        const memberName = loanObj?.name || '';
+                        const matchMember = !fMember || memberName.toLowerCase().includes(fMember.toLowerCase());
+
+                        return matchSearch && matchStatus && matchDate && matchMember;
+                      });
+
+                      if (filtered.length === 0) {
+                        return (
+                          <tr>
+                            <td colSpan={9} style={{ padding: '40px', textAlign: 'center', color: 'var(--muted)', fontSize: '13px' }}>
+                              No installments found matching the selected filters.
+                            </td>
+                          </tr>
+                        );
+                      }
+
+                      return filtered.map((inst, i) => {
+                        const loanObj = loans.find(l => l.id === inst.loan_id || l.loan_no === inst.loan?.loan_no || l.id === inst.loan?.id);
+                        
+                        const statusColors: Record<string, { bg: string, text: string }> = {
+                          paid: { bg: '#dcfce7', text: '#15803d' },
+                          partially_paid: { bg: '#e0e7ff', text: '#4338ca' },
+                          pending: { bg: '#e0f2fe', text: '#0369a1' },
+                          overdue: { bg: '#fee2e2', text: '#b91c1c' }
+                        };
+                        const style = statusColors[inst.status] || statusColors.pending;
+
+                        return (
+                          <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                            <td style={{ padding: '16px 20px', fontSize: '13px', fontWeight: 800, color: 'var(--teal)' }}>
+                              {inst.loan?.loan_no || inst.loan?.id || loanObj?.loan_no || loanObj?.id}
+                            </td>
+                            <td style={{ padding: '16px 20px', fontSize: '13px', fontWeight: 700, color: 'var(--dark)' }}>
+                              {inst.loan?.name || loanObj?.name}
+                            </td>
+                            <td style={{ padding: '16px 20px', fontSize: '13px', color: 'var(--muted)' }}>
+                              {loanObj?.name || 'Unknown'}
+                            </td>
+                            <td style={{ padding: '16px 20px', fontSize: '13px', color: 'var(--dark)' }}>
+                              {inst.installment_number}
+                            </td>
+                            <td style={{ padding: '16px 20px', fontSize: '13px', color: 'var(--dark)' }}>
+                              {fmtDate(inst.due_date)}
+                            </td>
+                            <td style={{ padding: '16px 20px', fontSize: '13px', fontWeight: 700, color: 'var(--dark)' }}>
+                              {fmt(inst.amount_due)}
+                            </td>
+                            <td style={{ padding: '16px 20px' }}>
+                              <span style={{ display: 'inline-block', padding: '4px 10px', borderRadius: '12px', fontSize: '11px', fontWeight: 800, background: style.bg, color: style.text, textTransform: 'capitalize' }}>
+                                {inst.status}
+                              </span>
+                            </td>
+                            <td style={{ padding: '16px 20px', fontSize: '12px', color: 'var(--dark)' }}>
+                              {inst.member_notified_requester_at ? (
+                                <span style={{ color: '#15803d', fontWeight: 700 }}>
+                                  ✅ Notified ({new Date(inst.member_notified_requester_at).toLocaleDateString('en-GB')})
+                                </span>
+                              ) : (
+                                <span style={{ color: 'var(--muted)' }}>❌ No</span>
+                              )}
+                            </td>
+                            <td style={{ padding: '16px 20px', textAlign: 'right' }}>
+                              {inst.status !== 'paid' && loanObj && (
+                                <button 
+                                  onClick={() => setRecordPaymentModal({ loan: loanObj, installment: inst })}
+                                  className="bsm s"
+                                  style={{ padding: '6px 12px', fontSize: '11.5px', borderRadius: '8px' }}
+                                >
+                                  Record Payment
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      });
+                    })()}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           {adminTab === 'queue' && (
             <div>
@@ -1392,17 +1716,20 @@ export default function Repayments() {
         const l = recordPaymentModal.loan;
         const reps: any[] = l.repayments || [];
         const unpaid = reps.map((r, i) => ({ r, i })).filter(({ r }) => !r.paid && !r.request);
-        const canLog = !!mfInst && !!mfAmt && !!mfDate && !!mfMode;
+        const isPreselected = !!recordPaymentModal.installment;
+        const canLog = isPreselected || (!!mfInst && !!mfAmt && !!mfDate && !!mfMode);
+        
         return (
           <div className="rp-modal">
             <div className="rp-modal-inner" style={{ maxWidth: 500 }}>
               <div className="rp-modal-hd">
-                <div style={{ fontWeight: 800 }}>Record Manual — {l.id}</div>
+                <div style={{ fontWeight: 800 }}>Record Payment — {l.loan_no || l.id}</div>
                 <button onClick={() => setRecordPaymentModal(null)} className="cls-btn">×</button>
               </div>
               <div className="rp-modal-body">
                 {(() => {
-                  const activeReq = reps[parseInt(mfInst)]?.request;
+                  const instIdx = parseInt(mfInst);
+                  const activeReq = reps[instIdx]?.request;
                   const hasMemberData = !!activeReq;
                   
                   return (
@@ -1410,22 +1737,31 @@ export default function Repayments() {
                       <div className="fgrid">
                         <div className="fg2 full">
                           <label className="fl2">Select EMI *</label>
-                          <select className="sel2" value={mfInst} onChange={e => { 
-                            const val = e.target.value;
-                            setMfInst(val); 
-                            const ii = parseInt(val); 
-                            if (!isNaN(ii)) {
-                              const r = reps[ii];
-                              setMfAmt(String(r?.request?.amt || r?.amt || '')); 
-                              setMfProof(r?.request?.proof || '');
-                              setMfDate(r?.request?.payDate || new Date().toISOString().split('T')[0]);
-                              setMfRef(r?.request?.ref || '');
-                              setMfMode(r?.request?.mode || 'Cash');
-                            }
-                          }}>
-                            <option value="">— Choose —</option>
-                            {unpaid.map(({ r, i }) => <option key={i} value={i}>EMI #{i + 1} ({fmt(r.amt)})</option>)}
-                          </select>
+                          {isPreselected ? (
+                            <input 
+                              className="fi2" 
+                              value={`EMI #${recordPaymentModal.installment.installment_number} (${fmt(recordPaymentModal.installment.amount_due)})`} 
+                              readOnly 
+                              style={{ background: '#f8fafc' }} 
+                            />
+                          ) : (
+                            <select className="sel2" value={mfInst} onChange={e => { 
+                              const val = e.target.value;
+                              setMfInst(val); 
+                              const ii = parseInt(val); 
+                              if (!isNaN(ii)) {
+                                const r = reps[ii];
+                                setMfAmt(String(r?.request?.amt || r?.amt || '')); 
+                                setMfProof(r?.request?.proof || '');
+                                setMfDate(r?.request?.payDate || new Date().toISOString().split('T')[0]);
+                                setMfRef(r?.request?.ref || '');
+                                setMfMode(r?.request?.mode || 'Cash');
+                              }
+                            }}>
+                              <option value="">— Choose —</option>
+                              {unpaid.map(({ r, i }) => <option key={i} value={i}>EMI #{i + 1} ({fmt(r.amt)})</option>)}
+                            </select>
+                          )}
                         </div>
                         <div className="fg2">
                           <label className="fl2">Amount (₹)</label>
@@ -1438,31 +1774,31 @@ export default function Repayments() {
                           />
                           {hasMemberData && <div style={{ fontSize: 9, color: 'var(--amber)', fontWeight: 800, marginTop: 4 }}>Note: Overriding member's submission (Original: ₹{activeReq.amt})</div>}
                         </div>
-                         <div className="fg2">
-                           <label className="fl2">Transaction Date *</label>
-                           <input 
-                             className="fi2" 
-                             type="date" 
-                             value={mfDate} 
-                             style={{ background: '#fff' }}
-                             onChange={e => setMfDate(e.target.value)} 
-                           />
-                         </div>
-                         <div className="fg2">
-                           <label className="fl2">Payment Method *</label>
-                           <select className="sel2" value={mfMode} onChange={e => setMfMode(e.target.value)}>
-                             <option value="Cash">💵 Cash</option>
-                             <option value="UPI">📱 UPI / PhonePe / GPay</option>
-                             <option value="Bank">🏦 Bank Transfer</option>
-                             <option value="Other">🌀 Other</option>
-                           </select>
-                         </div>
-                         {mfMode !== 'Cash' && (
-                           <div className="fg2 full">
-                             <label className="fl2">{mfMode} Linked Number / Reference *</label>
-                             <input className="fi2" placeholder={mfMode === 'UPI' ? 'Enter UPI Phone Number...' : 'Enter Account/Ref details...'} value={mfRef} onChange={e => setMfRef(e.target.value)} />
-                           </div>
-                         )}
+                        <div className="fg2">
+                          <label className="fl2">Transaction Date *</label>
+                          <input 
+                            className="fi2" 
+                            type="date" 
+                            value={mfDate} 
+                            style={{ background: '#fff' }}
+                            onChange={e => setMfDate(e.target.value)} 
+                          />
+                        </div>
+                        <div className="fg2">
+                          <label className="fl2">Payment Method *</label>
+                          <select className="sel2" value={mfMode} onChange={e => setMfMode(e.target.value)}>
+                            <option value="Cash">💵 Cash</option>
+                            <option value="UPI">📱 UPI / PhonePe / GPay</option>
+                            <option value="Bank">🏦 Bank Transfer</option>
+                            <option value="Other">🌀 Other</option>
+                          </select>
+                        </div>
+                        {mfMode !== 'Cash' && (
+                          <div className="fg2 full">
+                            <label className="fl2">{mfMode} Reference *</label>
+                            <input className="fi2" placeholder={mfMode === 'UPI' ? 'Enter UPI Reference...' : 'Enter Account/Ref details...'} value={mfRef} onChange={e => setMfRef(e.target.value)} />
+                          </div>
+                        )}
                       </div>
                       
                       {activeReq?.proof ? (
@@ -1517,17 +1853,90 @@ export default function Repayments() {
               </div>
               <div className="rp-modal-ft">
                 <button className="bsm g" onClick={() => setRecordPaymentModal(null)}>Cancel</button>
-                <button className="bsm s" disabled={!canLog} onClick={() => {
+                <button className="bsm s" disabled={!canLog} onClick={async () => {
                   const instIdx = parseInt(mfInst);
-                  const activeReq = reps[instIdx]?.request;
-                  if (activeReq) {
-                    localDb.verifyRepaymentRequest(l.id, instIdx, 'approved', 'Confirmed via Loan Schedule manual check.', profile?.name, profile?.role, profile?.id, { amt: Number(mfAmt), payDate: mfDate, proof: mfProof });
-                  } else {
-                    const mappedMode = mfMode.toLowerCase() === 'cash' ? 'cash' : 'transfer';
-                    localDb.logRepayment(l.id, instIdx, { method: mappedMode as any, amt: Number(mfAmt), notes: mfRef, proof: mfProof, payDate: mfDate });
+                  const instObj = recordPaymentModal.installment || reps[instIdx];
+                  const instId = instObj?.id || `inst-${l.id}-${instIdx}`;
+                  
+                  await localDb.recordInstallmentPayment(l.loan_no || l.id, instId, {
+                    paid_amount: Number(mfAmt),
+                    paid_date: mfDate,
+                    payment_method: mfMode.toLowerCase() === 'cash' ? 'cash' : 'transfer',
+                    payment_reference: mfRef,
+                    notes: mfRef || 'Logged manually.',
+                    marked_by: profile?.id,
+                    due_date: instObj?.due_date || instObj?.due || '',
+                    amount_due: instObj?.amount_due || instObj?.amt || 0
+                  });
+                  
+                  refresh();
+                  setRecordPaymentModal(null); 
+                }}>{isPreselected ? 'Record payment' : 'Credit Now'}</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* 1.5 NOTIFY REQUESTER MODAL (MEMBER) */}
+      {notifyModal && (() => {
+        const l = notifyModal.loan;
+        const inst = notifyModal.installment;
+        
+        const requesterName = l.name || 'Requester';
+        const requesterPhone = l.mobile || l.phone || '';
+        
+        const templateMsg = `Dear ${requesterName}, your installment of ₹${inst.amt || inst.amount_due} for SKSSF Loan #${l.loan_no || l.id} is due on ${fmtDate(inst.due || inst.due_date)}. Please arrange for payment to avoid penalties.`;
+        
+        return (
+          <div className="rp-modal">
+            <div className="rp-modal-inner" style={{ maxWidth: 500 }}>
+              <div className="rp-modal-hd">
+                <div style={{ fontWeight: 800 }}>Notify Requester — EMI #{inst.installment_number}</div>
+                <button onClick={() => setNotifyModal(null)} className="cls-btn">×</button>
+              </div>
+              <div className="rp-modal-body">
+                <div className="fgrid">
+                  <div className="fg2">
+                    <label className="fl2">Requester Name</label>
+                    <input className="fi2" value={requesterName} readOnly style={{ background: '#f8fafc' }} />
+                  </div>
+                  <div className="fg2">
+                    <label className="fl2">Requester Phone</label>
+                    <input className="fi2" value={requesterPhone} readOnly style={{ background: '#f8fafc' }} />
+                  </div>
+                  <div className="fg2 full">
+                    <label className="fl2">Alert Message (WhatsApp / SMS)</label>
+                    <textarea 
+                      className="ta2" 
+                      rows={4} 
+                      defaultValue={templateMsg}
+                      id="notify-msg-area"
+                    />
+                  </div>
+                </div>
+              </div>
+              <div className="rp-modal-ft">
+                <button className="bsm g" onClick={() => setNotifyModal(null)}>Cancel</button>
+                <button className="bsm s" onClick={async () => {
+                  const textarea = document.getElementById('notify-msg-area') as HTMLTextAreaElement;
+                  const finalMsg = textarea?.value || templateMsg;
+                  
+                  const instId = inst.id || `inst-${l.id}-${inst.installment_number - 1}`;
+                  await localDb.logManualNotification(l.loan_no || l.id, instId);
+                  
+                  if (requesterPhone) {
+                    const cleanPhone = requesterPhone.replace(/\D/g, '');
+                    const formattedPhone = cleanPhone.startsWith('91') ? cleanPhone : `91${cleanPhone}`;
+                    window.open(`https://api.whatsapp.com/send?phone=${formattedPhone}&text=${encodeURIComponent(finalMsg)}`, '_blank');
                   }
-                  refresh(); setRecordPaymentModal(null); 
-                }}>{reps[parseInt(mfInst)]?.request ? 'Verify & Credit' : 'Credit Now'}</button>
+                  
+                  setToast({ m: 'Manual notification alert logged successfully!', t: 's' });
+                  setTimeout(() => setToast(null), 3000);
+                  
+                  refresh();
+                  setNotifyModal(null);
+                }}>Log & Send Alert 📣</button>
               </div>
             </div>
           </div>

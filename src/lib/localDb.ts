@@ -1533,6 +1533,41 @@ export const localDb = {
     return txs.filter((tx: any) => tx.unit_id === unitId).sort((a: any, b: any) => 
       new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
     );
+  },
+
+  generateInstallments: async (loanId: string, body: { disbursement_date: string, tenure_months: number, repayment_frequency: string }) => {
+    await api.post(`/loans/${loanId}/repayments/generate`, body);
+    void syncFromBackend();
+  },
+
+  recordInstallmentPayment: async (loanId: string, installmentId: string, body: any) => {
+    await api.patch(`/loans/${loanId}/repayments/${installmentId}/pay`, body);
+    void syncFromBackend();
+  },
+
+  logManualNotification: async (loanId: string, installmentId: string) => {
+    await api.post(`/loans/${loanId}/repayments/${installmentId}/notify-requester`);
+    void syncFromBackend();
+  },
+
+  getNotifications: async () => {
+    const res = await api.get<any>('/notifications');
+    return res.data || [];
+  },
+
+  markNotificationsAsRead: async () => {
+    await api.patch('/notifications/read');
+    void syncFromBackend();
+  },
+
+  getNotificationSettings: async () => {
+    const res = await api.get<any>('/settings/notifications');
+    return res.data;
+  },
+
+  updateNotificationSettings: async (settings: any) => {
+    await api.patch('/settings/notifications', settings);
+    void syncFromBackend();
   }
 };
 

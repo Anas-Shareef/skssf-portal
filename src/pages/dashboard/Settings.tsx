@@ -131,6 +131,30 @@ export default function Settings() {
   const [confirmLogout, setConfirmLogout] = useState(false);
   // Used to force re-render of form fields when profile is externally updated
   const [formVersion, setFormVersion] = useState(0);
+  const [alertSettings, setAlertSettings] = useState<any>({
+    alert_days_advance_1: 15,
+    alert_days_advance_2: 7,
+    alert_days_urgent: 3,
+    alert_days_final: 1,
+    overdue_alert_daily_days: 7,
+    overdue_alert_weekly_after: 7,
+    overdue_stop_days: 60
+  });
+
+  const fetchAlertSettings = async () => {
+    try {
+      const data = await localDb.getNotificationSettings();
+      if (data) setAlertSettings(data);
+    } catch (err) {
+      console.warn('Failed to fetch alert settings:', err);
+    }
+  };
+
+  useEffect(() => {
+    if (role === 'super') {
+      fetchAlertSettings();
+    }
+  }, [role]);
 
   // Listen for external profile updates (e.g. admin edited member in Members page)
   useEffect(() => {
@@ -847,6 +871,117 @@ export default function Settings() {
                 </div>
               </div>
             </div>
+
+            {role === 'super' && (
+              <div id="repayment-alerts-settings" style={{ gridColumn: '1 / -1', marginTop: '24px' }}>
+                <div style={{
+                  background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%)',
+                  borderRadius: 24, padding: '32px 36px',
+                  border: '1.5px solid rgba(20,184,166,0.3)',
+                  boxShadow: '0 20px 60px rgba(0,0,0,0.15)'
+                }}>
+                  {/* Header */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 32 }}>
+                    <div style={{
+                      width: 52, height: 52, borderRadius: 16,
+                      background: 'linear-gradient(135deg, var(--teal), #0891b2)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 26,
+                      boxShadow: '0 8px 20px rgba(20,184,166,0.3)'
+                    }}>⏳</div>
+                    <div>
+                      <div style={{ fontSize: 20, fontWeight: 950, color: '#fff', letterSpacing: 0.3 }}>Repayment Alerts &amp; Timing Config</div>
+                      <div style={{ fontSize: 13, color: '#94a3b8', marginTop: 3 }}>Configure automatic notifications advance periods and overdue limits</div>
+                    </div>
+                  </div>
+
+                  <div className="fgrid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px' }}>
+                    <div className="fg2">
+                      <label className="fl2" style={{ color: '#94a3b8' }}>1st Advance Notice (Days)</label>
+                      <input 
+                        className="fi2" 
+                        type="number" 
+                        value={alertSettings?.alert_days_advance_1 || ''} 
+                        onChange={e => setAlertSettings((p: any) => ({ ...p, alert_days_advance_1: Number(e.target.value) }))}
+                        style={{ background: 'rgba(255,255,255,0.03)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)' }} 
+                      />
+                    </div>
+                    <div className="fg2">
+                      <label className="fl2" style={{ color: '#94a3b8' }}>2nd Advance Notice (Days)</label>
+                      <input 
+                        className="fi2" 
+                        type="number" 
+                        value={alertSettings?.alert_days_advance_2 || ''} 
+                        onChange={e => setAlertSettings((p: any) => ({ ...p, alert_days_advance_2: Number(e.target.value) }))}
+                        style={{ background: 'rgba(255,255,255,0.03)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)' }} 
+                      />
+                    </div>
+                    <div className="fg2">
+                      <label className="fl2" style={{ color: '#94a3b8' }}>Urgent Reminder (Days)</label>
+                      <input 
+                        className="fi2" 
+                        type="number" 
+                        value={alertSettings?.alert_days_urgent || ''} 
+                        onChange={e => setAlertSettings((p: any) => ({ ...p, alert_days_urgent: Number(e.target.value) }))}
+                        style={{ background: 'rgba(255,255,255,0.03)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)' }} 
+                      />
+                    </div>
+                    <div className="fg2">
+                      <label className="fl2" style={{ color: '#94a3b8' }}>Final Reminder (Days)</label>
+                      <input 
+                        className="fi2" 
+                        type="number" 
+                        value={alertSettings?.alert_days_final || ''} 
+                        onChange={e => setAlertSettings((p: any) => ({ ...p, alert_days_final: Number(e.target.value) }))}
+                        style={{ background: 'rgba(255,255,255,0.03)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)' }} 
+                      />
+                    </div>
+                    <div className="fg2">
+                      <label className="fl2" style={{ color: '#94a3b8' }}>Overdue Daily Alert Limit (Days)</label>
+                      <input 
+                        className="fi2" 
+                        type="number" 
+                        value={alertSettings?.overdue_alert_daily_days || ''} 
+                        onChange={e => setAlertSettings((p: any) => ({ ...p, overdue_alert_daily_days: Number(e.target.value) }))}
+                        style={{ background: 'rgba(255,255,255,0.03)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)' }} 
+                      />
+                    </div>
+                    <div className="fg2">
+                      <label className="fl2" style={{ color: '#94a3b8' }}>Overdue Weekly Alert Limit (Days)</label>
+                      <input 
+                        className="fi2" 
+                        type="number" 
+                        value={alertSettings?.overdue_alert_weekly_after || ''} 
+                        onChange={e => setAlertSettings((p: any) => ({ ...p, overdue_alert_weekly_after: Number(e.target.value) }))}
+                        style={{ background: 'rgba(255,255,255,0.03)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)' }} 
+                      />
+                    </div>
+                    <div className="fg2">
+                      <label className="fl2" style={{ color: '#94a3b8' }}>Overdue Stop Limit (Days)</label>
+                      <input 
+                        className="fi2" 
+                        type="number" 
+                        value={alertSettings?.overdue_stop_days || ''} 
+                        onChange={e => setAlertSettings((p: any) => ({ ...p, overdue_stop_days: Number(e.target.value) }))}
+                        style={{ background: 'rgba(255,255,255,0.03)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)' }} 
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ marginTop: 24, textAlign: 'right' }}>
+                    <button 
+                      className="bsm s" 
+                      onClick={async () => {
+                        await localDb.updateNotificationSettings(alertSettings);
+                        showToast('✅ Repayment alert settings updated successfully!');
+                      }}
+                      style={{ padding: '12px 28px', fontSize: 13, fontWeight: 900 }}
+                    >
+                      Save Alert Configuration
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
 
             <Section title="System Overview" icon="📊">
               <InfoRow label="Total Members" value={`${localDb.getUsers().filter((u: any) => u.role === 'member').length} registered`} />

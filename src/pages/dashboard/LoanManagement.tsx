@@ -30,6 +30,12 @@ export default function LoanManagement() {
   const [editingLoan, setEditingLoan] = useState<any | null>(null);
   const [toast, setToast] = useState<{ m: string; t: 's' | 'r' } | null>(null);
   
+  // Disbursement states
+  const [disburseModalLoan, setDisburseModalLoan] = useState<any | null>(null);
+  const [disbDate, setDisbDate] = useState(new Date().toISOString().split('T')[0]);
+  const [disbTenure, setDisbTenure] = useState('12');
+  const [disbFreq, setDisbFreq] = useState('monthly');
+  
   // Edit form refs
   const editAmtRef = useRef<HTMLInputElement>(null);
   const editPurpRef = useRef<HTMLSelectElement>(null);
@@ -367,6 +373,18 @@ export default function LoanManagement() {
                         >
                           {l.status === 'pending' && isAdminOrSuper ? 'Review & Act →' : 'View Details'}
                         </button>
+                        {l.status === 'approved' && !l.disbursementDate && isAdminOrSuper && (
+                          <button
+                            className="bsm s"
+                            style={{ fontSize: '11px', padding: '5px 12px', background: 'var(--amber2)', borderColor: 'var(--amber2)' }}
+                            onClick={() => {
+                              setDisburseModalLoan(l);
+                              setDisbTenure(String(l.months || 12));
+                            }}
+                          >
+                            💰 Disburse
+                          </button>
+                        )}
                         {((l.status === 'pending' || l.status === 'rejected') && (isMember || isAdminOrSuper)) && (
                           <button
                             className="bsm o"
@@ -753,6 +771,55 @@ export default function LoanManagement() {
         }}
         onCancel={() => setConfirmDelete(null)}
       />
+
+      {/* ── DISBURSE LOAN MODAL ── */}
+      {disburseModalLoan && (
+        <div className="ov" onClick={e => { if ((e.target as HTMLElement).classList.contains('ov')) setDisburseModalLoan(null); }}>
+          <div className="modal" style={{ maxWidth: '450px' }}>
+            <div className="modal-head">
+              <div className="modal-title">Confirm Loan Disbursement</div>
+              <button className="modal-close" onClick={() => setDisburseModalLoan(null)}>✕</button>
+            </div>
+            <div className="modal-body">
+              <div style={{ background: 'var(--teal-pale)', padding: '12px', borderRadius: '10px', fontSize: '12.5px', color: 'var(--teal2)', marginBottom: '16px' }}>
+                💸 Recording disbursement will generate the repayment schedule.
+              </div>
+              <div className="fgrid">
+                <div className="fg2 full">
+                  <label className="fl2">Disbursement Date *</label>
+                  <input className="fi2" type="date" value={disbDate} onChange={e => setDisbDate(e.target.value)} />
+                </div>
+                <div className="fg2">
+                  <label className="fl2">Tenure (Months) *</label>
+                  <input className="fi2" type="number" value={disbTenure} onChange={e => setDisbTenure(e.target.value)} />
+                </div>
+                <div className="fg2">
+                  <label className="fl2">Repayment Frequency *</label>
+                  <select className="sel2" value={disbFreq} onChange={e => setDisbFreq(e.target.value)}>
+                    <option value="monthly">Monthly</option>
+                    <option value="quarterly">Quarterly</option>
+                    <option value="one_time">One-Time / Lumpsum</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+            <div className="modal-foot">
+              <button className="bsm g" onClick={() => setDisburseModalLoan(null)}>Cancel</button>
+              <button className="bsm s" onClick={async () => {
+                await localDb.generateInstallments(disburseModalLoan.loan_no || disburseModalLoan.id, {
+                  disbursement_date: disbDate,
+                  tenure_months: Number(disbTenure),
+                  repayment_frequency: disbFreq
+                });
+                setToast({ m: `Loan disbursed and schedule generated!`, t: 's' });
+                setTimeout(() => setToast(null), 3000);
+                setDisburseModalLoan(null);
+                refreshLoans();
+              }}>Confirm Disbursement 💰</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <ConfirmDialog
         open={confirmExport}
