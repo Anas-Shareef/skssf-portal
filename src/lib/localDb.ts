@@ -52,7 +52,7 @@ export const clearFrontendCache = () => {
 const mapUserFromApi = (u: any) => ({
   id: u.code || u.id,
   auth_uid: u.id,           // raw Supabase Auth UUID — needed for backend API calls
-  db_id: Number(u.id),
+  db_id: u.id,
   role: u.role,
   memberNo: u.member_no || '',
   name: u.name,

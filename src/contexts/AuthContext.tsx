@@ -4,7 +4,7 @@ import { api } from '../lib/api';
 
 export type Profile = {
   id: string;
-  db_id?: number;
+  db_id?: string;
   role: 'super' | 'admin' | 'coordinator' | 'member';
   memberNo?: string;
   name: string;
@@ -63,7 +63,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setProfile({
               ...res.user,
               id: res.user.code || res.user.id,
-              db_id: Number(res.user.id),
+              db_id: res.user.id,
               unit: res.user.branch || res.user.unit,
               admin_title: res.user.admin_title,
               assigned_zone: res.user.assigned_zone,
@@ -103,7 +103,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setProfile({
           ...res.user,
           id: res.user.code || res.user.id,
-          db_id: Number(res.user.id),
+          db_id: res.user.id,
           unit: res.user.branch || res.user.unit,
           admin_title: res.user.admin_title,
           assigned_zone: res.user.assigned_zone,
