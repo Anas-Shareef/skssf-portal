@@ -71,6 +71,25 @@ export const api = {
     }
 
     if (path === '/bootstrap') {
+      const token = sessionStorage.getItem('active_api_token') || '';
+      let activeUser: any = null;
+      if (token) {
+        try {
+          const { data: { user } } = await supabase.auth.getUser(token);
+          if (user) {
+            const { data: prof } = await supabase.from('profiles').select('*').eq('id', user.id).single();
+            activeUser = prof;
+          }
+        } catch (e) {
+          console.warn('Bootstrap auth fetch failed:', e);
+        }
+      }
+
+      let loanQuery = supabase.from('loans').select('*');
+      if (activeUser && activeUser.role === 'member') {
+        loanQuery = loanQuery.eq('submitted_by_member_id', activeUser.id);
+      }
+
       const [
         { data: portalConfig },
         { data: users },
@@ -88,7 +107,7 @@ export const api = {
             'Authorization': `Bearer ${sessionStorage.getItem('active_api_token')}`
           }
         }).then(res => res.json()).then(json => ({ data: json.users || [] })).catch(() => ({ data: [] })),
-        supabase.from('loans').select('*').order('created_at', { ascending: false }),
+        loanQuery.order('created_at', { ascending: false }),
         supabase.from('campaigns').select('*').order('created_at', { ascending: false }),
         supabase.from('donations').select('*').order('created_at', { ascending: false }),
         supabase.from('products').select('*').order('created_at', { ascending: false }),
@@ -303,16 +322,23 @@ export const api = {
       const { data: { user } } = await supabase.auth.getUser(token);
       if (!user) throw new Error('Unauthenticated');
       try {
-        const { data, error } = await supabase.from('inbox_submissions').select('*').eq('member_id', user.id).order('submitted_at', { ascending: false });
+        const { data, error } = await supabase
+          .from('loan_requests')
+          .select('*')
+          .or(`referred_member_id.eq.${user.id},referred_member_name.ilike.%${user.email}%`)
+          .order('created_at', { ascending: false });
         if (error) throw error;
         return { data } as T;
       } catch (err: any) {
-        if (isTableMissingError(err)) {
+        try {
+          const { data, error } = await supabase.from('inbox_submissions').select('*').eq('member_id', user.id).order('submitted_at', { ascending: false });
+          if (error) throw error;
+          return { data } as T;
+        } catch (innerErr) {
           const submissions = JSON.parse(localStorage.getItem('db_inbox_submissions') || '[]');
           const memberSubs = submissions.filter((s: any) => s.member_id === user.id).sort((a: any, b: any) => new Date(b.submitted_at).getTime() - new Date(a.submitted_at).getTime());
           return { data: memberSubs } as T;
         }
-        throw err;
       }
     }
 
@@ -438,13 +464,13 @@ export const api = {
         loan_no: body.loan_no || body.loanNo,
         user_id: body.user_id || body.userId,
         member_no: body.member_no || body.memberNo,
-        name: body.name,
+        name: body.name || body.requester_name,
         branch: body.branch,
-        mob: body.mob || body.phone,
-        amount: body.amount,
+        mob: body.mob || body.phone || body.requester_phone,
+        amount: body.amount || body.loan_amount_requested,
         purpose: body.purpose,
-        purpose_desc: body.purpose_desc,
-        months: body.months,
+        purpose_desc: body.purpose_desc || body.purpDesc,
+        months: body.months || body.repayment_period_months,
         status: body.status || 'pending',
         submitted_date: body.submitted_date || new Date().toISOString().split('T')[0],
         guarantors: body.guarantors || [],
@@ -452,7 +478,15 @@ export const api = {
         request: body.request || {},
         audit: body.audit || [],
         signature: body.signature,
-        witnesses: body.witnesses || []
+        witnesses: body.witnesses || [],
+        submitted_by_member_id: body.submitted_by_member_id || body.submittedByMemberId || null,
+        requester_name: body.requester_name || body.name,
+        requester_phone: body.requester_phone || body.mob || body.phone,
+        requester_address: body.requester_address || body.address || '',
+        repayment_period_months: body.repayment_period_months || body.months || 12,
+        loan_amount_requested: body.loan_amount_requested || body.amount || 0,
+        workflow_status: body.workflow_status || 'PENDING_COORDINATOR_REVIEW',
+        member_notes: body.member_notes || body.memberNotes || ''
       }).select().single();
       if (error) throw new Error(error.message);
       return { data } as T;
@@ -1050,33 +1084,64 @@ export const api = {
 
     if (path === '/member/inbox') {
       try {
-        const { data, error } = await supabase.from('inbox_submissions').insert(body).select().single();
+        const { data, error } = await supabase
+          .from('loan_requests')
+          .insert({
+            requester_name: body.requester_name || body.name,
+            requester_phone: body.requester_phone || body.phone,
+            requester_address: body.requester_address || body.address,
+            reason: body.reason || body.loan_purpose_detail || body.purpose || '',
+            approximate_amount: body.approximate_amount || body.loan_amount_requested || 0,
+            referred_member_name: body.referred_member_name || body.member_name || '',
+            referred_member_id: body.referred_member_id || body.member_id || null,
+            status: body.status || 'DRAFT_UNASSIGNED'
+          })
+          .select()
+          .single();
         if (error) throw error;
         return { data } as T;
       } catch (err: any) {
-        if (isTableMissingError(err)) {
+        try {
+          const { data, error } = await supabase.from('inbox_submissions').insert(body).select().single();
+          if (error) throw error;
+          return { data } as T;
+        } catch (innerErr) {
           const subs = JSON.parse(localStorage.getItem('db_inbox_submissions') || '[]');
           subs.push(body);
           localStorage.setItem('db_inbox_submissions', JSON.stringify(subs));
           return { data: body } as T;
         }
-        throw err;
       }
     }
 
     if (path === '/inventory/checkout-request') {
       try {
-        const { data, error } = await supabase.from('checkout_requests').insert(body).select().single();
+        const { data, error } = await supabase
+          .from('inventory_checkout_records')
+          .insert({
+            item_id: body.product_id || body.item_id,
+            item_name: body.product_name || body.item_name,
+            checked_out_by_member_id: body.member_id || body.checked_out_by_member_id,
+            quantity_checked_out: body.quantity || body.quantity_checked_out || 1,
+            purpose: body.purpose,
+            issue_type: body.item_type || body.issue_type || 'LEASE',
+            status: body.status || 'PENDING_APPROVAL'
+          })
+          .select()
+          .single();
         if (error) throw error;
         return { data } as T;
       } catch (err: any) {
-        if (isTableMissingError(err)) {
+        try {
+          const { data, error } = await supabase.from('checkout_requests').insert(body).select().single();
+          if (error) throw error;
+          return { data } as T;
+        } catch (innerErr) {
           const reqs = JSON.parse(localStorage.getItem('db_checkout_requests') || '[]');
           reqs.push(body);
           localStorage.setItem('db_checkout_requests', JSON.stringify(reqs));
           return { data: body } as T;
         }
-        throw err;
       }
     }
 

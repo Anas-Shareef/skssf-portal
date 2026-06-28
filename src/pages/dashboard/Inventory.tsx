@@ -1,3 +1,4 @@
+import { supabase } from '../../lib/supabaseClient';
 import React, { useState, useEffect, useRef } from 'react';
 import JsBarcode from 'jsbarcode';
 import * as XLSX from 'xlsx';
@@ -77,23 +78,31 @@ export default function Inventory() {
   const [missionSearch, setMissionSearch] = useState('');
 
   // New product form
-  const [np, setNp] = useState({ name: '', category: 'Education', total_quantity: 1, photo: '' });
+  const [np, setNp] = useState({ name: '', category: 'Education', total_quantity: 1, photo: '', issue_type: 'PERMANENT', lease_duration_days: 30 });
 
   // Kit assembly form state (kept at top level — no hooks-in-callbacks)
   const [kitName, setKitName] = useState('');
   const [kitSelections, setKitSelections] = useState<Record<string, number>>({});
   const [selectedPrintIds, setSelectedPrintIds] = useState<string[]>([]);
 
-  const refresh = () => {
-    setProducts(localDb.getProducts());
-    setUnits(localDb.getUnits());
-    setKits(localDb.getKits());
-    setMissions(localDb.getCampaigns());
-    setTransactions(localDb.getInventoryTransactions());
-    const allCheckout: any[] = JSON.parse(localStorage.getItem('db_checkout_requests') || '[]');
-    const allReturn: any[] = JSON.parse(localStorage.getItem('db_return_requests') || '[]');
-    setCheckoutReqs(allCheckout);
-    setReturnReqs(allReturn);
+  const refresh = async () => {
+    try {
+      const { data: prods } = await supabase.from('products').select('*').order('created_at', { ascending: false });
+      const { data: unts } = await supabase.from('units').select('*').order('created_at', { ascending: false });
+      const { data: kts } = await supabase.from('kits').select('*').order('created_at', { ascending: false });
+      const { data: camps } = await supabase.from('campaigns').select('*').order('created_at', { ascending: false });
+      const { data: txs } = await supabase.from('inventory_transactions').select('*').order('happened_at', { ascending: false });
+      const { data: checkouts } = await supabase.from('inventory_checkout_records').select('*').order('created_at', { ascending: false });
+
+      setProducts(prods || []);
+      setUnits(unts || []);
+      setKits(kts || []);
+      setMissions(camps || []);
+      setTransactions(txs || []);
+      setCheckoutReqs(checkouts || []);
+    } catch (err) {
+      console.error('Failed to refresh Supabase inventory:', err);
+    }
   };
 
   const [isSubmittingMission, setIsSubmittingMission] = useState(false);
@@ -129,13 +138,43 @@ export default function Inventory() {
     }
   };
 
-  const handleAddProduct = (e: React.FormEvent) => {
+  const handleAddProduct = async (e: React.FormEvent) => {
     e.preventDefault();
-    localDb.saveProduct(np);
-    setIsAdding(false);
-    refresh();
-    setNp({ name: '', category: 'Education', total_quantity: 1, photo: '' });
-    popToast('s', `Product "${np.name}" created successfully!`);
+    try {
+      const { data, error } = await supabase.from('products').insert({
+        name: np.name,
+        category: np.category,
+        total_quantity: np.total_quantity,
+        available_stock: np.total_quantity,
+        image_url: np.photo,
+        issue_type: np.issue_type,
+        lease_duration_days: np.issue_type === 'LEASE' ? np.lease_duration_days : null,
+        created_by: profile?.db_id || profile?.id
+      }).select().single();
+
+      if (error) throw error;
+
+      // Auto-generate unit barcodes
+      const unitInserts = [];
+      for (let i = 1; i <= np.total_quantity; i++) {
+        const barcode = `BC-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+        unitInserts.push({
+          product_id: data.id,
+          barcode: barcode,
+          unit_code: `${np.name.substring(0, 3).toUpperCase()}-${i.toString().padStart(3, '0')}`,
+          status: 'available',
+          current_holder_id: null
+        });
+      }
+      await supabase.from('units').insert(unitInserts);
+
+      setIsAdding(false);
+      refresh();
+      setNp({ name: '', category: 'Education', total_quantity: 1, photo: '', issue_type: 'PERMANENT', lease_duration_days: 30 });
+      popToast('s', `Product "${np.name}" created successfully!`);
+    } catch (err: any) {
+      popToast('e', err.message || 'Failed to create product');
+    }
   };
 
   const handlePrint = () => {
@@ -609,26 +648,61 @@ export default function Inventory() {
                           {isPending && (
                             <>
                               <button
-                                onClick={() => {
-                                  const all: any[] = JSON.parse(localStorage.getItem('db_checkout_requests') || '[]');
-                                  const updated = all.map((r: any) => r.id === req.id ? { ...r, status: 'approved', approved_at: new Date().toISOString() } : r);
-                                  localStorage.setItem('db_checkout_requests', JSON.stringify(updated));
-                                  // Decrement stock
-                                  const prods: any[] = JSON.parse(localStorage.getItem('db_products') || '[]');
-                                  const updatedProds = prods.map((p: any) => String(p.id) === String(req.product_id) ? { ...p, available_quantity: Math.max(0, (p.available_quantity || p.total_quantity || 0) - (req.quantity || 1)) } : p);
-                                  localStorage.setItem('db_products', JSON.stringify(updatedProds));
-                                  refresh();
-                                  popToast('s', 'Checkout request approved!');
+                                onClick={async () => {
+                                  try {
+                                    const expectedReturn = req.issue_type === 'LEASE'
+                                      ? new Date(Date.now() + (product?.lease_duration_days || 30) * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+                                      : null;
+
+                                    const { error } = await supabase
+                                      .from('inventory_checkout_records')
+                                      .update({
+                                        status: 'ACTIVE',
+                                        checked_out_date: new Date().toISOString().split('T')[0],
+                                        expected_return_date: expectedReturn,
+                                        approved_by_admin_id: profile?.db_id || profile?.id
+                                      })
+                                      .eq('id', req.id);
+
+                                    if (error) throw error;
+
+                                    const { data: item } = await supabase.from('products').select('available_stock').eq('id', req.item_id).single();
+                                    if (item) {
+                                      await supabase
+                                        .from('products')
+                                        .update({ available_stock: Math.max(0, (item.available_stock || 0) - (req.quantity_checked_out || 1)) })
+                                        .eq('id', req.item_id);
+                                    }
+
+                                    await supabase.from('inventory_transactions').insert({
+                                      product_id: req.item_id,
+                                      action_type: 'CHECKOUT',
+                                      quantity: req.quantity_checked_out || 1,
+                                      member_id: req.checked_out_by_member_id,
+                                      notes: `Checkout approved for ${req.item_name}.`
+                                    });
+
+                                    refresh();
+                                    popToast('s', 'Checkout request approved!');
+                                  } catch (err: any) {
+                                    popToast('e', err.message || 'Failed to approve checkout');
+                                  }
                                 }}
                                 style={{ padding: '8px 18px', borderRadius: 10, border: 'none', background: '#10b981', color: '#fff', fontWeight: 700, cursor: 'pointer', fontSize: 13 }}
                               >✅ Approve</button>
                               <button
-                                onClick={() => {
-                                  const all: any[] = JSON.parse(localStorage.getItem('db_checkout_requests') || '[]');
-                                  const updated = all.map((r: any) => r.id === req.id ? { ...r, status: 'rejected', rejected_at: new Date().toISOString() } : r);
-                                  localStorage.setItem('db_checkout_requests', JSON.stringify(updated));
-                                  refresh();
-                                  popToast('e', 'Checkout request rejected.');
+                                onClick={async () => {
+                                  try {
+                                    const { error } = await supabase
+                                      .from('inventory_checkout_records')
+                                      .update({ status: 'REJECTED' })
+                                      .eq('id', req.id);
+                                    if (error) throw error;
+                                    refresh();
+                                    popToast('e', 'Checkout request rejected.');
+                                  } catch (err: any) {
+                                    popToast('e', err.message || 'Failed to reject checkout');
+                                  }
                                 }}
                                 style={{ padding: '8px 18px', borderRadius: 10, border: 'none', background: '#fee2e2', color: '#dc2626', fontWeight: 700, cursor: 'pointer', fontSize: 13 }}
                               >✗ Reject</button>
@@ -1468,6 +1542,19 @@ export default function Inventory() {
                       <option>Education</option><option>Religious</option><option>Medical</option><option>Welfare</option><option>Food</option>
                     </select>
                   </div>
+                  <div className="fg2">
+                    <label className="fl2">Allocation Type</label>
+                    <select className="sel2" value={np.issue_type} onChange={e => setNp(p => ({...p, issue_type: e.target.value}))}>
+                      <option value="PERMANENT">Permanent Allocation</option>
+                      <option value="LEASE">Lease / Return Required</option>
+                    </select>
+                  </div>
+                  {np.issue_type === 'LEASE' && (
+                    <div className="fg2">
+                      <label className="fl2">Lease Duration (Days)</label>
+                      <input className="fi2" type="number" min="1" value={np.lease_duration_days} onChange={e => setNp(p => ({...p, lease_duration_days: parseInt(e.target.value)}))} />
+                    </div>
+                  )} (Days)
                   <div className="fg2">
                     <label className="fl2">Initial Quantity</label>
                     <input className="fi2" type="number" min="1" required value={np.total_quantity} onChange={e => setNp(p => ({...p, total_quantity: parseInt(e.target.value)}))} />

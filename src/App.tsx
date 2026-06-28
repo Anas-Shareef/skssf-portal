@@ -20,6 +20,21 @@ import Inventory from './pages/dashboard/Inventory';
 import ResetPassword from './pages/ResetPassword';
 import PublicLoanRequest from './pages/PublicLoanRequest';
 
+// Member sub-pages
+import MemberInbox from './pages/dashboard/MemberInbox';
+import FiledLoans from './pages/dashboard/FiledLoans';
+import FiledLoanDetail from './pages/dashboard/FiledLoanDetail';
+import MemberRepayments from './pages/dashboard/MemberRepayments';
+import MemberInventory from './pages/dashboard/MemberInventory';
+import MemberLeases from './pages/dashboard/MemberLeases';
+import MemberProfile from './pages/dashboard/MemberProfile';
+
+// Coordinator pages
+import CoordinatorDashboard from './pages/coordinator/CoordinatorDashboard';
+import CoordinatorLoans from './pages/coordinator/CoordinatorLoans';
+import CoordinatorLoanDetail from './pages/coordinator/CoordinatorLoanDetail';
+import PanelVotes from './pages/coordinator/PanelVotes';
+
 function LegacyLoginRedirect() {
   const { role } = useParams<{ role: string }>();
   return <Navigate to={`/${role}/login`} replace />;
@@ -31,6 +46,7 @@ function App() {
       <BrowserRouter>
         <SEOManager />
         <Routes>
+          {/* ── Public routes ── */}
           <Route path="/" element={<PortalSelector />} />
           <Route path="/portal" element={<Navigate to="/" replace />} />
           <Route path="/inagurate" element={<LaunchPage />} />
@@ -40,9 +56,11 @@ function App() {
           <Route path="/:role/login" element={<RoleLogin mode="login" />} />
           <Route path="/:role/register" element={<RoleLogin mode="register" />} />
           <Route path="/reset-password" element={<ResetPassword />} />
+          {/* Public loan request — works with or without member code */}
+          <Route path="/request" element={<PublicLoanRequest />} />
           <Route path="/request/:code" element={<PublicLoanRequest />} />
 
-          {/* Super Admin Dashboard Routes */}
+          {/* ── Super Admin Dashboard ── */}
           <Route
             path="/super-admin/dashboard"
             element={
@@ -64,7 +82,7 @@ function App() {
             <Route path="inventory" element={<Inventory />} />
           </Route>
 
-          {/* Admin Dashboard Routes */}
+          {/* ── Admin Dashboard ── */}
           <Route
             path="/admin/dashboard"
             element={
@@ -85,7 +103,23 @@ function App() {
             <Route path="inventory" element={<Inventory />} />
           </Route>
 
-          {/* Member Dashboard Routes */}
+          {/* ── Coordinator Dashboard ── */}
+          <Route
+            path="/coordinator/dashboard"
+            element={
+              <ProtectedRoute allowedRoles={['coordinator']}>
+                <DashboardLayout />
+              </ProtectedRoute>
+            }
+          >
+            <Route index element={<CoordinatorDashboard />} />
+            <Route path="loans" element={<CoordinatorLoans />} />
+            <Route path="loans/:id" element={<CoordinatorLoanDetail />} />
+            <Route path="panel-votes" element={<PanelVotes />} />
+            <Route path="settings" element={<Settings />} />
+          </Route>
+
+          {/* ── Member Dashboard ── */}
           <Route
             path="/member/dashboard"
             element={
@@ -95,8 +129,22 @@ function App() {
             }
           >
             <Route index element={<Dashboard />} />
-            <Route path="loans" element={<LoanManagement />} />
-            <Route path="repayments" element={<Repayments />} />
+            {/* Inbox — incoming public loan requests */}
+            <Route path="inbox" element={<MemberInbox />} />
+            {/* Filed loans (was /loans) */}
+            <Route path="filed-loans" element={<FiledLoans />} />
+            <Route path="filed-loans/:id" element={<FiledLoanDetail />} />
+            {/* Legacy redirect */}
+            <Route path="loans" element={<Navigate to="/member/dashboard/filed-loans" replace />} />
+            {/* Repayments scoped to member's loans */}
+            <Route path="repayments" element={<MemberRepayments />} />
+            {/* Inventory */}
+            <Route path="inventory" element={<MemberInventory />} />
+            <Route path="inventory/catalogue" element={<MemberInventory />} />
+            <Route path="inventory/my-leases" element={<MemberLeases />} />
+            {/* Profile */}
+            <Route path="profile" element={<MemberProfile />} />
+            {/* Other */}
             <Route path="sahachari" element={<Sahachari />} />
             <Route path="donations" element={<Donations />} />
             <Route path="settings" element={<Settings />} />

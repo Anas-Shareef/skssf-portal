@@ -1,3 +1,4 @@
+import { supabase } from '../../lib/supabaseClient';
 import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { localDb, syncFromBackend } from '../../lib/localDb';
@@ -75,7 +76,70 @@ export default function Settings() {
   const addrRef   = useRef<HTMLTextAreaElement>(null);
 
   // Portal config
-  const [pConfig, setPConfig] = useState(() => localDb.getPortalConfig());
+  
+  const [coordinatorsList, setCoordinatorsList] = useState<any[]>([]);
+  const [selectedCoordId, setSelectedCoordId] = useState<string>('');
+  const [savingCoord, setSavingCoord] = useState(false);
+
+  useEffect(() => {
+    async function loadCoordinatorData() {
+      if (profile?.role !== 'super') return;
+      try {
+        const { data: profiles } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('role', 'coordinator');
+        setCoordinatorsList(profiles || []);
+
+        const { data: settings } = await supabase
+          .from('system_settings')
+          .select('panel_coordinator_id')
+          .eq('id', 1)
+          .maybeSingle();
+
+        if (settings?.panel_coordinator_id) {
+          setSelectedCoordId(settings.panel_coordinator_id);
+        }
+      } catch (err) {
+        console.error('Failed to load coordinator config:', err);
+      }
+    }
+    loadCoordinatorData();
+  }, [profile]);
+
+  const savePanelCoordinator = async () => {
+    if (profile?.role !== 'super') return;
+    try {
+      setSavingCoord(true);
+      const { error } = await supabase
+        .from('system_settings')
+        .update({
+          panel_coordinator_id: selectedCoordId || null,
+          updated_by: profile.db_id || profile.id
+        })
+        .eq('id', 1);
+
+      if (error) throw error;
+
+      const { error: voteErr } = await supabase
+        .from('loans')
+        .update({
+          panel_coordinator_vote: null,
+          panel_coordinator_vote_reason: null
+        })
+        .in('workflow_status', ['PENDING_COORDINATOR_REVIEW', 'PENDING_APPROVAL_PANEL']);
+
+      if (voteErr) throw voteErr;
+
+      showToast('✅ Panel Coordinator updated and pending votes reset!');
+    } catch (err: any) {
+      showToast('❌ Error: ' + err.message);
+    } finally {
+      setSavingCoord(false);
+    }
+  };
+
+const [pConfig, setPConfig] = useState(() => localDb.getPortalConfig());
   const [orgLogo, setOrgLogo] = useState(pConfig.orgLogo || '');
   const [orgScale, setOrgScale] = useState(pConfig.orgScale || 1.0);
 
@@ -588,6 +652,41 @@ export default function Settings() {
                 <button className="bsm s" style={{ width: '100%' }} onClick={savePortalConfig}>💾 Save Configuration</button>
               </div>
             </Section>
+
+            
+            {profile?.role === 'super' && (
+              <Section title="Panel Coordinator Assignment" icon="👑">
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  <p style={{ fontSize: '13px', color: '#64748b', margin: 0 }}>
+                    Select the active coordinator for the 3-person review panel. Changing the coordinator nullifies coordinator votes in active reviews.
+                  </p>
+                  <div>
+                    <label className="fl2">Active Panel Coordinator</label>
+                    <select
+                      className="sel2"
+                      value={selectedCoordId}
+                      onChange={(e) => setSelectedCoordId(e.target.value)}
+                      style={{ padding: '10px 14px', fontSize: '13px', borderRadius: '12px' }}
+                    >
+                      <option value="">-- No Coordinator Assigned --</option>
+                      {coordinatorsList.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name} ({c.branch || 'Poyanad Central'}) - {c.email}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <button
+                    disabled={savingCoord}
+                    className="bsm s"
+                    onClick={savePanelCoordinator}
+                    style={{ width: '100%', marginTop: '10px' }}
+                  >
+                    {savingCoord ? 'Saving Settings...' : '💾 Save Panel Coordinator'}
+                  </button>
+                </div>
+              </Section>
+            )}
 
             <Section title="Access Control" icon="🔒">
               <ToggleRow

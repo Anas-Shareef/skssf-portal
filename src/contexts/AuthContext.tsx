@@ -5,7 +5,7 @@ import { api } from '../lib/api';
 export type Profile = {
   id: string;
   db_id?: number;
-  role: 'super' | 'admin' | 'member';
+  role: 'super' | 'admin' | 'coordinator' | 'member';
   memberNo?: string;
   name: string;
   email: string;
@@ -14,6 +14,10 @@ export type Profile = {
   occupation?: string;
   avatar?: string;
   branch?: string;
+  admin_title?: string;        // 'President' | 'Secretary' for admin users
+  assigned_zone?: string;
+  member_unique_code?: string;
+  is_panel_coordinator?: boolean; // true when this coordinator is assigned to panel
 };
 
 type AuthContextType = {
@@ -60,7 +64,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               ...res.user,
               id: res.user.code || res.user.id,
               db_id: Number(res.user.id),
-              unit: res.user.branch || res.user.unit
+              unit: res.user.branch || res.user.unit,
+              admin_title: res.user.admin_title,
+              assigned_zone: res.user.assigned_zone,
+              member_unique_code: res.user.member_unique_code,
+              is_panel_coordinator: res.user.is_panel_coordinator || false,
             } as Profile);
           }
         } catch {
@@ -91,11 +99,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         sessionStorage.setItem('active_api_token', res.token);
         sessionStorage.setItem('active_user_id', res.user.code || res.user.id);
         clearFrontendCache();
+        await syncFromBackend();
         setProfile({
           ...res.user,
           id: res.user.code || res.user.id,
           db_id: Number(res.user.id),
-          unit: res.user.branch || res.user.unit
+          unit: res.user.branch || res.user.unit,
+          admin_title: res.user.admin_title,
+          assigned_zone: res.user.assigned_zone,
+          member_unique_code: res.user.member_unique_code,
+          is_panel_coordinator: res.user.is_panel_coordinator || false,
         } as Profile);
         return true;
       }

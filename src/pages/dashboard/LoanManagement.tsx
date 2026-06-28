@@ -3,7 +3,210 @@ import type { ReactElement } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { localDb, syncFromBackend } from '../../lib/localDb';
+import { supabase } from '../../lib/supabaseClient';
 import ConfirmDialog from '../../components/ConfirmDialog';
+
+
+function AdminPanelVoteCard({ loan, profile, refresh }: { loan: any; profile: any; refresh: () => void }) {
+  const [voteAction, setVoteAction] = useState<'APPROVE' | 'REJECT' | null>(null);
+  const [reason, setReason] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  const isSuper = profile?.role === 'super';
+  const isAdmin = profile?.role === 'admin';
+  const adminTitle = profile?.admin_title || '';
+  const canVote = isSuper || (isAdmin && (adminTitle === 'President' || adminTitle === 'Secretary'));
+
+  const userVoteRole = isSuper 
+    ? (loan.president_vote == null ? 'President' : (loan.secretary_vote == null ? 'Secretary' : 'President'))
+    : adminTitle;
+
+  const currentVote = userVoteRole === 'President' ? loan.president_vote : loan.secretary_vote;
+
+  const handleVoteSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!voteAction) return;
+    if (voteAction === 'REJECT' && !reason.trim()) {
+      alert('Please enter a rejection reason.');
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+      const fieldPrefix = userVoteRole.toLowerCase();
+      const updates: any = {
+        [`${fieldPrefix}_vote`]: voteAction,
+        [`${fieldPrefix}_vote_reason`]: voteAction === 'REJECT' ? reason.trim() : null
+      };
+
+      let nextStatus = 'PENDING_APPROVAL_PANEL';
+      const presVote = fieldPrefix === 'president' ? voteAction : loan.president_vote;
+      const secVote = fieldPrefix === 'secretary' ? voteAction : loan.secretary_vote;
+      const coordVote = loan.panel_coordinator_vote;
+
+      if (voteAction === 'REJECT' || presVote === 'REJECT' || secVote === 'REJECT' || coordVote === 'REJECT') {
+        nextStatus = 'REJECTED_BY_PANEL';
+        updates.workflow_status = nextStatus;
+        updates.status = 'rejected';
+        updates.rejected_by = profile?.db_id || profile?.id;
+        updates.rejection_reason = voteAction === 'REJECT' ? reason.trim() : (presVote === 'REJECT' ? loan.president_vote_reason : (secVote === 'REJECT' ? loan.secretary_vote_reason : loan.panel_coordinator_vote_reason));
+      } else if (presVote === 'APPROVE' && secVote === 'APPROVE' && coordVote === 'APPROVE') {
+        nextStatus = 'APPROVED';
+        updates.workflow_status = nextStatus;
+        updates.status = 'approved';
+        updates.disbursement_date = new Date().toISOString().split('T')[0];
+        updates.loan_amount_approved = loan.loan_amount_requested || loan.amt;
+      }
+
+      const { error } = await supabase
+        .from('loans')
+        .update(updates)
+        .eq('id', loan.id);
+
+      if (error) throw error;
+
+      await supabase.from('loan_audit_log').insert({
+        loan_id: loan.id,
+        action: 'PANEL_VOTE_CAST',
+        performed_by_user_id: profile?.db_id || profile?.id,
+        notes: `${userVoteRole} voted ${voteAction}. Status now ${nextStatus}.`
+      });
+
+      if (nextStatus === 'APPROVED') {
+        const totalAmt = loan.loan_amount_requested || loan.amt;
+        const months = loan.repayment_period_months || loan.months || 12;
+        const disDate = new Date().toISOString().split('T')[0];
+
+        const { error: rpcError } = await supabase.rpc('generate_repayment_schedule', {
+          p_loan_id: loan.id,
+          p_amount: totalAmt,
+          p_months: months,
+          p_disbursement_date: disDate
+        });
+
+        if (rpcError) {
+          console.warn('RPC failed, generating schedule client-side:', rpcError);
+          const instAmt = Math.round((totalAmt / months) * 100) / 100;
+          const lastInstAmt = Math.round((totalAmt - (instAmt * (months - 1))) * 100) / 100;
+          const insts = [];
+          for (let i = 1; i <= months; i++) {
+            const due = new Date();
+            due.setDate(due.getDate() + (i * 30));
+            insts.push({
+              loan_id: loan.id,
+              installment_number: i,
+              due_date: due.toISOString().split('T')[0],
+              amount_due: i === months ? lastInstAmt : instAmt,
+              status: 'PENDING'
+            });
+          }
+          await supabase.from('repayment_installments').insert(insts);
+        }
+      }
+
+      if (loan.submitted_by_member_id) {
+        await supabase.from('notifications').insert({
+          user_id: loan.submitted_by_member_id,
+          title: nextStatus === 'APPROVED' ? 'Loan Application Approved' : 'Consensus Vote cast',
+          message: `${userVoteRole} voted ${voteAction} for request ${loan.requester_name || loan.name}.`,
+          link_url: `/member/dashboard/filed-loans/${loan.id}`
+        });
+      }
+
+      alert('Vote cast successfully!');
+      refresh();
+    } catch (err: any) {
+      alert(err.message || 'Failed to submit vote.');
+    } finally {
+      setSubmitting(false);
+      setVoteAction(null);
+      setReason('');
+    }
+  };
+
+  return (
+    <div style={{ background: '#f8fafc', borderRadius: 16, padding: '20px', border: '1.5px solid #e2e8f0', marginBottom: '24px' }}>
+      <h4 style={{ margin: '0 0 16px 0', fontSize: '14px', fontWeight: 900, color: '#0f172a' }}>🛡️ Panel consensus card</h4>
+      
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '13px', fontWeight: 700, marginBottom: '20px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #e2e8f0', paddingBottom: '6px' }}>
+          <span>President:</span>
+          <span style={{ color: loan.president_vote === 'APPROVE' ? '#10b981' : loan.president_vote === 'REJECT' ? 'var(--red)' : '#64748b' }}>
+            {loan.president_vote || 'PENDING'}
+          </span>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #e2e8f0', paddingBottom: '6px' }}>
+          <span>Secretary:</span>
+          <span style={{ color: loan.secretary_vote === 'APPROVE' ? '#10b981' : loan.secretary_vote === 'REJECT' ? 'var(--red)' : '#64748b' }}>
+            {loan.secretary_vote || 'PENDING'}
+          </span>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '6px' }}>
+          <span>Panel Coordinator:</span>
+          <span style={{ color: loan.panel_coordinator_vote === 'APPROVE' ? '#10b981' : loan.panel_coordinator_vote === 'REJECT' ? 'var(--red)' : '#64748b' }}>
+            {loan.panel_coordinator_vote || 'PENDING'}
+          </span>
+        </div>
+      </div>
+
+      {canVote ? (
+        currentVote != null ? (
+          <div style={{ fontSize: '13px', color: '#10b981', fontWeight: 800 }}>
+            ✓ You have already voted as {userVoteRole} ({currentVote}).
+          </div>
+        ) : (
+          <form onSubmit={handleVoteSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div style={{ fontSize: '13px', fontWeight: 800 }}>
+              Casting Vote as: <span style={{ color: 'var(--teal)' }}>{userVoteRole}</span>
+            </div>
+            
+            <textarea
+              placeholder="Rejection reason (only required if rejecting)"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              className="ta2"
+              rows={2}
+            />
+
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                type="button"
+                onClick={() => { setVoteAction('APPROVE'); }}
+                className={`bsm s ${voteAction === 'APPROVE' ? '' : 'g'}`}
+                style={{ flex: 1, padding: '10px' }}
+              >
+                Approve
+              </button>
+              <button
+                type="button"
+                onClick={() => { setVoteAction('REJECT'); }}
+                className={`bsm r ${voteAction === 'REJECT' ? '' : 'g'}`}
+                style={{ flex: 1, padding: '10px' }}
+              >
+                Reject
+              </button>
+            </div>
+
+            {voteAction && (
+              <button
+                type="submit"
+                disabled={submitting}
+                className="bsm s"
+                style={{ width: '100%', padding: '12px', background: voteAction === 'REJECT' ? 'var(--red)' : 'var(--teal)' }}
+              >
+                {submitting ? 'Casting Vote...' : `Confirm Vote (${voteAction})`}
+              </button>
+            )}
+          </form>
+        )
+      ) : (
+        <div style={{ fontSize: '12px', color: '#64748b', fontStyle: 'italic' }}>
+          Only the designated President, Secretary, or Panel Coordinator can vote at this consensus stage.
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function LoanManagement() {
   const { profile } = useAuth();
@@ -290,7 +493,10 @@ export default function LoanManagement() {
                   <option>Medical</option><option>Education</option><option>Marriage</option><option>Other</option>
                 </select>
               </div>
-              {!isMember && (
+              {!isMember && selectedLoan.workflow_status === 'PENDING_APPROVAL_PANEL' && (
+                  <AdminPanelVoteCard loan={selectedLoan} profile={profile} refresh={refreshLoans} />
+                )}
+                {!isMember && selectedLoan.workflow_status !== 'PENDING_APPROVAL_PANEL' && (
                 <div>
                   <label style={{ fontSize: '11px', fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.5px', display: 'block', marginBottom: '5px' }}>Branch</label>
                   <select className="sel2" value={fBranch} onChange={e => setFBranch(e.target.value)} style={{ padding: '7px 10px', fontSize: '12.5px' }}>
