@@ -280,6 +280,70 @@ export const api = {
       }
     }
 
+    if (path.startsWith('/request/')) {
+      const code = path.split('/')[2];
+      try {
+        const { data, error } = await supabase.from('profiles').select('id, name, branch, member_unique_code').eq('member_unique_code', code).maybeSingle();
+        if (error) throw error;
+        if (!data) throw new Error('Member not found');
+        return { data } as T;
+      } catch (err: any) {
+        if (isTableMissingError(err)) {
+          const users = JSON.parse(localStorage.getItem('db_users') || '[]');
+          const member = users.find((u: any) => u.member_unique_code === code && u.role === 'member');
+          if (!member) throw new Error('Member not found');
+          return { data: { id: member.id, name: member.name, branch: member.branch, member_unique_code: member.member_unique_code } } as T;
+        }
+        throw err;
+      }
+    }
+
+    if (path === '/member/inbox') {
+      const token = _token || sessionStorage.getItem('active_api_token') || '';
+      const { data: { user } } = await supabase.auth.getUser(token);
+      if (!user) throw new Error('Unauthenticated');
+      try {
+        const { data, error } = await supabase.from('inbox_submissions').select('*').eq('member_id', user.id).order('submitted_at', { ascending: false });
+        if (error) throw error;
+        return { data } as T;
+      } catch (err: any) {
+        if (isTableMissingError(err)) {
+          const submissions = JSON.parse(localStorage.getItem('db_inbox_submissions') || '[]');
+          const memberSubs = submissions.filter((s: any) => s.member_id === user.id).sort((a: any, b: any) => new Date(b.submitted_at).getTime() - new Date(a.submitted_at).getTime());
+          return { data: memberSubs } as T;
+        }
+        throw err;
+      }
+    }
+
+    if (path === '/inventory/checkout-requests') {
+      try {
+        const { data, error } = await supabase.from('checkout_requests').select('*').order('created_at', { ascending: false });
+        if (error) throw error;
+        return { data } as T;
+      } catch (err: any) {
+        if (isTableMissingError(err)) {
+          const requests = JSON.parse(localStorage.getItem('db_checkout_requests') || '[]');
+          return { data: requests } as T;
+        }
+        throw err;
+      }
+    }
+
+    if (path === '/inventory/return-requests') {
+      try {
+        const { data, error } = await supabase.from('return_requests').select('*').order('created_at', { ascending: false });
+        if (error) throw error;
+        return { data } as T;
+      } catch (err: any) {
+        if (isTableMissingError(err)) {
+          const requests = JSON.parse(localStorage.getItem('db_return_requests') || '[]');
+          return { data: requests } as T;
+        }
+        throw err;
+      }
+    }
+
     throw new Error(`Endpoint GET ${path} not implemented`);
   },
 
@@ -939,6 +1003,99 @@ export const api = {
       return { success: true } as T;
     }
 
+    if (path === '/admin/members') {
+      try {
+        const uniqueCode = `MBR-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+        const profileData = {
+          role: 'member',
+          name: body.name,
+          email: body.email,
+          phone: body.phone || '',
+          branch: body.branch || '',
+          member_unique_code: uniqueCode,
+          must_change_password: true,
+          is_active: true,
+          created_at: new Date().toISOString()
+        };
+        const { data, error } = await supabase.from('profiles').insert(profileData).select().single();
+        if (error) throw error;
+
+        console.log(`[EMAIL SIMULATION] To: ${body.email} | Subject: Welcome to SKSSF Member Portal! | Body: Hello ${body.name}, your account is created. Login with your email and temp password: password123. Share your public loan request link: /request/${uniqueCode}`);
+        return { data } as T;
+      } catch (err: any) {
+        if (isTableMissingError(err)) {
+          const users = JSON.parse(localStorage.getItem('db_users') || '[]');
+          const uniqueCode = `MBR-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+          const newMember = {
+            id: `MBR-${Math.random().toString(36).substring(2, 9)}`,
+            role: 'member',
+            name: body.name,
+            email: body.email,
+            phone: body.phone || '',
+            branch: body.branch || '',
+            member_unique_code: uniqueCode,
+            must_change_password: true,
+            active: true,
+            joinDate: new Date().toISOString().split('T')[0]
+          };
+          users.push(newMember);
+          localStorage.setItem('db_users', JSON.stringify(users));
+          
+          console.log(`[EMAIL SIMULATION] To: ${body.email} | Subject: Welcome to SKSSF Member Portal! | Body: Hello ${body.name}, your account is created. Login with your email and temp password: password123. Share your public loan request link: /request/${uniqueCode}`);
+          return { data: newMember } as T;
+        }
+        throw err;
+      }
+    }
+
+    if (path === '/member/inbox') {
+      try {
+        const { data, error } = await supabase.from('inbox_submissions').insert(body).select().single();
+        if (error) throw error;
+        return { data } as T;
+      } catch (err: any) {
+        if (isTableMissingError(err)) {
+          const subs = JSON.parse(localStorage.getItem('db_inbox_submissions') || '[]');
+          subs.push(body);
+          localStorage.setItem('db_inbox_submissions', JSON.stringify(subs));
+          return { data: body } as T;
+        }
+        throw err;
+      }
+    }
+
+    if (path === '/inventory/checkout-request') {
+      try {
+        const { data, error } = await supabase.from('checkout_requests').insert(body).select().single();
+        if (error) throw error;
+        return { data } as T;
+      } catch (err: any) {
+        if (isTableMissingError(err)) {
+          const reqs = JSON.parse(localStorage.getItem('db_checkout_requests') || '[]');
+          reqs.push(body);
+          localStorage.setItem('db_checkout_requests', JSON.stringify(reqs));
+          return { data: body } as T;
+        }
+        throw err;
+      }
+    }
+
+    if (path === '/inventory/return-request') {
+      try {
+        const { data, error } = await supabase.from('return_requests').insert(body).select().single();
+        if (error) throw error;
+        return { data } as T;
+      } catch (err: any) {
+        if (isTableMissingError(err)) {
+          const reqs = JSON.parse(localStorage.getItem('db_return_requests') || '[]');
+          reqs.push(body);
+          localStorage.setItem('db_return_requests', JSON.stringify(reqs));
+          return { data: body } as T;
+        }
+        throw err;
+      }
+    }
+
     throw new Error(`Endpoint POST ${path} not implemented`);
   },
 
@@ -1153,6 +1310,66 @@ export const api = {
       }
 
       return { success: true } as T;
+    }
+
+    if (path.startsWith('/member/inbox/')) {
+      const id = path.split('/')[3];
+      try {
+        const { data, error } = await supabase.from('inbox_submissions').update(body).eq('id', id).select().single();
+        if (error) throw error;
+        return { data } as T;
+      } catch (err: any) {
+        if (isTableMissingError(err)) {
+          const subs = JSON.parse(localStorage.getItem('db_inbox_submissions') || '[]');
+          const idx = subs.findIndex((s: any) => s.id === id);
+          if (idx > -1) {
+            subs[idx] = { ...subs[idx], ...body, actioned_at: new Date().toISOString() };
+            localStorage.setItem('db_inbox_submissions', JSON.stringify(subs));
+            return { data: subs[idx] } as T;
+          }
+        }
+        throw err;
+      }
+    }
+
+    if (path.startsWith('/inventory/checkout-request/')) {
+      const id = path.split('/')[3];
+      try {
+        const { data, error } = await supabase.from('checkout_requests').update(body).eq('id', id).select().single();
+        if (error) throw error;
+        return { data } as T;
+      } catch (err: any) {
+        if (isTableMissingError(err)) {
+          const reqs = JSON.parse(localStorage.getItem('db_checkout_requests') || '[]');
+          const idx = reqs.findIndex((r: any) => r.id === id);
+          if (idx > -1) {
+            reqs[idx] = { ...reqs[idx], ...body, actioned_at: new Date().toISOString() };
+            localStorage.setItem('db_checkout_requests', JSON.stringify(reqs));
+            return { data: reqs[idx] } as T;
+          }
+        }
+        throw err;
+      }
+    }
+
+    if (path.startsWith('/inventory/return-request/')) {
+      const id = path.split('/')[3];
+      try {
+        const { data, error } = await supabase.from('return_requests').update(body).eq('id', id).select().single();
+        if (error) throw error;
+        return { data } as T;
+      } catch (err: any) {
+        if (isTableMissingError(err)) {
+          const reqs = JSON.parse(localStorage.getItem('db_return_requests') || '[]');
+          const idx = reqs.findIndex((r: any) => r.id === id);
+          if (idx > -1) {
+            reqs[idx] = { ...reqs[idx], ...body, actioned_at: new Date().toISOString() };
+            localStorage.setItem('db_return_requests', JSON.stringify(reqs));
+            return { data: reqs[idx] } as T;
+          }
+        }
+        throw err;
+      }
     }
 
     throw new Error(`Endpoint PATCH ${path} not implemented`);

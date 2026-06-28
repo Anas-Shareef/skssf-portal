@@ -49,6 +49,9 @@ export default function Members() {
   const branchRef = useRef<HTMLSelectElement>(null);
   const typeRef = useRef<HTMLSelectElement>(null);
   const passRef = useRef<HTMLInputElement>(null);
+  const zoneRef = useRef<HTMLInputElement>(null);
+  const mustChangeRef = useRef<HTMLInputElement>(null);
+  const activeRef = useRef<HTMLInputElement>(null);
 
   const refresh = () => setMembers(localDb.getUsers().filter((u: any) => u.role === 'member'));
 
@@ -138,12 +141,15 @@ export default function Members() {
       branch: branchRef.current?.value || (branchFilter || 'Poyanad Central'),
       type: typeRef.current?.value || 'Regular',
       pass: pass || undefined,
-      active: editingMember ? editingMember.active : true,
+      active: activeRef.current ? activeRef.current.checked : (editingMember ? editingMember.active : true),
       memberNo: editingMember ? editingMember.memberNo : `SKSSF-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`,
       joinDate: editingMember ? editingMember.joinDate : new Date().toISOString().split('T')[0],
       sahachari_paid: editingMember ? editingMember.sahachari_paid : [],
       sah_miss: editingMember ? editingMember.sah_miss : [],
       total_donated: editingMember ? editingMember.total_donated : 0,
+      assigned_zone: zoneRef.current?.value || '',
+      must_change_password: mustChangeRef.current ? mustChangeRef.current.checked : true,
+      created_by: profile?.id || null,
     };
 
     if (editingMember) {
@@ -332,6 +338,7 @@ export default function Members() {
                     <input type="checkbox" checked={allSelected} onChange={toggleAll} style={{ cursor: 'pointer' }} />
                   </th>
                   <th>Mem. No.</th>
+                  <th>Unique Code</th>
                   <th>Name</th>
                   {currentRole === 'super' && <th>Unit</th>}
                   <th>Type</th>
@@ -351,6 +358,7 @@ export default function Members() {
                         <input type="checkbox" checked={selectedEmails.includes(m.email)} onChange={() => toggleOne(m.email)} style={{ cursor: 'pointer' }} />
                       </td>
                       <td style={{ fontSize: '11.5px', fontWeight: 600 }}>{m.memberNo || '—'}</td>
+                      <td style={{ fontSize: '11.5px', fontWeight: 700, color: 'var(--teal)' }}>{m.member_unique_code || '—'}</td>
                       <td>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                           <div className="sb-av" style={{ width: '32px', height: '32px', fontSize: '12px', background: m.avatar ? 'transparent' : 'var(--teal-pale)' }}>
@@ -459,7 +467,18 @@ export default function Members() {
                       <option>Thrissur East</option><option>Kannur West</option>
                     </select>
                   </div>
+                  <div className="fg2"><label className="fl2">Assigned Zone</label><input className="fi2" defaultValue={editingMember?.assigned_zone} placeholder="e.g. Zone A" ref={zoneRef} /></div>
                   <div className="fg2"><label className="fl2">{editingMember ? 'New Password (leave blank for no change)' : 'Login Password *'}</label><input className="fi2" ref={passRef} placeholder={editingMember ? '••••••••' : 'Min 6 characters'} /></div>
+                  
+                  <div className="fg2" style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 0' }}>
+                    <input type="checkbox" id="mustChangePass" defaultChecked={editingMember ? !!editingMember.must_change_password : true} ref={mustChangeRef} style={{ width: '16px', height: '16px', cursor: 'pointer' }} />
+                    <label htmlFor="mustChangePass" style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', cursor: 'pointer' }}>Force password change</label>
+                  </div>
+                  <div className="fg2" style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 0' }}>
+                    <input type="checkbox" id="isActiveUser" defaultChecked={editingMember ? !!editingMember.active : true} ref={activeRef} style={{ width: '16px', height: '16px', cursor: 'pointer' }} />
+                    <label htmlFor="isActiveUser" style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', cursor: 'pointer' }}>Account Active</label>
+                  </div>
+
                   <div className="fg2 full"><label className="fl2">Address</label><textarea className="ta2" rows={2} defaultValue={editingMember?.addr} placeholder="Full address" ref={addrRef}></textarea></div>
                 </div>
               </div>

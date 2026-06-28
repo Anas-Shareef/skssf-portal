@@ -30,23 +30,7 @@ export default function LoanApplication() {
     aadhaar: ''
   });
 
-  // Pre-fill from profile
-  useEffect(() => {
-    if (profile && profile.role === 'member') {
-      setPersonal(prev => ({
-        ...prev,
-        name: prev.name || profile.name || '',
-        occupation: prev.occupation || profile.occupation || '',
-        memberNo: prev.memberNo || (profile as any).memberNo || '',
-        phone: prev.phone || (profile as any).phone || '',
-        whatsapp: prev.whatsapp || (profile as any).phone || '',
-        dob: prev.dob || (profile as any).dob || '',
-        fatherName: prev.fatherName || (profile as any).fatherName || '',
-        address: prev.address || (profile as any).addr || '',
-        aadhaar: prev.aadhaar || (profile as any).aadhaar || '',
-      }));
-    }
-  }, [profile]);
+  // Form is empty by default so members can apply on behalf of applicants
 
   const updatePers = (f: string, v: string) => setPersonal(p => ({ ...p, [f]: v }));
   
@@ -249,10 +233,10 @@ export default function LoanApplication() {
         });
     }
 
-    const finalApplicantId = isAdminOrSuper ? selectedMemberId : profile?.id;
+    const finalApplicantId = isAdminOrSuper ? selectedMemberId : null;
     const finalDbId = isAdminOrSuper
       ? members.find((m: any) => m.id === selectedMemberId)?.db_id
-      : profile?.db_id;
+      : null;
     const finalBranch = isAdminOrSuper
       ? (members.find((m: any) => m.id === selectedMemberId)?.branch || '')
       : (profile?.branch || '');
@@ -269,7 +253,9 @@ export default function LoanApplication() {
       repayments,
       signature,
       witnesses,
-      status: 'pending'
+      status: 'pending',
+      submitted_by_member_id: profile?.role === 'member' ? profile.id : null,
+      submission_source: profile?.role === 'member' ? 'manual' : 'admin'
     });
 
     await new Promise(r => setTimeout(r, 800)); // Simulate processing

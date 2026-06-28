@@ -45,8 +45,13 @@ export default function RoleLogin({ mode = 'login' }: RoleLoginProps) {
   const [resetError, setResetError] = useState('');
 
   useEffect(() => {
-    setTab(mode === 'register' ? 'su' : 'si');
-  }, [mode]);
+    if (role === 'member' && mode === 'register') {
+      navigate('/member/login', { replace: true });
+      setError('Member accounts are created by administrators. Contact your admin.');
+    } else {
+      setTab(mode === 'register' ? 'su' : 'si');
+    }
+  }, [mode, role, navigate]);
 
   const siEmail = useRef<HTMLInputElement>(null);
   const siPass = useRef<HTMLInputElement>(null);
@@ -157,12 +162,7 @@ export default function RoleLogin({ mode = 'login' }: RoleLoginProps) {
           <div className="lbox-title">Welcome back</div>
           <div className="lbox-sub">Sign in to continue to your {r.label}</div>
 
-          {role === 'member' && (
-            <div className="tabs">
-              <button className={`tab ${tab === 'si' ? 'on' : ''}`} onClick={() => { navigate(`/${role}/login`); setError(''); }}>Sign In</button>
-              <button className={`tab ${tab === 'su' ? 'on' : ''}`} onClick={() => { navigate(`/${role}/register`); setError(''); }}>Register</button>
-            </div>
-          )}
+
 
           {error && <div className="form-error">{error}</div>}
 

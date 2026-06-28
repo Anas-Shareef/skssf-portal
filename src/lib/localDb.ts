@@ -76,6 +76,10 @@ const mapUserFromApi = (u: any) => ({
   total_donated: Number(u.total_donated || 0),
   perms: u.perms || {},
   is_approver: !!u.is_approver,
+  member_unique_code: u.member_unique_code || u.memberUniqueCode || '',
+  created_by: u.created_by || null,
+  assigned_zone: u.assigned_zone || '',
+  must_change_password: u.must_change_password !== false,
 });
 
 const mapLoanFromApi = (l: any, usersByNumericId: Map<number, any>) => {
@@ -111,7 +115,10 @@ const mapLoanFromApi = (l: any, usersByNumericId: Map<number, any>) => {
     signature: l.signature || '',
     witnesses: l.witnesses || [],
     total_paid: 0,
-    remaining_balance: 0
+    remaining_balance: 0,
+    submitted_by_member_id: l.submitted_by_member_id || null,
+    submission_source: l.submission_source || 'manual',
+    inbox_submission_id: l.inbox_submission_id || null
   };
   
   // Financial Integrity Audit: Ensure 'paid' flags match approved requests
@@ -340,6 +347,10 @@ export const localDb = {
   saveUser: (user: any) => {
     const users = localDb.getUsers();
     const id = uuid();
+    const uniqueCode = user.role === 'member' 
+      ? (user.member_unique_code || `MBR-${Math.random().toString(36).substring(2, 6).toUpperCase()}`)
+      : undefined;
+    
     users.push({ 
       ...user, 
       id,
@@ -349,7 +360,11 @@ export const localDb = {
       active: true,
       avatar: user.avatar || '',
       occupation: user.occupation || '',
-      joinDate: new Date().toISOString().split('T')[0]
+      joinDate: new Date().toISOString().split('T')[0],
+      member_unique_code: uniqueCode,
+      must_change_password: user.must_change_password !== false,
+      created_by: user.created_by || null,
+      assigned_zone: user.assigned_zone || ''
     });
     backendCacheStorage.setItem('db_users', JSON.stringify(users));
 
@@ -371,6 +386,10 @@ export const localDb = {
           salary: Number(user.salary || 0),
           addr: user.addr || '',
           address: user.addr || '',
+          member_unique_code: uniqueCode,
+          must_change_password: user.must_change_password !== false,
+          created_by: user.created_by || null,
+          assigned_zone: user.assigned_zone || '',
           perms: {
             ...(user.perms || {}),
             fname: user.fname || '',
@@ -1568,6 +1587,155 @@ export const localDb = {
   updateNotificationSettings: async (settings: any) => {
     await api.patch('/settings/notifications', settings);
     void syncFromBackend();
+  },
+
+  getInboxSubmissions: () => {
+    return JSON.parse(backendCacheStorage.getItem('db_inbox_submissions') || '[]');
+  },
+
+  createInboxSubmission: (sub: any) => {
+    const subs = localDb.getInboxSubmissions();
+    const newSub = {
+      id: uuid(),
+      status: 'new',
+      submitted_at: new Date().toISOString(),
+      ...sub
+    };
+    subs.push(newSub);
+    backendCacheStorage.setItem('db_inbox_submissions', JSON.stringify(subs));
+    
+    if (hasBackendSession()) {
+      syncLater(api.post(`/member/inbox`, newSub).then(() => syncFromBackend()));
+    }
+    return newSub;
+  },
+
+  actionInboxSubmission: (subId: string, status: 'forwarded' | 'rejected', rejectionReason?: string, forwardedLoanId?: string) => {
+    const subs = localDb.getInboxSubmissions();
+    const idx = subs.findIndex((s: any) => s.id === subId);
+    if (idx > -1) {
+      subs[idx].status = status;
+      subs[idx].rejection_reason = rejectionReason || null;
+      subs[idx].forwarded_loan_id = forwardedLoanId || null;
+      subs[idx].actioned_at = new Date().toISOString();
+      backendCacheStorage.setItem('db_inbox_submissions', JSON.stringify(subs));
+
+      if (hasBackendSession()) {
+        syncLater(api.patch(`/member/inbox/${subId}`, { status, rejection_reason: rejectionReason, forwarded_loan_id: forwardedLoanId }).then(() => syncFromBackend()));
+      }
+      return true;
+    }
+    return false;
+  },
+
+  getCheckoutRequests: () => {
+    return JSON.parse(backendCacheStorage.getItem('db_checkout_requests') || '[]');
+  },
+
+  getReturnRequests: () => {
+    return JSON.parse(backendCacheStorage.getItem('db_return_requests') || '[]');
+  },
+
+  createCheckoutRequest: (req: any) => {
+    const reqs = localDb.getCheckoutRequests();
+    const newReq = {
+      id: uuid(),
+      status: 'pending',
+      created_at: new Date().toISOString(),
+      ...req
+    };
+    reqs.push(newReq);
+    backendCacheStorage.setItem('db_checkout_requests', JSON.stringify(reqs));
+
+    if (hasBackendSession()) {
+      syncLater(api.post(`/inventory/checkout-request`, newReq).then(() => syncFromBackend()));
+    }
+    return newReq;
+  },
+
+  createReturnRequest: (req: any) => {
+    const reqs = localDb.getReturnRequests();
+    const newReq = {
+      id: uuid(),
+      status: 'pending',
+      created_at: new Date().toISOString(),
+      ...req
+    };
+    reqs.push(newReq);
+    backendCacheStorage.setItem('db_return_requests', JSON.stringify(reqs));
+
+    if (hasBackendSession()) {
+      syncLater(api.post(`/inventory/return-request`, newReq).then(() => syncFromBackend()));
+    }
+    return newReq;
+  },
+
+  actionCheckoutRequest: (reqId: string, status: 'approved' | 'rejected', adminName: string) => {
+    const reqs = localDb.getCheckoutRequests();
+    const idx = reqs.findIndex((r: any) => r.id === reqId);
+    if (idx > -1) {
+      const req = reqs[idx];
+      req.status = status;
+      req.actioned_at = new Date().toISOString();
+      req.actioned_by = adminName;
+      backendCacheStorage.setItem('db_checkout_requests', JSON.stringify(reqs));
+
+      if (status === 'approved') {
+        const units = localDb.getUnits().filter((u: any) => String(u.product_id) === String(req.product_id) && u.status === 'available');
+        if (units.length >= req.quantity) {
+          for (let i = 0; i < req.quantity; i++) {
+            localDb.processBarcodeScan(
+              units[i].barcode,
+              'checkout',
+              adminName,
+              req.member_id,
+              req.member_name,
+              '',
+              'manual'
+            );
+          }
+        }
+      }
+
+      if (hasBackendSession()) {
+        syncLater(api.patch(`/inventory/checkout-request/${reqId}`, { status, actioned_by: adminName }).then(() => syncFromBackend()));
+      }
+      return true;
+    }
+    return false;
+  },
+
+  actionReturnRequest: (reqId: string, status: 'approved' | 'rejected', adminName: string) => {
+    const reqs = localDb.getReturnRequests();
+    const idx = reqs.findIndex((r: any) => r.id === reqId);
+    if (idx > -1) {
+      const req = reqs[idx];
+      req.status = status;
+      req.actioned_at = new Date().toISOString();
+      req.actioned_by = adminName;
+      backendCacheStorage.setItem('db_return_requests', JSON.stringify(reqs));
+
+      if (status === 'approved') {
+        const unit = localDb.getUnits().find((u: any) => u.id === req.unit_id);
+        if (unit) {
+          localDb.processBarcodeScan(
+            unit.barcode,
+            'checkin',
+            adminName,
+            '',
+            '',
+            '',
+            'manual'
+          );
+        }
+      }
+
+      if (hasBackendSession()) {
+        syncLater(api.patch(`/inventory/return-request/${reqId}`, { status, actioned_by: adminName }).then(() => syncFromBackend()));
+      }
+      return true;
+    }
+    return false;
   }
 };
 

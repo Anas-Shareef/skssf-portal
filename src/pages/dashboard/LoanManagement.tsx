@@ -85,6 +85,7 @@ export default function LoanManagement() {
   const canSign = profile?.role === 'super' || (isGlobalApprover && isAssigned);
 
   const selectedMember = selectedLoan ? localDb.getUserById(selectedLoan.memId || selectedLoan.applicant_id) : null;
+  const filingHelper = selectedLoan?.submitted_by_member_id ? localDb.getUserById(selectedLoan.submitted_by_member_id) : null;
 
   const activeFilterCount = [fStatus, fPurpose, fBranch].filter(Boolean).length;
   const clearFilters = () => { setFStatus(''); setFPurpose(''); setFBranch(''); };
@@ -433,16 +434,14 @@ export default function LoanManagement() {
                 <div className="rv-sec">
                   <div className="rv-sec-t">Applicant Details</div>
                   <div className="rv-row"><div className="rv-k">Name</div><div className="rv-v">{selectedLoan.name}</div></div>
-                  <div className="rv-row"><div className="rv-k">Member ID</div><div className="rv-v">{selectedLoan.memNo} · {selectedLoan.branch}</div></div>
-                  <div className="rv-row"><div className="rv-k">Contact</div><div className="rv-v">{selectedLoan.mob}</div></div>
-                  {selectedMember && (
-                    <>
-                      <div className="rv-row"><div className="rv-k">Member Type</div><div className="rv-v">{selectedMember.type || 'Regular'}</div></div>
-                      <div className="rv-row"><div className="rv-k">Joined Date</div><div className="rv-v">{selectedMember.joinDate || '—'}</div></div>
-                      <div className="rv-row"><div className="rv-k">Occupation</div><div className="rv-v">{selectedMember.occupation || '—'}</div></div>
-                      <div className="rv-row"><div className="rv-k">Monthly Salary</div><div className="rv-v">{selectedLoan.salary ? `₹${selectedLoan.salary}` : '—'}</div></div>
-                      <div className="rv-row"><div className="rv-k">Aadhaar / ID</div><div className="rv-v">{selectedLoan.aadhaar || '—'}</div></div>
-                    </>
+                  <div className="rv-row"><div className="rv-k">Contact</div><div className="rv-v">{selectedLoan.mob || selectedLoan.phone || '—'}</div></div>
+                  <div className="rv-row"><div className="rv-k">Monthly Salary</div><div className="rv-v">{selectedLoan.salary ? `₹${selectedLoan.salary}` : '—'}</div></div>
+                  <div className="rv-row"><div className="rv-k">Aadhaar / ID</div><div className="rv-v">{selectedLoan.aadhaar || '—'}</div></div>
+                  {filingHelper && (
+                    <div className="rv-row" style={{ background: 'var(--teal-pale)', padding: '6px 10px', borderRadius: '8px', marginTop: '10px' }}>
+                      <div className="rv-k" style={{ color: 'var(--teal)' }}>Filing Helper</div>
+                      <div className="rv-v" style={{ fontWeight: 800 }}>{filingHelper.name} ({filingHelper.member_unique_code || 'MBR-CODE'})</div>
+                    </div>
                   )}
                 </div>
                 <div className="rv-sec">

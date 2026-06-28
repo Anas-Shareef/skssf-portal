@@ -18,6 +18,7 @@ import Settings from './pages/dashboard/Settings';
 import LoanApplication from './pages/dashboard/LoanApplication';
 import Inventory from './pages/dashboard/Inventory';
 import ResetPassword from './pages/ResetPassword';
+import PublicLoanRequest from './pages/PublicLoanRequest';
 
 function LegacyLoginRedirect() {
   const { role } = useParams<{ role: string }>();
@@ -39,6 +40,7 @@ function App() {
           <Route path="/:role/login" element={<RoleLogin mode="login" />} />
           <Route path="/:role/register" element={<RoleLogin mode="register" />} />
           <Route path="/reset-password" element={<ResetPassword />} />
+          <Route path="/request/:code" element={<PublicLoanRequest />} />
 
           {/* Super Admin Dashboard Routes */}
           <Route

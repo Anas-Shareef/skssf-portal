@@ -45,13 +45,15 @@ export default function Inventory() {
   }
 
   // Core data state
-  const [view, setView] = useState<'products' | 'kits' | 'missions' | 'history'>('products');
+  const [view, setView] = useState<'products' | 'kits' | 'missions' | 'history' | 'requests'>('products');
   const [productMode, setProductMode] = useState<'gallery' | 'table'>('gallery');
   const [products, setProducts] = useState<any[]>([]);
   const [units, setUnits] = useState<any[]>([]);
   const [kits, setKits] = useState<any[]>([]);
   const [missions, setMissions] = useState<any[]>([]);
   const [transactions, setTransactions] = useState<any[]>([]);
+  const [checkoutReqs, setCheckoutReqs] = useState<any[]>([]);
+  const [returnReqs, setReturnReqs] = useState<any[]>([]);
 
   // Modal flags
   const [isAdding, setIsAdding] = useState(false);
@@ -88,6 +90,10 @@ export default function Inventory() {
     setKits(localDb.getKits());
     setMissions(localDb.getCampaigns());
     setTransactions(localDb.getInventoryTransactions());
+    const allCheckout: any[] = JSON.parse(localStorage.getItem('db_checkout_requests') || '[]');
+    const allReturn: any[] = JSON.parse(localStorage.getItem('db_return_requests') || '[]');
+    setCheckoutReqs(allCheckout);
+    setReturnReqs(allReturn);
   };
 
   const [isSubmittingMission, setIsSubmittingMission] = useState(false);
@@ -518,7 +524,8 @@ export default function Inventory() {
             { id: 'products', icon: '📦', label: 'Products' },
             { id: 'kits', icon: '🧰', label: `Kits ${kits.length > 0 ? `(${kits.length})` : ''}` },
             { id: 'missions', icon: '📍', label: `Missions ${missions.length > 0 ? `(${missions.length})` : ''}` },
-            { id: 'history', icon: '📜', label: 'History' }
+            { id: 'history', icon: '📜', label: 'History' },
+            { id: 'requests', icon: '📥', label: `Requests ${(checkoutReqs.filter(r=>r.status==='pending').length + returnReqs.filter(r=>r.status==='pending').length) > 0 ? `(${checkoutReqs.filter(r=>r.status==='pending').length + returnReqs.filter(r=>r.status==='pending').length})` : ''}` }
           ].map(v => (
             <button key={v.id} onClick={() => setView(v.id as any)} style={{
               background: view === v.id ? '#fff' : 'transparent',
@@ -553,6 +560,167 @@ export default function Inventory() {
             </div>
           ))}
         </div>
+
+        {/* ══ REQUESTS VIEW ══ */}
+        {view === 'requests' && (
+          <div style={{ animation: 'fadeUp 0.3s ease' }}>
+            {/* Checkout Requests */}
+            <div style={{ marginBottom: 32 }}>
+              <div style={{ fontSize: 17, fontWeight: 900, color: '#0f172a', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10 }}>
+                📤 Checkout Requests
+                <span style={{ fontSize: 12, background: '#eff6ff', color: '#2563eb', borderRadius: 20, padding: '3px 12px', fontWeight: 700 }}>
+                  {checkoutReqs.filter(r => r.status === 'pending').length} pending
+                </span>
+              </div>
+              {checkoutReqs.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '40px 20px', background: '#fff', borderRadius: 16, border: '1.5px dashed #e2e8f0', color: '#94a3b8', fontSize: 14 }}>
+                  No checkout requests yet.
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {checkoutReqs.map((req: any) => {
+                    const member = localDb.getUserById(req.member_id);
+                    const product = products.find(p => String(p.id) === String(req.product_id));
+                    const isPending = req.status === 'pending';
+                    return (
+                      <div key={req.id} style={{
+                        background: '#fff', borderRadius: 16, border: `1.5px solid ${isPending ? '#bfdbfe' : req.status === 'approved' ? '#bbf7d0' : '#fecaca'}`,
+                        padding: '20px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap'
+                      }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: 800, fontSize: 15, color: '#0f172a', marginBottom: 4 }}>
+                            {product?.name || req.product_name || 'Unknown Product'}
+                          </div>
+                          <div style={{ fontSize: 13, color: '#64748b' }}>
+                            Requested by: <b>{member?.name || req.member_name || 'Member'}</b> · Qty: <b>{req.quantity}</b>
+                          </div>
+                          <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>
+                            Purpose: {req.purpose || '—'} · {new Date(req.created_at || Date.now()).toLocaleDateString()}
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span style={{
+                            fontSize: 11, fontWeight: 700, borderRadius: 20, padding: '4px 14px',
+                            background: isPending ? '#eff6ff' : req.status === 'approved' ? '#f0fdf4' : '#fef2f2',
+                            color: isPending ? '#2563eb' : req.status === 'approved' ? '#16a34a' : '#dc2626'
+                          }}>
+                            {req.status.toUpperCase()}
+                          </span>
+                          {isPending && (
+                            <>
+                              <button
+                                onClick={() => {
+                                  const all: any[] = JSON.parse(localStorage.getItem('db_checkout_requests') || '[]');
+                                  const updated = all.map((r: any) => r.id === req.id ? { ...r, status: 'approved', approved_at: new Date().toISOString() } : r);
+                                  localStorage.setItem('db_checkout_requests', JSON.stringify(updated));
+                                  // Decrement stock
+                                  const prods: any[] = JSON.parse(localStorage.getItem('db_products') || '[]');
+                                  const updatedProds = prods.map((p: any) => String(p.id) === String(req.product_id) ? { ...p, available_quantity: Math.max(0, (p.available_quantity || p.total_quantity || 0) - (req.quantity || 1)) } : p);
+                                  localStorage.setItem('db_products', JSON.stringify(updatedProds));
+                                  refresh();
+                                  popToast('s', 'Checkout request approved!');
+                                }}
+                                style={{ padding: '8px 18px', borderRadius: 10, border: 'none', background: '#10b981', color: '#fff', fontWeight: 700, cursor: 'pointer', fontSize: 13 }}
+                              >✅ Approve</button>
+                              <button
+                                onClick={() => {
+                                  const all: any[] = JSON.parse(localStorage.getItem('db_checkout_requests') || '[]');
+                                  const updated = all.map((r: any) => r.id === req.id ? { ...r, status: 'rejected', rejected_at: new Date().toISOString() } : r);
+                                  localStorage.setItem('db_checkout_requests', JSON.stringify(updated));
+                                  refresh();
+                                  popToast('e', 'Checkout request rejected.');
+                                }}
+                                style={{ padding: '8px 18px', borderRadius: 10, border: 'none', background: '#fee2e2', color: '#dc2626', fontWeight: 700, cursor: 'pointer', fontSize: 13 }}
+                              >✗ Reject</button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Return Requests */}
+            <div>
+              <div style={{ fontSize: 17, fontWeight: 900, color: '#0f172a', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10 }}>
+                📥 Return Requests
+                <span style={{ fontSize: 12, background: '#fef3c7', color: '#d97706', borderRadius: 20, padding: '3px 12px', fontWeight: 700 }}>
+                  {returnReqs.filter(r => r.status === 'pending').length} pending
+                </span>
+              </div>
+              {returnReqs.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '40px 20px', background: '#fff', borderRadius: 16, border: '1.5px dashed #e2e8f0', color: '#94a3b8', fontSize: 14 }}>
+                  No return requests yet.
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {returnReqs.map((req: any) => {
+                    const member = localDb.getUserById(req.member_id);
+                    const product = products.find(p => String(p.id) === String(req.product_id));
+                    const isPending = req.status === 'pending';
+                    return (
+                      <div key={req.id} style={{
+                        background: '#fff', borderRadius: 16, border: `1.5px solid ${isPending ? '#fde68a' : req.status === 'confirmed' ? '#bbf7d0' : '#fecaca'}`,
+                        padding: '20px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap'
+                      }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: 800, fontSize: 15, color: '#0f172a', marginBottom: 4 }}>
+                            {product?.name || req.product_name || 'Unknown Product'}
+                          </div>
+                          <div style={{ fontSize: 13, color: '#64748b' }}>
+                            Returned by: <b>{member?.name || req.member_name || 'Member'}</b> · Qty: <b>{req.quantity}</b>
+                          </div>
+                          <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>
+                            Condition: {req.condition || 'Good'} · {new Date(req.created_at || Date.now()).toLocaleDateString()}
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span style={{
+                            fontSize: 11, fontWeight: 700, borderRadius: 20, padding: '4px 14px',
+                            background: isPending ? '#fef3c7' : req.status === 'confirmed' ? '#f0fdf4' : '#fef2f2',
+                            color: isPending ? '#d97706' : req.status === 'confirmed' ? '#16a34a' : '#dc2626'
+                          }}>
+                            {req.status.toUpperCase()}
+                          </span>
+                          {isPending && (
+                            <>
+                              <button
+                                onClick={() => {
+                                  const all: any[] = JSON.parse(localStorage.getItem('db_return_requests') || '[]');
+                                  const updated = all.map((r: any) => r.id === req.id ? { ...r, status: 'confirmed', confirmed_at: new Date().toISOString() } : r);
+                                  localStorage.setItem('db_return_requests', JSON.stringify(updated));
+                                  // Restore stock
+                                  const prods: any[] = JSON.parse(localStorage.getItem('db_products') || '[]');
+                                  const updatedProds = prods.map((p: any) => String(p.id) === String(req.product_id) ? { ...p, available_quantity: (p.available_quantity || 0) + (req.quantity || 1) } : p);
+                                  localStorage.setItem('db_products', JSON.stringify(updatedProds));
+                                  refresh();
+                                  popToast('s', 'Return confirmed! Stock restored.');
+                                }}
+                                style={{ padding: '8px 18px', borderRadius: 10, border: 'none', background: '#10b981', color: '#fff', fontWeight: 700, cursor: 'pointer', fontSize: 13 }}
+                              >✅ Confirm Return</button>
+                              <button
+                                onClick={() => {
+                                  const all: any[] = JSON.parse(localStorage.getItem('db_return_requests') || '[]');
+                                  const updated = all.map((r: any) => r.id === req.id ? { ...r, status: 'rejected', rejected_at: new Date().toISOString() } : r);
+                                  localStorage.setItem('db_return_requests', JSON.stringify(updated));
+                                  refresh();
+                                  popToast('e', 'Return request rejected.');
+                                }}
+                                style={{ padding: '8px 18px', borderRadius: 10, border: 'none', background: '#fee2e2', color: '#dc2626', fontWeight: 700, cursor: 'pointer', fontSize: 13 }}
+                              >✗ Reject</button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* ══ PRODUCTS VIEW ══ */}
         {view === 'products' && (
