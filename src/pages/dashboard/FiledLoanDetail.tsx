@@ -12,6 +12,7 @@ export default function FiledLoanDetail() {
   const [installments, setInstallments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState<{ type: 's' | 'e'; msg: string } | null>(null);
+  const [admins, setAdmins] = useState<any[]>([]);
 
   // Modal states
   const [showPaymentModal, setShowPaymentModal] = useState(false);
@@ -38,6 +39,12 @@ export default function FiledLoanDetail() {
         .single();
       if (error) throw error;
       setLoan(data);
+
+      const { data: adminList } = await supabase
+        .from('profiles')
+        .select('id, name, role')
+        .in('role', ['admin', 'super', 'coordinator']);
+      setAdmins(adminList || []);
 
       const { data: insts } = await supabase
         .from('repayment_installments')
@@ -284,29 +291,74 @@ export default function FiledLoanDetail() {
         {/* Right Column: Workflow Consensus */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
           {/* Panel consensus status */}
-          <div className="card" style={{ padding: '24px', borderRadius: '24px', background: '#fff', border: '1.5px solid #f1f5f9' }}>
-            <h3 style={{ margin: '0 0 16px 0', fontSize: '16px', fontWeight: 900 }}>🛡️ consensus tracking</h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '13px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f1f5f9', paddingBottom: '8px' }}>
-                <span>President Vote:</span>
-                <span style={{ fontWeight: 800, color: loan.president_vote === 'APPROVE' ? '#10b981' : loan.president_vote === 'REJECT' ? 'var(--red)' : '#64748b' }}>
-                  {loan.president_vote || 'PENDING'}
-                </span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f1f5f9', paddingBottom: '8px' }}>
-                <span>Secretary Vote:</span>
-                <span style={{ fontWeight: 800, color: loan.secretary_vote === 'APPROVE' ? '#10b981' : loan.secretary_vote === 'REJECT' ? 'var(--red)' : '#64748b' }}>
-                  {loan.secretary_vote || 'PENDING'}
-                </span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '8px' }}>
-                <span>Panel Coordinator Vote:</span>
-                <span style={{ fontWeight: 800, color: loan.panel_coordinator_vote === 'APPROVE' ? '#10b981' : loan.panel_coordinator_vote === 'REJECT' ? 'var(--red)' : '#64748b' }}>
-                  {loan.panel_coordinator_vote || 'PENDING'}
-                </span>
-              </div>
-            </div>
-          </div>
+            {(() => {
+              const reqState = loan.request || {};
+              const assignedIds: string[] = reqState.assignedReviewers || [];
+              const approvals: any[] = reqState.approvals || [];
+              const threshold = reqState.threshold || 2;
+              
+              const approvedCount = approvals.filter(a => a.status === 'approved').length;
+              
+              const reviewerList: { name: string; status: 'APPROVED' | 'REJECTED' | 'PENDING'; date?: string }[] = [];
+              
+              if (assignedIds.length > 0) {
+                assignedIds.forEach(id => {
+                  const adminObj = admins.find(a => String(a.id) === String(id));
+                  const name = adminObj ? adminObj.name : 'Committee Member';
+                  const approvalObj = approvals.find(ap => String(ap.id) === String(id) || ap.by === name);
+                  reviewerList.push({
+                    name,
+                    status: approvalObj ? (approvalObj.status === 'approved' ? 'APPROVED' : 'REJECTED') : 'PENDING',
+                    date: approvalObj ? new Date(approvalObj.date).toLocaleDateString() : undefined
+                  });
+                });
+              } else {
+                approvals.forEach(ap => {
+                  reviewerList.push({
+                    name: ap.by || 'Admin',
+                    status: ap.status === 'approved' ? 'APPROVED' : 'REJECTED',
+                    date: new Date(ap.date).toLocaleDateString()
+                  });
+                });
+                for (let i = reviewerList.length; i < threshold; i++) {
+                  reviewerList.push({
+                    name: `Committee Reviewer ${i + 1}`,
+                    status: 'PENDING'
+                  });
+                }
+              }
+
+              return (
+                <div className="card" style={{ padding: '24px', borderRadius: '24px', background: '#fff', border: '1.5px solid #f1f5f9' }}>
+                  <h3 style={{ margin: '0 0 8px 0', fontSize: '16px', fontWeight: 900, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>🛡️ Consensus Status</span>
+                    <span style={{ fontSize: '12px', background: '#ecfdf5', color: '#10b981', padding: '2px 8px', borderRadius: '8px', fontWeight: 800 }}>
+                      {approvedCount} of {threshold} Approved
+                    </span>
+                  </h3>
+                  <p style={{ margin: '0 0 16px 0', fontSize: '11.5px', color: '#64748b' }}>
+                    Requires at least {threshold} committee signatures to approve the application.
+                  </p>
+                  
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '13px' }}>
+                    {reviewerList.map((rev, index) => (
+                      <div key={index} style={{ display: 'flex', justifyContent: 'space-between', borderBottom: index < reviewerList.length - 1 ? '1px solid #f1f5f9' : 'none', paddingBottom: index < reviewerList.length - 1 ? '8px' : '0' }}>
+                        <div>
+                          <span style={{ fontWeight: 700, color: '#334155' }}>{rev.name}</span>
+                          {rev.date && <span style={{ fontSize: '10px', color: '#94a3b8', marginLeft: '6px' }}>({rev.date})</span>}
+                        </div>
+                        <span style={{
+                          fontWeight: 800,
+                          color: rev.status === 'APPROVED' ? '#10b981' : rev.status === 'REJECTED' ? 'var(--red)' : '#64748b'
+                        }}>
+                          {rev.status}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
 
           {/* Audit trail / log */}
           {loan.coordinator_review_notes && (
