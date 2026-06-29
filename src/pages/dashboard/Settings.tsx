@@ -746,47 +746,6 @@ const [pConfig, setPConfig] = useState(() => localDb.getPortalConfig());
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 32 }}>
                   {/* LEFT: Reviewer Pool Management */}
                   <div>
-                    <div style={{ fontSize: 11, fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 16 }}>Authorize Reviewer (Predictive Search)</div>
-
-                    {/* Search input */}
-                    <div style={{ position: 'relative', marginBottom: 16 }}>
-                      <span style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', fontSize: 16, pointerEvents: 'none' }}>🔍</span>
-                      <input
-                        className="fi2"
-                        list="settings-admin-list"
-                        placeholder="Type admin name or designation..."
-                        value={reviewerSearch}
-                        onChange={e => setReviewerSearch(e.target.value)}
-                        onKeyDown={e => {
-                          if (e.key === 'Enter') {
-                            const val = reviewerSearch.trim();
-                            const found = allAdmins.find((a: any) =>
-                              a.name === val ||
-                              `${a.name} (${a.desig})` === val ||
-                              a.name.toLowerCase().includes(val.toLowerCase())
-                            );
-                            if (found) {
-                              if (!(reviewerConfig.authorizedReviewers || []).includes(found.id)) {
-                                localDb.toggleReviewerPool(found.id);
-                                refreshReviewerConfig();
-                                showToast(`✅ ${found.name} authorized as reviewer!`);
-                              } else {
-                                showToast(`ℹ️ ${found.name} is already an authorized reviewer.`);
-                              }
-                              setReviewerSearch('');
-                            }
-                          }
-                        }}
-                        style={{ paddingLeft: 40, background: 'rgba(255,255,255,0.06)', border: '1.5px solid rgba(255,255,255,0.12)', color: '#fff', borderRadius: 12 }}
-                      />
-                      <datalist id="settings-admin-list">
-                        {allAdmins
-                          .filter((a: any) => !(reviewerConfig.authorizedReviewers || []).includes(a.id))
-                          .map((a: any) => (
-                            <option key={a.id} value={`${a.name} (${a.desig})`} />
-                          ))}
-                      </datalist>
-                    </div>
 
                     {/* Suggestion chips for non-authorized admins */}
                     {allAdmins.filter((a: any) => !(reviewerConfig.authorizedReviewers || []).includes(a.id)).length > 0 && (
