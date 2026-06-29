@@ -187,9 +187,13 @@ export default function Members() {
     }
   };
 
-  // Get loans for a given member id
+  // Get loans for a given member id (match by any of the stored id fields)
   const getLoans = (memId: string) =>
-    localDb.getLoans().filter((l: any) => l.memId === memId || l.applicant_id === memId);
+    localDb.getLoans().filter((l: any) =>
+      l.memId === memId ||
+      l.applicant_id === memId ||
+      l.submitted_by_member_id === memId
+    );
 
   return (
     <>

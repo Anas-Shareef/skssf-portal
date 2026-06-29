@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabaseClient';
+import localDb from '../../lib/localDb';
 import { ArrowLeft, User, Phone, MapPin, CheckCircle2, MessageSquare, Plus, Check } from 'lucide-react';
 
 export default function FiledLoanDetail() {

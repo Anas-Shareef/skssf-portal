@@ -82,14 +82,14 @@ const mapUserFromApi = (u: any) => ({
   must_change_password: u.must_change_password !== false,
 });
 
-const mapLoanFromApi = (l: any, usersByNumericId: Map<number, any>) => {
-  const user = l.user_id ? usersByNumericId.get(Number(l.user_id)) : null;
+const mapLoanFromApi = (l: any, usersByUuid: Map<string, any>) => {
+  const user = l.user_id ? (usersByUuid.get(String(l.user_id)) || usersByUuid.get(String(l.submitted_by_member_id))) : null;
   const approvals = l.request?.approvals || [];
   const assignedReviewers = l.request?.assignedReviewers || l.request?.assigned_reviewers || [];
   const mapped = {
     id: l.loan_no || l.id,
-    memId: user?.code || '',
-    applicant_id: user?.code || '',
+    memId: user?.id || l.submitted_by_member_id || l.user_id || '',
+    applicant_id: user?.id || l.submitted_by_member_id || l.user_id || '',
     email: user?.email || '',
     memNo: l.member_no || user?.member_no || '',
     name: l.name,
@@ -260,12 +260,12 @@ export const syncFromBackend = (): Promise<void> => {
           const payload = await api.get<any>('/bootstrap');
           const usersRaw = payload.users || [];
           const users = usersRaw.map(mapUserFromApi);
-          const usersByNumericId = new Map<number, any>();
-          usersRaw.forEach((u: any) => usersByNumericId.set(Number(u.id), u));
+          const usersByNumericId = new Map<string, any>();
+          usersRaw.forEach((u: any) => usersByNumericId.set(String(u.id), u));
 
           const oldLoans = JSON.parse(localStorage.getItem('db_loans') || '[]');
           const loans = (payload.loans || []).map((l: any) => {
-            const mapped = mapLoanFromApi(l, usersByNumericId);
+            const mapped = mapLoanFromApi(l, usersByNumericId as Map<string, any>);
             // Merge local pending repayment requests if they exist and are missing from backend
             const existing = oldLoans.find((ol: any) => ol.id === mapped.id);
             if (existing && existing.repayments) {
