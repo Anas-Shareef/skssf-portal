@@ -128,11 +128,11 @@ export default async function handler(req, res) {
     const cleanAddress = addr !== undefined ? addr : address;
     if (cleanAddress !== undefined) profileUpdates.addr = cleanAddress;
     
-    if (dob !== undefined) profileUpdates.dob = dob;
+    if (dob !== undefined) profileUpdates.dob = dob === '' ? null : dob;
     if (gender !== undefined) profileUpdates.gender = gender;
     if (salary !== undefined) profileUpdates.salary = Number(salary);
     if (active !== undefined) profileUpdates.active = !!active;
-    if (join_date !== undefined) profileUpdates.join_date = join_date;
+    if (join_date !== undefined) profileUpdates.join_date = join_date === '' ? null : join_date;
     if (is_approver !== undefined) profileUpdates.is_approver = !!is_approver;
     if (perms !== undefined) profileUpdates.perms = perms;
     if (sahachari_paid !== undefined) profileUpdates.sahachari_paid = sahachari_paid;
