@@ -91,8 +91,13 @@ export default async function handler(req, res) {
     } = req.body;
 
     // 3. Update Auth User (email & password) if provided using Admin SDK
+    const { data: userData } = await supabase.auth.admin.getUserById(id);
+    const authUser = userData?.user;
+
     const authUpdates = {};
-    if (email) authUpdates.email = email.trim();
+    if (email && authUser && authUser.email !== email.trim()) {
+      authUpdates.email = email.trim();
+    }
     if (password) authUpdates.password = password;
 
     if (name || role) {

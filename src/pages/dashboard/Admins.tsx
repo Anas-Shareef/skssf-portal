@@ -241,7 +241,7 @@ export default function Admins() {
                         a.perms?.loan ? '💰 Loan' : '',
                         a.perms?.member ? '👥 Members' : '',
                       ].filter(Boolean).join(' · ') || 'None'}
-                      {a.perms?.isReviewer && (
+                      {a.is_approver && (
                         <span style={{
                           display: 'inline-flex', alignItems: 'center', gap: 4,
                           background: 'linear-gradient(135deg, rgba(20,184,166,.12), rgba(13,115,119,.08))',
@@ -352,7 +352,7 @@ export default function Admins() {
                   { r: permReviewer, lbl: '🛡️ Authorized Reviewer', key: 'isReviewer', def: false },
                 ].map((p, i) => (
                   <label key={i} className="cb-row" style={{ background: 'var(--bg)', borderRadius: '9px', padding: '10px 12px', cursor: 'pointer' }}>
-                    <input type="checkbox" defaultChecked={editingAdmin ? editingAdmin.perms?.[p.key] : p.def} ref={p.r} /> {p.lbl}
+                    <input type="checkbox" defaultChecked={editingAdmin ? (p.key === 'isReviewer' ? !!editingAdmin.is_approver : !!editingAdmin.perms?.[p.key]) : p.def} ref={p.r} /> {p.lbl}
                   </label>
                 ))}
               </div>

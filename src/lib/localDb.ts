@@ -231,69 +231,92 @@ const emitDataChanged = () => {
   window.dispatchEvent(new Event('portalConfigUpdated'));
 };
 
-export const syncFromBackend = async () => {
-  if (!hasBackendSession()) return;
-  if (bootstrapPromise) return bootstrapPromise;
+let debounceTimer: any = null;
+let resolveQueue: (() => void)[] = [];
 
-  bootstrapPromise = (async () => {
-    try {
-      const payload = await api.get<any>('/bootstrap');
-      const usersRaw = payload.users || [];
-      const users = usersRaw.map(mapUserFromApi);
-      const usersByNumericId = new Map<number, any>();
-      usersRaw.forEach((u: any) => usersByNumericId.set(Number(u.id), u));
+export const syncFromBackend = (): Promise<void> => {
+  if (!hasBackendSession()) return Promise.resolve();
 
-      const oldLoans = JSON.parse(localStorage.getItem('db_loans') || '[]');
-      const loans = (payload.loans || []).map((l: any) => {
-        const mapped = mapLoanFromApi(l, usersByNumericId);
-        // Merge local pending repayment requests if they exist and are missing from backend
-        const existing = oldLoans.find((ol: any) => ol.id === mapped.id);
-        if (existing && existing.repayments) {
-          mapped.repayments = mapped.repayments.map((r: any, idx: number) => {
-            const localRep = existing.repayments[idx];
-            if (localRep?.request && localRep.request.status === 'pending' && !r.request) {
-              return { ...r, request: localRep.request };
-            }
-            return r;
-          });
-        }
-        return mapped;
-      });
+  return new Promise<void>((resolve) => {
+    resolveQueue.push(resolve);
 
-      const campaigns = (payload.campaigns || []).map(mapCampaignFromApi);
-      const donations = (payload.donations || []).map(mapDonationFromApi);
-      const portalConfig = mapConfigFromApi(payload.portal_config || {});
-      const oldProducts = localDb.getProducts();
-      const products = (payload.products || []).map(mapProductFromApi).map((newProd: any) => {
-        // Local Persistence Fallback: If backend returns no photo but we have one locally (base64), keep it.
-        const existingP = oldProducts.find((op: any) => String(op.id) === String(newProd.id) || (op._id && String(op._id) === String(newProd._id)));
-        if (!newProd.photo && existingP?.photo && String(existingP.photo).startsWith('data:image')) {
-          return { ...newProd, photo: existingP.photo };
-        }
-        return newProd;
-      });
-      const units = (payload.units || []).map(mapUnitFromApi);
-      const kits = (payload.kits || []).map(mapKitFromApi);
-      const inventoryTx = (payload.inventory_transactions || []).map(mapInventoryTxFromApi);
-
-      backendCacheStorage.setItem('db_users', JSON.stringify(users));
-      backendCacheStorage.setItem('db_loans', JSON.stringify(loans));
-      backendCacheStorage.setItem('db_campaigns', JSON.stringify(campaigns));
-      backendCacheStorage.setItem('db_donations', JSON.stringify(donations));
-      backendCacheStorage.setItem('db_products', JSON.stringify(products));
-      backendCacheStorage.setItem('db_units', JSON.stringify(units));
-      backendCacheStorage.setItem('db_kits', JSON.stringify(kits));
-      backendCacheStorage.setItem('db_inventory_tx', JSON.stringify(inventoryTx));
-      backendCacheStorage.setItem('portal_config', JSON.stringify(portalConfig));
-      emitDataChanged();
-    } catch (err) {
-      console.warn('Backend bootstrap sync failed', err);
-    } finally {
-      bootstrapPromise = null;
+    if (debounceTimer) {
+      clearTimeout(debounceTimer);
     }
-  })();
 
-  return bootstrapPromise;
+    debounceTimer = setTimeout(async () => {
+      debounceTimer = null;
+      const currentResolves = [...resolveQueue];
+      resolveQueue = [];
+
+      if (bootstrapPromise) {
+        await bootstrapPromise;
+        currentResolves.forEach((r) => r());
+        return;
+      }
+
+      bootstrapPromise = (async () => {
+        try {
+          const payload = await api.get<any>('/bootstrap');
+          const usersRaw = payload.users || [];
+          const users = usersRaw.map(mapUserFromApi);
+          const usersByNumericId = new Map<number, any>();
+          usersRaw.forEach((u: any) => usersByNumericId.set(Number(u.id), u));
+
+          const oldLoans = JSON.parse(localStorage.getItem('db_loans') || '[]');
+          const loans = (payload.loans || []).map((l: any) => {
+            const mapped = mapLoanFromApi(l, usersByNumericId);
+            // Merge local pending repayment requests if they exist and are missing from backend
+            const existing = oldLoans.find((ol: any) => ol.id === mapped.id);
+            if (existing && existing.repayments) {
+              mapped.repayments = mapped.repayments.map((r: any, idx: number) => {
+                const localRep = existing.repayments[idx];
+                if (localRep?.request && localRep.request.status === 'pending' && !r.request) {
+                  return { ...r, request: localRep.request };
+                }
+                return r;
+              });
+            }
+            return mapped;
+          });
+
+          const campaigns = (payload.campaigns || []).map(mapCampaignFromApi);
+          const donations = (payload.donations || []).map(mapDonationFromApi);
+          const portalConfig = mapConfigFromApi(payload.portal_config || {});
+          const oldProducts = localDb.getProducts();
+          const products = (payload.products || []).map(mapProductFromApi).map((newProd: any) => {
+            // Local Persistence Fallback: If backend returns no photo but we have one locally (base64), keep it.
+            const existingP = oldProducts.find((op: any) => String(op.id) === String(newProd.id) || (op._id && String(op._id) === String(newProd._id)));
+            if (!newProd.photo && existingP?.photo && String(existingP.photo).startsWith('data:image')) {
+              return { ...newProd, photo: existingP.photo };
+            }
+            return newProd;
+          });
+          const units = (payload.units || []).map(mapUnitFromApi);
+          const kits = (payload.kits || []).map(mapKitFromApi);
+          const inventoryTx = (payload.inventory_transactions || []).map(mapInventoryTxFromApi);
+
+          backendCacheStorage.setItem('db_users', JSON.stringify(users));
+          backendCacheStorage.setItem('db_loans', JSON.stringify(loans));
+          backendCacheStorage.setItem('db_campaigns', JSON.stringify(campaigns));
+          backendCacheStorage.setItem('db_donations', JSON.stringify(donations));
+          backendCacheStorage.setItem('db_products', JSON.stringify(products));
+          backendCacheStorage.setItem('db_units', JSON.stringify(units));
+          backendCacheStorage.setItem('db_kits', JSON.stringify(kits));
+          backendCacheStorage.setItem('db_inventory_tx', JSON.stringify(inventoryTx));
+          backendCacheStorage.setItem('portal_config', JSON.stringify(portalConfig));
+          emitDataChanged();
+        } catch (err) {
+          console.warn('Backend bootstrap sync failed', err);
+        } finally {
+          bootstrapPromise = null;
+        }
+      })();
+
+      await bootstrapPromise;
+      currentResolves.forEach((r) => r());
+    }, 400);
+  });
 };
 
 const syncLater = (task: Promise<any>) => {
