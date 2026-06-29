@@ -743,91 +743,9 @@ const [pConfig, setPConfig] = useState(() => localDb.getPortalConfig());
                   </div>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 32 }}>
-                  {/* LEFT: Reviewer Pool Management */}
-                  <div>
-
-                    {/* Suggestion chips for non-authorized admins */}
-                    {allAdmins.filter((a: any) => !(reviewerConfig.authorizedReviewers || []).includes(a.id)).length > 0 && (
-                      <div style={{ marginBottom: 16 }}>
-                        <div style={{ fontSize: 10, color: '#64748b', fontWeight: 700, marginBottom: 8, textTransform: 'uppercase' }}>Available Admins (click to authorize)</div>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                          {allAdmins
-                            .filter((a: any) => !(reviewerConfig.authorizedReviewers || []).includes(a.id))
-                            .map((a: any) => (
-                              <button
-                                key={a.id}
-                                onClick={() => {
-                                  localDb.toggleReviewerPool(a.id);
-                                  refreshReviewerConfig();
-                                  showToast(`✅ ${a.name} authorized as reviewer!`);
-                                }}
-                                style={{
-                                  padding: '5px 12px', borderRadius: 20, fontSize: 11, fontWeight: 700,
-                                  background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)',
-                                  color: '#94a3b8', cursor: 'pointer', transition: 'all .2s'
-                                }}
-                                onMouseOver={e => { (e.target as HTMLElement).style.background = 'rgba(20,184,166,0.15)'; (e.target as HTMLElement).style.color = '#14b8a6'; }}
-                                onMouseOut={e => { (e.target as HTMLElement).style.background = 'rgba(255,255,255,0.06)'; (e.target as HTMLElement).style.color = '#94a3b8'; }}
-                              >
-                                + {a.name}
-                              </button>
-                            ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Active Reviewer Pool */}
-                    <div style={{ fontSize: 10, color: '#64748b', fontWeight: 700, marginBottom: 10, textTransform: 'uppercase' }}>Active Reviewer Pool</div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      {allAdmins
-                        .filter((a: any) => (reviewerConfig.authorizedReviewers || []).includes(a.id))
-                        .map((a: any) => {
-                          const inDefault = (reviewerConfig.defaultCommittee || []).includes(a.id);
-                          return (
-                            <div key={a.id} style={{
-                              display: 'flex', alignItems: 'center', gap: 12,
-                              background: 'rgba(20,184,166,0.08)', border: '1.5px solid rgba(20,184,166,0.2)',
-                              borderRadius: 14, padding: '10px 16px'
-                            }}>
-                              <div className="sb-av" style={{ width: 34, height: 34, fontSize: 13, background: 'rgba(20,184,166,0.2)', flexShrink: 0, overflow: 'hidden' }}>
-                                {a.avatar ? <img src={a.avatar} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} /> : a.name[0]}
-                              </div>
-                              <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ fontSize: 13, fontWeight: 800, color: '#e2e8f0' }}>{a.name}</div>
-                                <div style={{ fontSize: 11, color: '#64748b' }}>{a.desig} · {a.branch}</div>
-                              </div>
-                              <div style={{ display: 'flex', gap: 6 }}>
-                                <span style={{
-                                  padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 800,
-                                  background: 'rgba(20,184,166,0.15)', color: '#14b8a6', border: '1px solid rgba(20,184,166,0.3)'
-                                }}>🛡️ Reviewer</span>
-                                <button
-                                  onClick={() => {
-                                    localDb.toggleReviewerPool(a.id);
-                                    refreshReviewerConfig();
-                                    showToast(`ℹ️ ${a.name} removed from reviewer pool.`);
-                                  }}
-                                  style={{
-                                    background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)',
-                                    color: '#f87171', borderRadius: 20, fontSize: 10, fontWeight: 800,
-                                    padding: '3px 10px', cursor: 'pointer'
-                                  }}
-                                >Revoke</button>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      {(reviewerConfig.authorizedReviewers || []).length === 0 && (
-                        <div style={{ textAlign: 'center', padding: '24px', color: '#475569', fontSize: 12, fontStyle: 'italic', background: 'rgba(255,255,255,0.03)', borderRadius: 12, border: '1px dashed rgba(255,255,255,0.1)' }}>
-                          No reviewers authorized yet. Use the search above to add reviewers.
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* RIGHT: Default Committee + Consensus Policy */}
-                  <div style={{ borderLeft: '1px solid rgba(255,255,255,0.08)', paddingLeft: 32, display: 'flex', flexDirection: 'column', gap: 28 }}>
+                <div>
+                  {/* Committee & Consensus Policy */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
 
                     {/* Default Committee */}
                     <div>
