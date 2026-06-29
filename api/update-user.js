@@ -160,13 +160,13 @@ export default async function handler(req, res) {
 
     // Fetch user from auth to get the fresh email
     const { data: authData } = await supabase.auth.admin.getUserById(id);
-    const authUser = authData?.user;
+    const freshAuthUser = authData?.user;
 
     return res.status(200).json({
       success: true,
       user: {
         ...finalProfile,
-        email: authUser?.email || email || '',
+        email: freshAuthUser?.email || email || '',
         address: finalProfile.addr
       }
     });
