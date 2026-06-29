@@ -733,13 +733,8 @@ const [pConfig, setPConfig] = useState(() => localDb.getPortalConfig());
                     boxShadow: '0 8px 20px rgba(20,184,166,0.3)'
                   }}>🛡️</div>
                   <div>
-                    <div style={{ fontSize: 20, fontWeight: 950, color: '#fff', letterSpacing: 0.3 }}>Reviewer &amp; Approval Management</div>
-                    <div style={{ fontSize: 13, color: '#94a3b8', marginTop: 3 }}>Authorize admins to audit loan applications and verify repayment requests</div>
-                  </div>
-                  <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-                    <div style={{ background: 'rgba(20,184,166,0.15)', color: '#14b8a6', padding: '6px 16px', borderRadius: 20, fontSize: 11, fontWeight: 900 }}>
-                      {(reviewerConfig.authorizedReviewers || []).length} Active Reviewer{(reviewerConfig.authorizedReviewers || []).length !== 1 ? 's' : ''}
-                    </div>
+                    <div style={{ fontSize: 20, fontWeight: 950, color: '#fff', letterSpacing: 0.3 }}>Committee &amp; Consensus Policy</div>
+                    <div style={{ fontSize: 13, color: '#94a3b8', marginTop: 3 }}>Configure auto-assigned committee members and signature approval thresholds</div>
                   </div>
                 </div>
 
