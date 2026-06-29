@@ -230,6 +230,79 @@ export default function FiledLoanDetail() {
             </div>
           </div>
 
+          {/* Guarantors */}
+          {loan.guarantors && loan.guarantors.length > 0 && (
+            <div className="card" style={{ padding: '24px', borderRadius: '24px', background: '#fff', border: '1.5px solid #f1f5f9' }}>
+              <h3 style={{ margin: '0 0 16px 0', fontSize: '18px', fontWeight: 900 }}>👥 Guarantor Details</h3>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1.5px solid #f1f5f9', backgroundColor: '#f8fafc' }}>
+                      <th style={{ textAlign: 'left', padding: '12px', fontSize: '11px', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase' }}>Name</th>
+                      <th style={{ textAlign: 'left', padding: '12px', fontSize: '11px', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase' }}>Relationship</th>
+                      <th style={{ textAlign: 'left', padding: '12px', fontSize: '11px', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase' }}>Phone</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loan.guarantors.map((g: any, i: number) => (
+                      <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                        <td style={{ padding: '12px', fontWeight: 700, color: '#1e293b' }}>{g.name}</td>
+                        <td style={{ padding: '12px', color: '#475569', fontSize: '13px' }}>{g.rel || g.relation}</td>
+                        <td style={{ padding: '12px', color: '#64748b', fontSize: '13px' }}>{g.phone}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Witnesses */}
+          {loan.witnesses && loan.witnesses.filter((w: any) => w.name).length > 0 && (
+            <div className="card" style={{ padding: '24px', borderRadius: '24px', background: '#fff', border: '1.5px solid #f1f5f9' }}>
+              <h3 style={{ margin: '0 0 16px 0', fontSize: '18px', fontWeight: 900 }}>🤝 Witness Details</h3>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1.5px solid #f1f5f9', backgroundColor: '#f8fafc' }}>
+                      <th style={{ textAlign: 'left', padding: '12px', fontSize: '11px', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase' }}>Name</th>
+                      <th style={{ textAlign: 'left', padding: '12px', fontSize: '11px', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase' }}>Mobile</th>
+                      <th style={{ textAlign: 'left', padding: '12px', fontSize: '11px', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase' }}>OTP Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loan.witnesses.filter((w: any) => w.name).map((w: any, i: number) => (
+                      <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                        <td style={{ padding: '12px', fontWeight: 700, color: '#1e293b' }}>{w.name}</td>
+                        <td style={{ padding: '12px', color: '#64748b', fontSize: '13px' }}>{w.phone || w.mobile || w.email}</td>
+                        <td style={{ padding: '12px' }}>
+                          {w.otpVerified ? (
+                            <span className="bdg bdg-g" style={{ fontSize: '10px' }}>VERIFIED</span>
+                          ) : (
+                            <span className="bdg bdg-a" style={{ fontSize: '10px' }}>PENDING</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Applicant Signature */}
+          {loan.signature && (
+            <div className="card" style={{ padding: '24px', borderRadius: '24px', background: '#fff', border: '1.5px solid #f1f5f9' }}>
+              <h3 style={{ margin: '0 0 16px 0', fontSize: '18px', fontWeight: 900 }}>✍️ Applicant Digital Signature</h3>
+              <div style={{ background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: '16px', padding: '20px', textAlign: 'center' }}>
+                <img src={loan.signature} alt="Digital Signature" style={{ maxHeight: '100px', maxWidth: '100%' }} />
+                <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '10px', fontWeight: 700 }}>
+                  Digitally signed on filing submission date.
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Repayment Installment Schedule */}
           {(loan.workflow_status === 'APPROVED' || loan.workflow_status === 'REPAYMENT_COMPLETE') && (
             <div className="card" style={{ padding: '24px', borderRadius: '24px', background: '#fff', border: '1.5px solid #f1f5f9' }}>
@@ -282,6 +355,39 @@ export default function FiledLoanDetail() {
                         </tr>
                       );
                     })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+          {/* Draft Repayment Schedule (Proposed Plan) */}
+          {!(loan.workflow_status === 'APPROVED' || loan.workflow_status === 'REPAYMENT_COMPLETE') && loan.repayments && loan.repayments.length > 0 && (
+            <div className="card" style={{ padding: '24px', borderRadius: '24px', background: '#fff', border: '1.5px solid #f1f5f9' }}>
+              <h3 style={{ margin: '0 0 16px 0', fontSize: '18px', fontWeight: 900 }}>📅 Proposed Repayment Plan</h3>
+              <p style={{ margin: '0 0 16px 0', fontSize: '13px', color: '#64748b' }}>
+                This is the projected monthly repayment schedule if the loan gets approved.
+              </p>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1.5px solid #f1f5f9', backgroundColor: '#f8fafc' }}>
+                      <th style={{ textAlign: 'left', padding: '12px', fontSize: '11px', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase' }}>EMI #</th>
+                      <th style={{ textAlign: 'left', padding: '12px', fontSize: '11px', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase' }}>Due Date</th>
+                      <th style={{ textAlign: 'left', padding: '12px', fontSize: '11px', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase' }}>Amount</th>
+                      <th style={{ textAlign: 'left', padding: '12px', fontSize: '11px', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase' }}>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loan.repayments.map((r: any, i: number) => (
+                      <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                        <td style={{ padding: '12px', fontWeight: 700 }}>#{i + 1}</td>
+                        <td style={{ padding: '12px', fontSize: '13px' }}>{new Date(r.due || r.due_date).toLocaleDateString()}</td>
+                        <td style={{ padding: '12px', fontWeight: 800 }}>₹{Number(r.amt || r.amount).toLocaleString()}</td>
+                        <td style={{ padding: '12px' }}>
+                          <span className="bdg bdg-a" style={{ fontSize: '10px' }}>PROPOSED</span>
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
@@ -365,6 +471,25 @@ export default function FiledLoanDetail() {
               <h3 style={{ margin: '0 0 12px 0', fontSize: '15px', fontWeight: 900 }}>📋 Coordinator Verification Notes</h3>
               <div style={{ fontSize: '13px', color: '#475569', lineHeight: 1.5, background: '#f8fafc', padding: '12px', borderRadius: '12px' }}>
                 "{loan.coordinator_review_notes}"
+              </div>
+            </div>
+          )}
+
+          {/* Detailed Audit Log */}
+          {loan.audit && loan.audit.length > 0 && (
+            <div className="card" style={{ padding: '24px', borderRadius: '24px', background: '#fff', border: '1.5px solid #f1f5f9' }}>
+              <h3 style={{ margin: '0 0 16px 0', fontSize: '16px', fontWeight: 900 }}>📋 Application Activity Logs</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', maxHeight: '350px', overflowY: 'auto', paddingRight: '4px' }}>
+                {loan.audit.map((log: any, i: number) => (
+                  <div key={i} style={{ fontSize: '12.5px', background: '#f8fafc', padding: '10px 12px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800, color: '#334155', marginBottom: '4px' }}>
+                      <span>{log.action}</span>
+                      <span style={{ fontSize: '10.5px', color: '#94a3b8', fontWeight: 600 }}>{log.date}</span>
+                    </div>
+                    {log.note && <div style={{ color: '#64748b', fontStyle: 'italic', marginTop: '2px' }}>"{log.note}"</div>}
+                    <div style={{ fontSize: '10.5px', color: 'var(--teal)', fontWeight: 800, marginTop: '4px', textTransform: 'uppercase' }}>By: {log.by}</div>
+                  </div>
+                ))}
               </div>
             </div>
           )}
