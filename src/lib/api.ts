@@ -561,11 +561,21 @@ export const api = {
       });
       loan.audit = audit;
 
+      let workflowStatus = 'PENDING_APPROVAL_PANEL';
+      if (loanStatus === 'approved') {
+        workflowStatus = 'APPROVED';
+      } else if (loanStatus === 'rejected') {
+        workflowStatus = 'REJECTED_BY_PANEL';
+      } else if (resolvedStatus === 'partially_approved') {
+        workflowStatus = 'PENDING_APPROVAL_PANEL';
+      }
+
       const { data: updatedLoan, error: updateErr } = await supabase.from('loans').update({
         status: loan.status,
         approved_date: loan.approved_date,
         request: loan.request,
-        audit: loan.audit
+        audit: loan.audit,
+        workflow_status: workflowStatus
       }).eq('id', loan.id).select().single();
       if (updateErr) throw new Error(updateErr.message);
       return { data: updatedLoan } as T;

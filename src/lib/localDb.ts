@@ -884,6 +884,7 @@ export const localDb = {
           audit: newLoan.audit,
           signature: loanData.signature || null,
           witnesses: loanData.witnesses || [],
+          submitted_by_member_id: loanData.submitted_by_member_id || loanData.db_id || null,
         }).then(() => syncFromBackend())
       );
     }
@@ -938,6 +939,12 @@ export const localDb = {
         loan.status = 'pending';
         loan.request.status = 'pending';
       }
+
+      let wfStatus = 'PENDING_APPROVAL_PANEL';
+      if (loan.status === 'approved') wfStatus = 'APPROVED';
+      else if (loan.status === 'rejected') wfStatus = 'REJECTED_BY_PANEL';
+      else if (loan.request.status === 'partially_approved') wfStatus = 'PENDING_APPROVAL_PANEL';
+      loan.workflow_status = wfStatus;
 
       loan.audit.push({
         action: status === 'approved' ? 'Loan Verified' : status === 'rejected' ? 'Loan Rejected' : 'Loan Deliberation',

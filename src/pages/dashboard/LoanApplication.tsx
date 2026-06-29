@@ -12,7 +12,7 @@ export default function LoanApplication() {
   const [step, setStep] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const members = useMemo(() => localDb.getUsers().filter((u: any) => u.role === 'member'), []);
+  const members = useMemo(() => localDb.getUsers(), []);
   const [selectedMemberId, setSelectedMemberId] = useState('');
   const isAdminOrSuper = profile?.role === 'super' || profile?.role === 'admin';
 
@@ -233,10 +233,10 @@ export default function LoanApplication() {
         });
     }
 
-    const finalApplicantId = isAdminOrSuper ? selectedMemberId : null;
+    const finalApplicantId = isAdminOrSuper ? selectedMemberId : (profile?.id || '');
     const finalDbId = isAdminOrSuper
-      ? members.find((m: any) => m.id === selectedMemberId)?.db_id
-      : null;
+      ? (members.find((m: any) => m.id === selectedMemberId)?.db_id || selectedMemberId)
+      : (profile?.db_id || profile?.id || '');
     const finalBranch = isAdminOrSuper
       ? (members.find((m: any) => m.id === selectedMemberId)?.branch || '')
       : (profile?.branch || '');
@@ -254,7 +254,7 @@ export default function LoanApplication() {
       signature,
       witnesses,
       status: 'pending',
-      submitted_by_member_id: profile?.role === 'member' ? profile.id : null,
+      submitted_by_member_id: finalDbId,
       submission_source: profile?.role === 'member' ? 'manual' : 'admin'
     });
 
