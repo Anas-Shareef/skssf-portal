@@ -1085,51 +1085,7 @@ export default function Repayments() {
                     <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>required to approve</div>
                   </div>
                 </div>
-                {/* Authorize New Reviewer (Predictive Search) */}
-                <div style={{ marginBottom: 20 }}>
-                  <div style={{ fontSize: 10, fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 8, letterSpacing: '0.5px' }}>Authorize New Reviewer (Predictive Search)</div>
-                  <div style={{ position: 'relative', maxWidth: 450 }}>
-                    <span style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', fontSize: 15, pointerEvents: 'none' }}>🔍</span>
-                    <input
-                      className="fi2"
-                      list="repayment-admin-list"
-                      placeholder="Type admin name to authorize..."
-                      value={reviewerSearch}
-                      onChange={e => setReviewerSearch(e.target.value)}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter') {
-                          const val = reviewerSearch.trim();
-                          const found = allAdmins.find((a: any) =>
-                            a.name === val ||
-                            `${a.name} (${a.desig})` === val ||
-                            a.name.toLowerCase().includes(val.toLowerCase())
-                          );
-                          if (found) {
-                            if (!(config.authorizedReviewers || []).includes(found.id)) {
-                              localDb.toggleReviewerPool(found.id);
-                              // Trigger state/event update
-                              window.dispatchEvent(new Event('portalConfigUpdated'));
-                              setToast({ m: `✅ ${found.name} authorized as reviewer!`, t: 's' });
-                              setTimeout(() => setToast(null), 3000);
-                            } else {
-                              setToast({ m: `ℹ️ ${found.name} is already an authorized reviewer.`, t: 's' });
-                              setTimeout(() => setToast(null), 3000);
-                            }
-                            setReviewerSearch('');
-                          }
-                        }
-                      }}
-                      style={{ paddingLeft: 40, background: '#f8fafc', border: '1.5px solid #cbd5e1', color: '#0f172a', borderRadius: 12, width: '100%', fontSize: 13, height: 42 }}
-                    />
-                    <datalist id="repayment-admin-list">
-                      {allAdmins
-                        .filter((a: any) => !(config.authorizedReviewers || []).includes(a.id))
-                        .map((a: any) => (
-                          <option key={a.id} value={`${a.name} (${a.desig})`} />
-                        ))}
-                    </datalist>
-                  </div>
-                </div>
+
 
                 {/* Active Reviewer Chips */}
                 <div>
