@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { supabase } from '../../lib/supabaseClient';
 import { AlertTriangle, MessageSquare, Plus, Phone, CheckCircle2 } from 'lucide-react';
 
 export default function MemberRepayments() {
@@ -28,17 +27,19 @@ export default function MemberRepayments() {
     if (!profile) return;
     try {
       setLoading(true);
-      // Fetch installments where loan was filed by this member
-      const { data, error } = await supabase
-        .from('repayment_installments')
-        .select('*, loans!inner(*)')
-        .eq('loans.submitted_by_member_id', profile.db_id || profile.id)
-        .order('due_date');
-
-      if (error) throw error;
-      setInstallments(data || []);
-    } catch (err) {
+      const token = sessionStorage.getItem('active_api_token') || '';
+      const res = await fetch('/api/get-member-repayments', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `Server error ${res.status}`);
+      }
+      const data = await res.json();
+      setInstallments(data.installments || []);
+    } catch (err: any) {
       console.error('Failed to load repayments:', err);
+      showToast('e', err.message || 'Failed to load repayments.');
     } finally {
       setLoading(false);
     }
@@ -73,31 +74,25 @@ export default function MemberRepayments() {
     }
 
     try {
-      const newPaid = Number(selectedInst.amount_paid) + paidVal;
-      const isPaid = newPaid >= selectedInst.amount_due;
-      const status = isPaid ? 'PAID' : 'PARTIALLY_PAID';
-
-      const { error } = await supabase
-        .from('repayment_installments')
-        .update({
-          amount_paid: newPaid,
-          status: status,
-          payment_date: new Date().toISOString().split('T')[0],
-          payment_method: payMethod,
-          reference_note: payNote.trim(),
-          recorded_by_user_id: profile?.db_id || profile?.id
+      const token = sessionStorage.getItem('active_api_token') || '';
+      const res = await fetch('/api/record-member-repayment', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          selectedInstId: selectedInst.id,
+          amtPaid: paidVal,
+          payMethod,
+          payNote: payNote.trim()
         })
-        .eq('id', selectedInst.id);
-
-      if (error) throw error;
-
-      // Audit log
-      await supabase.from('loan_audit_log').insert({
-        loan_id: selectedInst.loan_id,
-        action: 'REPAYMENT_RECORDED',
-        performed_by_user_id: profile?.db_id || profile?.id,
-        notes: `Recorded repayment ₹${paidVal.toLocaleString()} via ${payMethod} on installment #${selectedInst.installment_number}`
       });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `Server error ${res.status}`);
+      }
 
       showToast('s', 'Payment logged successfully!');
       setShowPaymentModal(false);
@@ -115,15 +110,24 @@ export default function MemberRepayments() {
     if (!msgText.trim()) return;
 
     try {
-      await supabase
-        .from('requester_notifications')
-        .insert({
-          loan_id: selectedInst.loan_id,
-          installment_id: selectedInst.id,
-          sent_by_member_id: profile?.db_id || profile?.id,
-          message_text: msgText.trim(),
-          delivery_method: 'WHATSAPP'
-        });
+      const token = sessionStorage.getItem('active_api_token') || '';
+      const res = await fetch('/api/log-member-notification', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          loanId: selectedInst.loan_id,
+          installmentId: selectedInst.id,
+          messageText: msgText.trim()
+        })
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `Server error ${res.status}`);
+      }
 
       showToast('s', 'Notification logged. Opening WhatsApp...');
       setShowNotifyModal(false);
@@ -133,7 +137,7 @@ export default function MemberRepayments() {
       const url = `https://api.whatsapp.com/send?phone=${phoneNo}&text=${encodedMsg}`;
       window.open(url, '_blank');
     } catch (err: any) {
-      showToast('e', 'Failed to log notification.');
+      showToast('e', err.message || 'Failed to log notification.');
     }
   };
 
