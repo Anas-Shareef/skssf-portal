@@ -493,10 +493,7 @@ export default function LoanManagement() {
                   <option>Medical</option><option>Education</option><option>Marriage</option><option>Other</option>
                 </select>
               </div>
-              {!isMember && selectedLoan.workflow_status === 'PENDING_APPROVAL_PANEL' && (
-                  <AdminPanelVoteCard loan={selectedLoan} profile={profile} refresh={refreshLoans} />
-                )}
-                {!isMember && selectedLoan.workflow_status !== 'PENDING_APPROVAL_PANEL' && (
+              {!isMember && (
                 <div>
                   <label style={{ fontSize: '11px', fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.5px', display: 'block', marginBottom: '5px' }}>Branch</label>
                   <select className="sel2" value={fBranch} onChange={e => setFBranch(e.target.value)} style={{ padding: '7px 10px', fontSize: '12.5px' }}>
@@ -798,39 +795,45 @@ export default function LoanManagement() {
                     </div>
                   </div>
 
-                  {!canSign && isGlobalApprover && (
-                    <div style={{ background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: '10px', padding: '12px', marginBottom: '20px', display: 'flex', gap: '10px', alignItems: 'center' }}>
-                      <span style={{ fontSize: '20px' }}>⚠️</span>
-                      <div style={{ fontSize: '11px', color: '#92400e', fontWeight: 600 }}>
-                        You are not an assigned reviewer for this case. You can view details, but only committee members can sign.
-                      </div>
-                    </div>
-                  )}
+                  {selectedLoan.workflow_status === 'PENDING_APPROVAL_PANEL' ? (
+                    <AdminPanelVoteCard loan={selectedLoan} profile={profile} refresh={refreshLoans} />
+                  ) : (
+                    <>
+                      {!canSign && isGlobalApprover && (
+                        <div style={{ background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: '10px', padding: '12px', marginBottom: '20px', display: 'flex', gap: '10px', alignItems: 'center' }}>
+                          <span style={{ fontSize: '20px' }}>⚠️</span>
+                          <div style={{ fontSize: '11px', color: '#92400e', fontWeight: 600 }}>
+                            You are not an assigned reviewer for this case. You can view details, but only committee members can sign.
+                          </div>
+                        </div>
+                      )}
 
-                  <label className="fl2" style={{ marginBottom: '10px' }}>Your Verdict *</label>
-                  <div style={{ display: 'flex', gap: '6px', marginBottom: '16px' }}>
-                    {[
-                      { id: 'approved', lbl: '✅ Approve', color: '#10b981' },
-                      { id: 'rejected', lbl: '❌ Reject', color: '#ef4444' },
-                      { id: 'pending', lbl: '⏳ Pending', color: '#f59e0b' }
-                    ].map(s => (
-                      <label key={s.id} className={`radio-opt ${actionStatus === s.id ? 'sel' : ''} ${!canSign ? 'dis' : ''}`} 
-                        style={{ flex: 1, marginBottom: 0, padding: '10px 5px', textAlign: 'center', borderColor: actionStatus === s.id ? s.color : '', fontSize: '11px', opacity: canSign ? 1 : 0.6, pointerEvents: canSign ? 'auto' : 'none' }} 
-                        onClick={() => canSign && setActionStatus(s.id)}>
-                        <input type="radio" checked={actionStatus === s.id} readOnly />
-                        <div className="ro-lbl" style={{ fontWeight: 800, fontSize: '11px' }}>{s.lbl}</div>
-                      </label>
-                    ))}
-                  </div>
-                  <textarea className="ta2" placeholder={canSign ? "Explain your decision..." : "Read-only view"} value={actionNote} readOnly={!canSign} onChange={e => setActionNote(e.target.value)} style={{ marginBottom: '16px' }} />
-                  <button 
-                    className="bsm s" 
-                    style={{ width: '100%', padding: '14px', marginBottom: '24px', fontWeight: 800, opacity: canSign ? 1 : 0.5 }} 
-                    disabled={!canSign}
-                    onClick={() => setConfirmSave(true)}
-                  >
-                     {canSign ? 'Record My Signature →' : 'Signature Restricted'}
-                  </button>
+                      <label className="fl2" style={{ marginBottom: '10px' }}>Your Verdict *</label>
+                      <div style={{ display: 'flex', gap: '6px', marginBottom: '16px' }}>
+                        {[
+                          { id: 'approved', lbl: '✅ Approve', color: '#10b981' },
+                          { id: 'rejected', lbl: '❌ Reject', color: '#ef4444' },
+                          { id: 'pending', lbl: '⏳ Pending', color: '#f59e0b' }
+                        ].map(s => (
+                          <label key={s.id} className={`radio-opt ${actionStatus === s.id ? 'sel' : ''} ${!canSign ? 'dis' : ''}`} 
+                            style={{ flex: 1, marginBottom: 0, padding: '10px 5px', textAlign: 'center', borderColor: actionStatus === s.id ? s.color : '', fontSize: '11px', opacity: canSign ? 1 : 0.6, pointerEvents: canSign ? 'auto' : 'none' }} 
+                            onClick={() => canSign && setActionStatus(s.id)}>
+                            <input type="radio" checked={actionStatus === s.id} readOnly />
+                            <div className="ro-lbl" style={{ fontWeight: 800, fontSize: '11px' }}>{s.lbl}</div>
+                          </label>
+                        ))}
+                      </div>
+                      <textarea className="ta2" placeholder={canSign ? "Explain your decision..." : "Read-only view"} value={actionNote} readOnly={!canSign} onChange={e => setActionNote(e.target.value)} style={{ marginBottom: '16px' }} />
+                      <button 
+                        className="bsm s" 
+                        style={{ width: '100%', padding: '14px', marginBottom: '24px', fontWeight: 800, opacity: canSign ? 1 : 0.5 }} 
+                        disabled={!canSign}
+                        onClick={() => setConfirmSave(true)}
+                      >
+                         {canSign ? 'Record My Signature →' : 'Signature Restricted'}
+                      </button>
+                    </>
+                  )}
                 </>
               )}
 
