@@ -368,6 +368,15 @@ export const localDb = {
     });
     backendCacheStorage.setItem('db_users', JSON.stringify(users));
 
+    // Auto-sync reviewer pool in portal config
+    if (user.is_approver) {
+      const config = localDb.getPortalConfig();
+      const pool = config.authorizedReviewers || [];
+      if (!pool.includes(id)) {
+        localDb.updatePortalConfig({ authorizedReviewers: [...pool, id] });
+      }
+    }
+
     if (hasBackendSession()) {
       syncLater(
         api.post('/users', {

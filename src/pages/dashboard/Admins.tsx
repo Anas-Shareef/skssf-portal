@@ -71,6 +71,7 @@ export default function Admins() {
       desig: designRef.current?.value || 'President',
       pass: pass || undefined,
       active: editingAdmin ? editingAdmin.active : true,
+      is_approver: permReviewer.current?.checked ?? false,
       perms: {
         loan: permLoan.current?.checked ?? true,
         member: permMember.current?.checked ?? true,
@@ -93,27 +94,6 @@ export default function Admins() {
         return;
       }
       savedAdminId = localDb.saveUser(adminData);
-    }
-
-    // Sync reviewer pool in portal config AND is_approver flag on user
-    const savedAdmin = localDb.getUsers().find((u: any) => u.id === savedAdminId) || editingAdmin;
-    if (savedAdmin) {
-      // Always sync is_approver to match isReviewer permission
-      localDb.updateUser(savedAdmin.id, { is_approver: !!adminData.perms.isReviewer });
-
-      if (adminData.perms.isReviewer) {
-        const config = localDb.getPortalConfig();
-        const pool = config.authorizedReviewers || [];
-        if (!pool.includes(savedAdmin.id)) {
-          localDb.updatePortalConfig({ authorizedReviewers: [...pool, savedAdmin.id] });
-        }
-      } else {
-        const config = localDb.getPortalConfig();
-        const pool = config.authorizedReviewers || [];
-        if (pool.includes(savedAdmin.id)) {
-          localDb.updatePortalConfig({ authorizedReviewers: pool.filter((id: string) => id !== savedAdmin.id) });
-        }
-      }
     }
 
     setAdmins(localDb.getUsers().filter((u: any) => u.role === 'admin'));
