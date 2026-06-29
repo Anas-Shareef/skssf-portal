@@ -118,7 +118,9 @@ const mapLoanFromApi = (l: any, usersByUuid: Map<string, any>) => {
     remaining_balance: 0,
     submitted_by_member_id: l.submitted_by_member_id || null,
     submission_source: l.submission_source || 'manual',
-    inbox_submission_id: l.inbox_submission_id || null
+    inbox_submission_id: l.inbox_submission_id || null,
+    db_id: l.id,   // original numeric Supabase row ID, for member detail navigation
+    workflow_status: l.workflow_status || null
   };
   
   // Financial Integrity Audit: Ensure 'paid' flags match approved requests

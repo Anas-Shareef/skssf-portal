@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import { supabase } from '../../lib/supabaseClient';
+import localDb, { syncFromBackend } from '../../lib/localDb';
 import { Search, AlertTriangle, Eye, Plus } from 'lucide-react';
 
 export default function FiledLoans() {
@@ -16,14 +16,19 @@ export default function FiledLoans() {
     if (!profile) return;
     try {
       setLoading(true);
-      const { data, error } = await supabase
-        .from('loans')
-        .select('*, repayment_installments(count)')
-        .eq('submitted_by_member_id', profile.db_id || profile.id)
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      setLoans(data || []);
+      // Ensure localDb is synced from backend (service-role key, no RLS issues)
+      await syncFromBackend();
+      const myId = profile.db_id || profile.id;
+      const all = localDb.getLoans();
+      // Filter by submitted_by_member_id OR applicant_id OR memId matching this member
+      const myLoans = all.filter((l: any) =>
+        l.submitted_by_member_id === myId ||
+        l.applicant_id === myId ||
+        l.memId === myId
+      );
+      // Sort newest first
+      myLoans.sort((a: any, b: any) => new Date(b.submittedDate || b.submitted_date || 0).getTime() - new Date(a.submittedDate || a.submitted_date || 0).getTime());
+      setLoans(myLoans);
     } catch (err) {
       console.error('Failed to load filed loans:', err);
     } finally {
@@ -35,16 +40,36 @@ export default function FiledLoans() {
     loadFiledLoans();
   }, [profile]);
 
+  // Also refresh if localDb data changes
+  useEffect(() => {
+    const handleUpdate = () => loadFiledLoans();
+    window.addEventListener('appDataUpdated', handleUpdate);
+    return () => window.removeEventListener('appDataUpdated', handleUpdate);
+  }, [profile]);
+
+  // Helper: get a normalized workflow status from loan (handles both API and localDb shapes)
+  const getWorkflowStatus = (l: any): string => {
+    if (l.workflow_status) return l.workflow_status;
+    // Map localDb status to workflow status
+    const s = (l.status || '').toLowerCase();
+    if (s === 'approved') return 'APPROVED';
+    if (s === 'rejected') return 'REJECTED_BY_PANEL';
+    if (s === 'completed') return 'REPAYMENT_COMPLETE';
+    return 'PENDING_COORDINATOR_REVIEW'; // default pending
+  };
+
   const filteredLoans = loans.filter(l => {
     const matchesSearch = (l.requester_name || l.name || '').toLowerCase().includes(search.toLowerCase());
+    const wfStatus = getWorkflowStatus(l);
     if (activeTab === 'all') return matchesSearch;
     if (activeTab === 'REJECTED') {
-      return (l.workflow_status === 'REJECTED_BY_COORDINATOR' || l.workflow_status === 'REJECTED_BY_PANEL') && matchesSearch;
+      return (wfStatus === 'REJECTED_BY_COORDINATOR' || wfStatus === 'REJECTED_BY_PANEL') && matchesSearch;
     }
-    return l.workflow_status === activeTab && matchesSearch;
+    return wfStatus === activeTab && matchesSearch;
   });
 
-  const getStatusBadge = (status: string) => {
+  const getStatusBadge = (l: any) => {
+    const status = getWorkflowStatus(l);
     switch (status) {
       case 'APPROVED':
         return <span className="bdg bdg-g">APPROVED</span>;
@@ -58,7 +83,7 @@ export default function FiledLoans() {
       case 'PENDING_APPROVAL_PANEL':
         return <span className="bdg bdg-a" style={{ backgroundColor: '#6366f1' }}>AWAITING PANEL</span>;
       default:
-        return <span className="bdg">{status}</span>;
+        return <span className="bdg">{status.replace(/_/g, ' ')}</span>;
     }
   };
 
@@ -143,24 +168,24 @@ export default function FiledLoans() {
                 </tr>
               </thead>
               <tbody>
-                {filteredLoans.map((l) => (
+                {filteredLoans.map((l: any) => (
                   <tr key={l.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                     <td style={{ padding: '16px' }}>
                       <div style={{ fontWeight: 800, color: '#1e293b' }}>{l.requester_name || l.name}</div>
-                      <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>{l.requester_phone || l.phone}</div>
+                      <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>{l.requester_phone || l.mob || l.phone}</div>
                     </td>
                     <td style={{ padding: '16px', fontWeight: 900, color: 'var(--teal)', fontSize: '14px' }}>
-                      ₹{(l.loan_amount_requested || l.amt).toLocaleString()}
+                      ₹{Number(l.loan_amount_requested || l.amt || 0).toLocaleString()}
                     </td>
                     <td style={{ padding: '16px', color: '#475569', fontSize: '13px' }}>
-                      {new Date(l.created_at).toLocaleDateString()}
+                      {new Date(l.created_at || l.submittedDate || l.submitted_date || Date.now()).toLocaleDateString()}
                     </td>
                     <td style={{ padding: '16px' }}>
-                      {getStatusBadge(l.workflow_status)}
+                      {getStatusBadge(l)}
                     </td>
                     <td style={{ padding: '16px', textAlign: 'center' }}>
                       <button
-                        onClick={() => navigate(`/member/dashboard/filed-loans/${l.id}`)}
+                        onClick={() => navigate(`/member/dashboard/filed-loans/${l.db_id || l.id}`)}
                         className="bsm g"
                         style={{ padding: '8px 14px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                       >
