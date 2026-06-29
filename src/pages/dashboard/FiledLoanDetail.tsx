@@ -301,32 +301,30 @@ export default function FiledLoanDetail() {
               
               const reviewerList: { name: string; status: 'APPROVED' | 'REJECTED' | 'PENDING'; date?: string }[] = [];
               
-              if (assignedIds.length > 0) {
-                assignedIds.forEach(id => {
-                  const adminObj = admins.find(a => String(a.id) === String(id));
-                  const name = adminObj ? adminObj.name : 'Committee Member';
-                  const approvalObj = approvals.find(ap => String(ap.id) === String(id) || ap.by === name);
-                  reviewerList.push({
-                    name,
-                    status: approvalObj ? (approvalObj.status === 'approved' ? 'APPROVED' : 'REJECTED') : 'PENDING',
-                    date: approvalObj ? new Date(approvalObj.date).toLocaleDateString() : undefined
-                  });
+              const config = localDb.getPortalConfig();
+              const pool = admins.filter((a: any) => (config.authorizedReviewers || []).includes(a.id));
+              const activePool = assignedIds.length > 0 ? pool.filter((a: any) => assignedIds.includes(a.id)) : pool;
+
+              activePool.forEach(admin => {
+                const approvalObj = approvals.find(ap => String(ap.id) === String(admin.id) || ap.by === admin.name);
+                reviewerList.push({
+                  name: admin.name,
+                  status: approvalObj ? (approvalObj.status === 'approved' ? 'APPROVED' : 'REJECTED') : 'PENDING',
+                  date: approvalObj ? new Date(approvalObj.date).toLocaleDateString() : undefined
                 });
-              } else {
-                approvals.forEach(ap => {
+              });
+
+              // Add any other approvals that are not in the active pool (e.g. historic approvals)
+              approvals.forEach(ap => {
+                const alreadyAdded = reviewerList.some(r => r.name === ap.by);
+                if (!alreadyAdded) {
                   reviewerList.push({
                     name: ap.by || 'Admin',
                     status: ap.status === 'approved' ? 'APPROVED' : 'REJECTED',
                     date: new Date(ap.date).toLocaleDateString()
                   });
-                });
-                for (let i = reviewerList.length; i < threshold; i++) {
-                  reviewerList.push({
-                    name: `Committee Reviewer ${i + 1}`,
-                    status: 'PENDING'
-                  });
                 }
-              }
+              });
 
               return (
                 <div className="card" style={{ padding: '24px', borderRadius: '24px', background: '#fff', border: '1.5px solid #f1f5f9' }}>

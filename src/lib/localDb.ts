@@ -564,7 +564,9 @@ export const localDb = {
     if (loan && loan.repayments[monthIdx]) {
       const autoAssigned = data.assignedReviewers?.length > 0
         ? data.assignedReviewers
-        : (config.defaultCommittee?.length > 0 ? config.defaultCommittee : []);
+        : (config.defaultCommittee?.length > 0
+            ? config.defaultCommittee
+            : (config.authorizedReviewers || []));
 
       let isFullClearance = !!data.isFullClearance;
       if (isFullClearance) {
@@ -802,8 +804,9 @@ export const localDb = {
   addLoan: (loanData: any) => {
     const loans = localDb.getLoans();
     const config = localDb.getPortalConfig();
-    const admins = localDb.getUsers().filter((u: any) => u.role === 'admin' && u.is_approver);
-    const autoAssigned = admins.length > 0 ? admins.map((a: any) => a.id).slice(0, 3) : [];
+    const autoAssigned = config.defaultCommittee?.length > 0
+      ? config.defaultCommittee
+      : (config.authorizedReviewers || []);
     
     const loanId = `LOAN-${new Date().getFullYear()}-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`;
 

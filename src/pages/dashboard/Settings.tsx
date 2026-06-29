@@ -143,21 +143,7 @@ const [pConfig, setPConfig] = useState(() => localDb.getPortalConfig());
   const [orgLogo, setOrgLogo] = useState(pConfig.orgLogo || '');
   const [orgScale, setOrgScale] = useState(pConfig.orgScale || 1.0);
 
-  // Reviewer management state
-  const [reviewerConfig, setReviewerConfig] = useState(() => localDb.getPortalConfig());
-  const [reviewerSearch, setReviewerSearch] = useState('');
   const allAdmins = localDb.getUsers().filter((u: any) => u.role === 'admin');
-  const refreshReviewerConfig = () => setReviewerConfig(localDb.getPortalConfig());
-
-  // Scroll to reviewer section if hash matches
-  useEffect(() => {
-    if (location.hash === '#reviewer-management') {
-      setTimeout(() => {
-        const el = document.getElementById('reviewer-management');
-        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }, 200);
-    }
-  }, [location.hash]);
 
   const [avatar, setAvatar] = useState(profile?.avatar || '');
 
@@ -714,134 +700,7 @@ const [pConfig, setPConfig] = useState(() => localDb.getPortalConfig());
               )}
             </Section>
 
-            {/* ══════════════════════════════════════════
-                REVIEWER & APPROVAL MANAGEMENT — super only
-            ══════════════════════════════════════════ */}
-            <div id="reviewer-management" style={{ gridColumn: '1 / -1', scrollMarginTop: '80px' }}>
-              <div style={{
-                background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%)',
-                borderRadius: 24, padding: '32px 36px',
-                border: '1.5px solid rgba(20,184,166,0.3)',
-                boxShadow: '0 20px 60px rgba(0,0,0,0.15)'
-              }}>
-                {/* Header */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 32 }}>
-                  <div style={{
-                    width: 52, height: 52, borderRadius: 16,
-                    background: 'linear-gradient(135deg, var(--teal), #0891b2)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 26,
-                    boxShadow: '0 8px 20px rgba(20,184,166,0.3)'
-                  }}>🛡️</div>
-                  <div>
-                    <div style={{ fontSize: 20, fontWeight: 950, color: '#fff', letterSpacing: 0.3 }}>Committee &amp; Consensus Policy</div>
-                    <div style={{ fontSize: 13, color: '#94a3b8', marginTop: 3 }}>Configure auto-assigned committee members and signature approval thresholds</div>
-                  </div>
-                </div>
 
-                <div>
-                  {/* Committee & Consensus Policy */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
-
-                    {/* Default Committee */}
-                    <div>
-                      <div style={{ fontSize: 11, fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 6 }}>Default Committee (Auto-Assigned)</div>
-                      <div style={{ fontSize: 11, color: '#475569', marginBottom: 14 }}>These reviewers are automatically assigned to every new loan and repayment request.</div>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                        {allAdmins
-                          .filter((a: any) => (reviewerConfig.authorizedReviewers || []).includes(a.id))
-                          .map((a: any) => {
-                            const inDefault = (reviewerConfig.defaultCommittee || []).includes(a.id);
-                            return (
-                              <button
-                                key={a.id}
-                                onClick={() => {
-                                  const cur = reviewerConfig.defaultCommittee || [];
-                                  const next = cur.includes(a.id)
-                                    ? cur.filter((id: string) => id !== a.id)
-                                    : [...cur, a.id];
-                                  localDb.updatePortalConfig({ defaultCommittee: next });
-                                  refreshReviewerConfig();
-                                }}
-                                style={{
-                                  padding: '8px 18px', borderRadius: 14, fontSize: 12, fontWeight: 800, cursor: 'pointer',
-                                  border: inDefault ? '1.5px solid rgba(20,184,166,0.6)' : '1px solid rgba(255,255,255,0.12)',
-                                  background: inDefault ? 'rgba(20,184,166,0.15)' : 'rgba(255,255,255,0.04)',
-                                  color: inDefault ? '#14b8a6' : '#64748b', transition: 'all .2s'
-                                }}
-                              >
-                                {inDefault ? '✓ ' : ''}{a.name}
-                              </button>
-                            );
-                          })}
-                        {(reviewerConfig.authorizedReviewers || []).length === 0 && (
-                          <div style={{ fontSize: 12, color: '#475569', fontStyle: 'italic' }}>Authorize reviewers first to configure the default committee.</div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Consensus Policy — Loans */}
-                    <div style={{ background: 'rgba(255,255,255,0.04)', borderRadius: 16, padding: '20px' }}>
-                      <div style={{ fontSize: 11, fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 4 }}>📋 Loan Approval Consensus</div>
-                      <div style={{ fontSize: 11, color: '#475569', marginBottom: 16 }}>Number of reviewer signatures required to approve a loan application.</div>
-                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                        {[1,2,3,4,5].map(n => {
-                          const active = (reviewerConfig.loanApprovalsNeeded || 2) === n;
-                          return (
-                            <button
-                              key={n}
-                              onClick={() => { localDb.updatePortalConfig({ loanApprovalsNeeded: n }); refreshReviewerConfig(); showToast(`✅ Loan approval threshold set to ${n}`); }}
-                              style={{
-                                width: 48, height: 48, borderRadius: 12, fontSize: 16, fontWeight: 900, cursor: 'pointer',
-                                border: active ? '2px solid var(--teal)' : '1px solid rgba(255,255,255,0.12)',
-                                background: active ? 'var(--teal)' : 'rgba(255,255,255,0.04)',
-                                color: active ? '#fff' : '#64748b', transition: 'all .2s'
-                              }}
-                            >{n}</button>
-                          );
-                        })}
-                      </div>
-                      <div style={{ marginTop: 10, fontSize: 11, color: '#475569' }}>
-                        {(reviewerConfig.loanApprovalsNeeded || 2) === 1 ? '⚡ Fast approval — single reviewer' : (reviewerConfig.loanApprovalsNeeded || 2) <= 2 ? '🔐 Dual-signature secure' : '🔒 High-security multi-signature'}
-                      </div>
-                    </div>
-
-                    {/* Consensus Policy — Repayments */}
-                    <div style={{ background: 'rgba(255,255,255,0.04)', borderRadius: 16, padding: '20px' }}>
-                      <div style={{ fontSize: 11, fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 4 }}>💳 Repayment Verification Consensus</div>
-                      <div style={{ fontSize: 11, color: '#475569', marginBottom: 16 }}>Number of reviewer signatures required to approve a repayment submission.</div>
-                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                        {[1,2,3,4,5].map(n => {
-                          const active = (reviewerConfig.repaymentApprovalsNeeded || 1) === n;
-                          return (
-                            <button
-                              key={n}
-                              onClick={() => { localDb.updatePortalConfig({ repaymentApprovalsNeeded: n }); refreshReviewerConfig(); showToast(`✅ Repayment approval threshold set to ${n}`); }}
-                              style={{
-                                width: 48, height: 48, borderRadius: 12, fontSize: 16, fontWeight: 900, cursor: 'pointer',
-                                border: active ? '2px solid #6366f1' : '1px solid rgba(255,255,255,0.12)',
-                                background: active ? '#6366f1' : 'rgba(255,255,255,0.04)',
-                                color: active ? '#fff' : '#64748b', transition: 'all .2s'
-                              }}
-                            >{n}</button>
-                          );
-                        })}
-                      </div>
-                      <div style={{ marginTop: 10, fontSize: 11, color: '#475569' }}>
-                        {(reviewerConfig.repaymentApprovalsNeeded || 1) === 1 ? '⚡ Fast approval — single reviewer' : (reviewerConfig.repaymentApprovalsNeeded || 1) <= 2 ? '🔐 Dual-signature secure' : '🔒 High-security multi-signature'}
-                      </div>
-                    </div>
-
-                    {/* Info box */}
-                    <div style={{ background: 'rgba(20,184,166,0.06)', border: '1px solid rgba(20,184,166,0.2)', borderRadius: 14, padding: '14px 16px' }}>
-                      <div style={{ fontSize: 11, fontWeight: 800, color: '#14b8a6', marginBottom: 6 }}>ℹ️ How Reviewer Authorization Works</div>
-                      <div style={{ fontSize: 11, color: '#64748b', lineHeight: 1.6 }}>
-                        Authorized reviewers can <b style={{ color: '#94a3b8' }}>sign loan applications</b> in the Loan Management page and <b style={{ color: '#94a3b8' }}>verify repayment proofs</b> in the Repayment Portal. The Super Admin can always override regardless of committee assignment.
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
 
             {role === 'super' && (
               <div id="repayment-alerts-settings" style={{ gridColumn: '1 / -1', marginTop: '24px' }}>

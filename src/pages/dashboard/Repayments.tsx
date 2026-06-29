@@ -1052,7 +1052,7 @@ export default function Repayments() {
                     </div>
                   </div>
                   <Link
-                    to={`/super-admin/dashboard/settings#reviewer-management`}
+                    to={`/super-admin/dashboard/admins`}
                     style={{
                       display: 'inline-flex', alignItems: 'center', gap: 8,
                       padding: '10px 20px', borderRadius: 14, fontSize: 12, fontWeight: 800,
@@ -1109,9 +1109,9 @@ export default function Repayments() {
                         </div>
                       );
                     })}
-                    {allAdmins.filter((a: any) => (config.authorizedReviewers || []).includes(a.id)).length === 0 && (
+                     {allAdmins.filter((a: any) => (config.authorizedReviewers || []).includes(a.id)).length === 0 && (
                       <div style={{ fontSize: 12, color: '#94a3b8', fontStyle: 'italic', padding: '10px 0' }}>
-                        No reviewers authorized. <Link to="/super-admin/dashboard/settings#reviewer-management" style={{ color: 'var(--teal)', fontWeight: 700 }}>Go to Settings → Reviewer Management</Link>
+                        No reviewers authorized. <Link to="/super-admin/dashboard/admins" style={{ color: 'var(--teal)', fontWeight: 700 }}>Go to Admin Management →</Link>
                       </div>
                     )}
                   </div>
