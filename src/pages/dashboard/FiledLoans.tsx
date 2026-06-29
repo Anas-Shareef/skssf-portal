@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import localDb, { syncFromBackend } from '../../lib/localDb';
-import { Search, AlertTriangle, Eye, Plus } from 'lucide-react';
+import { Search, AlertTriangle, Eye, Plus, RefreshCw } from 'lucide-react';
 
 export default function FiledLoans() {
   const navigate = useNavigate();
@@ -11,26 +10,27 @@ export default function FiledLoans() {
   const [activeTab, setActiveTab] = useState<'all' | 'PENDING_COORDINATOR_REVIEW' | 'PENDING_APPROVAL_PANEL' | 'APPROVED' | 'REJECTED' | 'REPAYMENT_COMPLETE'>('all');
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   async function loadFiledLoans() {
     if (!profile) return;
+    setLoading(true);
+    setError('');
     try {
-      setLoading(true);
-      // Ensure localDb is synced from backend (service-role key, no RLS issues)
-      await syncFromBackend();
-      const myId = profile.db_id || profile.id;
-      const all = localDb.getLoans();
-      // Filter by submitted_by_member_id OR applicant_id OR memId matching this member
-      const myLoans = all.filter((l: any) =>
-        l.submitted_by_member_id === myId ||
-        l.applicant_id === myId ||
-        l.memId === myId
-      );
-      // Sort newest first
-      myLoans.sort((a: any, b: any) => new Date(b.submittedDate || b.submitted_date || 0).getTime() - new Date(a.submittedDate || a.submitted_date || 0).getTime());
-      setLoans(myLoans);
-    } catch (err) {
+      // Use the backend API endpoint (service-role key, bypasses Supabase RLS)
+      const token = sessionStorage.getItem('active_api_token') || '';
+      const res = await fetch('/api/get-member-loans', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `Server error ${res.status}`);
+      }
+      const data = await res.json();
+      setLoans(data.loans || []);
+    } catch (err: any) {
       console.error('Failed to load filed loans:', err);
+      setError(err.message || 'Failed to load loans.');
     } finally {
       setLoading(false);
     }
@@ -40,22 +40,14 @@ export default function FiledLoans() {
     loadFiledLoans();
   }, [profile]);
 
-  // Also refresh if localDb data changes
-  useEffect(() => {
-    const handleUpdate = () => loadFiledLoans();
-    window.addEventListener('appDataUpdated', handleUpdate);
-    return () => window.removeEventListener('appDataUpdated', handleUpdate);
-  }, [profile]);
-
-  // Helper: get a normalized workflow status from loan (handles both API and localDb shapes)
+  // Helper: get a normalized workflow status
   const getWorkflowStatus = (l: any): string => {
     if (l.workflow_status) return l.workflow_status;
-    // Map localDb status to workflow status
     const s = (l.status || '').toLowerCase();
     if (s === 'approved') return 'APPROVED';
     if (s === 'rejected') return 'REJECTED_BY_PANEL';
     if (s === 'completed') return 'REPAYMENT_COMPLETE';
-    return 'PENDING_COORDINATOR_REVIEW'; // default pending
+    return 'PENDING_COORDINATOR_REVIEW';
   };
 
   const filteredLoans = loans.filter(l => {
@@ -92,11 +84,16 @@ export default function FiledLoans() {
       <div className="pg-hd fu" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
         <div>
           <h1 className="pg-title" style={{ fontSize: '24px', fontWeight: 900, color: '#0f172a', margin: 0 }}>Loans I Filed</h1>
-          <p className="pg-sub" style={{ fontSize: '13px', color: '#64748b', margin: '4px 0 0 0' }}>Log of all loan applications submitted on behalf of community borrow requesters</p>
+          <p className="pg-sub" style={{ fontSize: '13px', color: '#64748b', margin: '4px 0 0 0' }}>Log of all loan applications you submitted on behalf of community borrow requesters</p>
         </div>
-        <button onClick={() => navigate('/member/dashboard/apply')} className="bsm s" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Plus size={16} /> File New Application
-        </button>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button onClick={loadFiledLoans} className="bsm g" style={{ display: 'flex', alignItems: 'center', gap: '6px' }} title="Refresh">
+            <RefreshCw size={14} />
+          </button>
+          <button onClick={() => navigate('/member/dashboard/apply')} className="bsm s" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Plus size={16} /> File New Application
+          </button>
+        </div>
       </div>
 
       {/* Tabs */}
@@ -145,8 +142,16 @@ export default function FiledLoans() {
       </div>
 
       {loading ? (
-        <div style={{ display: 'flex', justifyContent: 'center', padding: '50px', color: 'var(--teal)' }}>
-          <div className="spinner">Loading Applications...</div>
+        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', flexDirection: 'column', gap: '12px', padding: '60px', color: 'var(--teal)' }}>
+          <div className="spinner" style={{ width: '36px', height: '36px', border: '3px solid #e2e8f0', borderTopColor: 'var(--teal)', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }}></div>
+          <span style={{ fontWeight: 700, fontSize: '14px' }}>Loading your applications...</span>
+        </div>
+      ) : error ? (
+        <div className="card" style={{ padding: '40px 20px', textAlign: 'center', borderRadius: '20px', background: '#fff8f8', border: '1.5px solid #fecaca' }}>
+          <AlertTriangle size={36} style={{ margin: '0 auto 12px', color: '#ef4444' }} />
+          <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 800, color: '#1e293b' }}>Failed to Load</h3>
+          <p style={{ margin: '6px 0 16px', fontSize: '13px', color: '#94a3b8' }}>{error}</p>
+          <button onClick={loadFiledLoans} className="bsm s">Try Again</button>
         </div>
       ) : filteredLoans.length === 0 ? (
         <div className="card" style={{ padding: '60px 20px', textAlign: 'center', borderRadius: '20px', background: '#fff', border: '1.5px solid #f1f5f9' }}>
@@ -163,29 +168,32 @@ export default function FiledLoans() {
                   <th style={{ textAlign: 'left', padding: '14px 16px', fontSize: '11px', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase' }}>Applicant</th>
                   <th style={{ textAlign: 'left', padding: '14px 16px', fontSize: '11px', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase' }}>Amount Requested</th>
                   <th style={{ textAlign: 'left', padding: '14px 16px', fontSize: '11px', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase' }}>Date Filed</th>
-                  <th style={{ textAlign: 'left', padding: '14px 16px', fontSize: '11px', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase' }}>Workflow Status</th>
+                  <th style={{ textAlign: 'left', padding: '14px 16px', fontSize: '11px', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase' }}>Status</th>
                   <th style={{ textAlign: 'center', padding: '14px 16px', fontSize: '11px', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase' }}>Action</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredLoans.map((l: any) => (
-                  <tr key={l.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                  <tr key={l.id} style={{ borderBottom: '1px solid #f1f5f9', transition: 'background 0.15s' }}
+                    onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                  >
                     <td style={{ padding: '16px' }}>
-                      <div style={{ fontWeight: 800, color: '#1e293b' }}>{l.requester_name || l.name}</div>
-                      <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>{l.requester_phone || l.mob || l.phone}</div>
+                      <div style={{ fontWeight: 800, color: '#1e293b' }}>{l.requester_name || l.name || '—'}</div>
+                      <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>{l.requester_phone || l.mob || l.phone || ''}</div>
                     </td>
                     <td style={{ padding: '16px', fontWeight: 900, color: 'var(--teal)', fontSize: '14px' }}>
-                      ₹{Number(l.loan_amount_requested || l.amt || 0).toLocaleString()}
+                      ₹{Number(l.loan_amount_requested || l.amount || l.amt || 0).toLocaleString()}
                     </td>
                     <td style={{ padding: '16px', color: '#475569', fontSize: '13px' }}>
-                      {new Date(l.created_at || l.submittedDate || l.submitted_date || Date.now()).toLocaleDateString()}
+                      {l.created_at ? new Date(l.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
                     </td>
                     <td style={{ padding: '16px' }}>
                       {getStatusBadge(l)}
                     </td>
                     <td style={{ padding: '16px', textAlign: 'center' }}>
                       <button
-                        onClick={() => navigate(`/member/dashboard/filed-loans/${l.db_id || l.id}`)}
+                        onClick={() => navigate(`/member/dashboard/filed-loans/${l.id}`)}
                         className="bsm g"
                         style={{ padding: '8px 14px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                       >
@@ -196,6 +204,9 @@ export default function FiledLoans() {
                 ))}
               </tbody>
             </table>
+          </div>
+          <div style={{ padding: '12px 16px', borderTop: '1px solid #f1f5f9', fontSize: '12px', color: '#94a3b8', fontWeight: 600 }}>
+            Showing {filteredLoans.length} of {loans.length} application{loans.length !== 1 ? 's' : ''}
           </div>
         </div>
       )}

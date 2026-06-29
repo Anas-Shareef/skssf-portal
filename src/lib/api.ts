@@ -85,9 +85,15 @@ export const api = {
         }
       }
 
-      let loanQuery = supabase.from('loans').select('*');
+      // For members: fetch via service-role API to bypass RLS
+      // For admins/super: use anon client (they have full access via RLS)
+      let loanFetchPromise: Promise<{ data: any[] }>;
       if (activeUser && activeUser.role === 'member') {
-        loanQuery = loanQuery.eq('submitted_by_member_id', activeUser.id);
+        loanFetchPromise = fetch('/api/get-member-loans', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        }).then(r => r.json()).then(j => ({ data: j.loans || [] })).catch(() => ({ data: [] }));
+      } else {
+        loanFetchPromise = supabase.from('loans').select('*').order('created_at', { ascending: false }) as unknown as Promise<{ data: any[] }>;
       }
 
       const [
@@ -107,7 +113,7 @@ export const api = {
             'Authorization': `Bearer ${sessionStorage.getItem('active_api_token')}`
           }
         }).then(res => res.json()).then(json => ({ data: json.users || [] })).catch(() => ({ data: [] })),
-        loanQuery.order('created_at', { ascending: false }),
+        loanFetchPromise,
         supabase.from('campaigns').select('*').order('created_at', { ascending: false }),
         supabase.from('donations').select('*').order('created_at', { ascending: false }),
         supabase.from('products').select('*').order('created_at', { ascending: false }),
