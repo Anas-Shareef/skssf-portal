@@ -412,6 +412,7 @@ export const localDb = {
           member_no: user.memberNo || '',
           occupation: user.occupation || '',
           designation: user.desig || '',
+          avatar: user.avatar || '',
           is_approver: !!user.is_approver,
           dob: user.dob || '',
           gender: user.gender || '',

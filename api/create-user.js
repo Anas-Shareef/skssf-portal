@@ -70,7 +70,8 @@ export default async function handler(req, res) {
       active = true,
       join_date,
       is_approver = false,
-      perms = []
+      perms = [],
+      avatar = ''
     } = req.body;
 
     if (!email || !password || !name) {
@@ -118,7 +119,8 @@ export default async function handler(req, res) {
         active: !!active,
         join_date: cleanJoinDate,
         is_approver: !!is_approver,
-        perms: perms
+        perms: perms,
+        avatar: avatar || null
       })
       .eq('id', newUser.id);
 

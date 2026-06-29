@@ -87,7 +87,8 @@ export default async function handler(req, res) {
       perms,
       sahachari_paid,
       sah_miss,
-      total_donated
+      total_donated,
+      avatar
     } = req.body;
 
     // 3. Update Auth User (email & password) if provided using Admin SDK
@@ -138,6 +139,7 @@ export default async function handler(req, res) {
     if (sahachari_paid !== undefined) profileUpdates.sahachari_paid = sahachari_paid;
     if (sah_miss !== undefined) profileUpdates.sah_miss = sah_miss;
     if (total_donated !== undefined) profileUpdates.total_donated = Number(total_donated);
+    if (avatar !== undefined) profileUpdates.avatar = avatar;
 
     if (Object.keys(profileUpdates).length > 0) {
       const { error: updateError } = await supabase
