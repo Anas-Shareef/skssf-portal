@@ -2,8 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabaseClient';
-import localDb from '../../lib/localDb';
-import { ArrowLeft, User, Phone, MapPin, CheckCircle2, MessageSquare, Plus, Check } from 'lucide-react';
+import { localDb } from '../../lib/localDb';
+import { ArrowLeft, User, Phone, MapPin, Plus, MessageSquare, Check, X } from 'lucide-react';
 
 export default function FiledLoanDetail() {
   const { id } = useParams<{ id: string }>();
@@ -33,28 +33,42 @@ export default function FiledLoanDetail() {
   async function loadLoanData() {
     try {
       setLoading(true);
-      const { data, error } = await supabase
-        .from('loans')
-        .select('*, profiles:submitted_by_member_id(name)')
-        .eq('id', id)
-        .single();
-      if (error) throw error;
-      setLoan(data);
+      const token = sessionStorage.getItem('active_api_token') || '';
 
-      const { data: adminList } = await supabase
-        .from('profiles')
-        .select('id, name, role')
-        .in('role', ['admin', 'super', 'coordinator']);
-      setAdmins(adminList || []);
+      // 1. Fetch loan
+      const loansRes = await fetch('/api/get-member-loans', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!loansRes.ok) {
+        const errData = await loansRes.json().catch(() => ({}));
+        throw new Error(errData.error || `Server error ${loansRes.status}`);
+      }
+      const loansData = await loansRes.json();
+      const matchedLoan = (loansData.loans || []).find((l: any) => String(l.id) === String(id));
+      if (!matchedLoan) throw new Error('Loan not found');
+      setLoan(matchedLoan);
 
-      const { data: insts } = await supabase
-        .from('repayment_installments')
-        .select('*')
-        .eq('loan_id', id)
-        .order('installment_number');
-      setInstallments(insts || []);
-    } catch (err) {
+      // 2. Fetch admins from localDb cache
+      const allUsers = localDb.getUsers();
+      const adminList = allUsers.filter((u: any) => ['admin', 'super', 'coordinator'].includes(u.role));
+      setAdmins(adminList);
+
+      // 3. Fetch installments
+      const repsRes = await fetch('/api/get-member-repayments', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!repsRes.ok) {
+        const errData = await repsRes.json().catch(() => ({}));
+        throw new Error(errData.error || `Server error ${repsRes.status}`);
+      }
+      const repsData = await repsRes.json();
+      const matchedInsts = (repsData.installments || [])
+        .filter((inst: any) => String(inst.loan_id) === String(id))
+        .sort((a: any, b: any) => a.installment_number - b.installment_number);
+      setInstallments(matchedInsts);
+    } catch (err: any) {
       console.error('Failed to load loan data:', err);
+      showToast('e', err.message || 'Failed to load loan data.');
     } finally {
       setLoading(false);
     }
@@ -74,51 +88,24 @@ export default function FiledLoanDetail() {
     }
 
     try {
-      const newPaid = Number(selectedInst.amount_paid) + paidVal;
-      const isPaid = newPaid >= selectedInst.amount_due;
-      const status = isPaid ? 'PAID' : 'PARTIALLY_PAID';
-
-      const { error } = await supabase
-        .from('repayment_installments')
-        .update({
-          amount_paid: newPaid,
-          status: status,
-          payment_date: new Date().toISOString().split('T')[0],
-          payment_method: payMethod,
-          reference_note: payNote.trim(),
-          recorded_by_user_id: profile?.db_id || profile?.id
+      const token = sessionStorage.getItem('active_api_token') || '';
+      const res = await fetch('/api/record-member-repayment', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          selectedInstId: selectedInst.id,
+          amtPaid: paidVal,
+          payMethod,
+          payNote: payNote.trim()
         })
-        .eq('id', selectedInst.id);
-
-      if (error) throw error;
-
-      // Log repayment in audit
-      await supabase.from('loan_audit_log').insert({
-        loan_id: id,
-        action: 'REPAYMENT_RECORDED',
-        performed_by_user_id: profile?.db_id || profile?.id,
-        notes: `Recorded repayment ₹${paidVal.toLocaleString()} via ${payMethod} on installment #${selectedInst.installment_number}`
       });
 
-      // Check if all installments are fully paid
-      const { data: allInsts } = await supabase
-        .from('repayment_installments')
-        .select('status')
-        .eq('loan_id', id);
-
-      const allPaid = allInsts && allInsts.every(inst => inst.status === 'PAID');
-      if (allPaid) {
-        await supabase
-          .from('loans')
-          .update({ workflow_status: 'REPAYMENT_COMPLETE' })
-          .eq('id', id);
-
-        await supabase.from('loan_audit_log').insert({
-          loan_id: id,
-          action: 'LOAN_CLOSED',
-          performed_by_user_id: profile?.db_id || profile?.id,
-          notes: 'All installments fully paid. Loan workflow status closed.'
-        });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `Server error ${res.status}`);
       }
 
       showToast('s', 'Repayment recorded successfully!');
@@ -137,23 +124,28 @@ export default function FiledLoanDetail() {
     if (!msgText.trim()) return;
 
     try {
-      // 1. Insert to requester_notifications
-      const { error } = await supabase
-        .from('requester_notifications')
-        .insert({
-          loan_id: id,
-          installment_id: selectedInst.id,
-          sent_by_member_id: profile?.db_id || profile?.id,
-          message_text: msgText.trim(),
-          delivery_method: 'WHATSAPP'
-        });
+      const token = sessionStorage.getItem('active_api_token') || '';
+      const res = await fetch('/api/log-member-notification', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          loanId: id,
+          installmentId: selectedInst.id,
+          messageText: msgText.trim()
+        })
+      });
 
-      if (error) throw error;
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `Server error ${res.status}`);
+      }
 
       showToast('s', 'Notification logged. Opening WhatsApp...');
       setShowNotifyModal(false);
 
-      // 2. Open WhatsApp link
       const encodedMsg = encodeURIComponent(msgText.trim());
       const phoneNo = loan.requester_phone || loan.phone;
       const url = `https://api.whatsapp.com/send?phone=${phoneNo}&text=${encodedMsg}`;

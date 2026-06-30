@@ -160,9 +160,25 @@ export const api = {
     if (path.startsWith('/loans/') && path.endsWith('/repayments')) {
       const loanId = path.split('/')[2];
       try {
-        const { data, error } = await supabase.from('loan_installments').select('*').eq('loan_id', loanId).order('installment_number');
+        const { data: loan } = await supabase.from('loans').select('id').eq('loan_no', loanId).single();
+        if (!loan) throw new Error('Loan not found');
+        const { data, error } = await supabase.from('repayment_installments').select('*').eq('loan_id', loan.id).order('installment_number');
         if (error) throw error;
-        return { data } as T;
+        
+        const mapped = (data || []).map((r: any) => ({
+          id: r.id,
+          loan_id: r.loan_id,
+          installment_number: r.installment_number,
+          due_date: r.due_date,
+          amount_due: r.amount_due,
+          status: (r.status || '').toLowerCase(),
+          paid_date: r.payment_date || null,
+          paid_amount: r.amount_paid || null,
+          payment_method: r.payment_method || null,
+          payment_reference: r.reference_note || null,
+          notes: r.reference_note || null
+        }));
+        return { data: mapped } as T;
       } catch (err: any) {
         if (isTableMissingError(err)) {
           const { data: loan } = await supabase.from('loans').select('id, amt, months, repayments').eq('loan_no', loanId).maybeSingle();
@@ -192,9 +208,15 @@ export const api = {
 
     if (path === '/admin/repayments/overview') {
       try {
-        const { data: installments, error } = await supabase.from('loan_installments').select('*');
+        const { data: installments, error } = await supabase.from('repayment_installments').select('*');
         if (error) throw error;
-        return { data: calculateRepaymentsOverview(installments || []) } as T;
+        const mapped = (installments || []).map((r: any) => ({
+          status: (r.status || '').toLowerCase(),
+          amount_due: r.amount_due,
+          paid_amount: r.amount_paid || 0,
+          paid_date: r.payment_date || null
+        }));
+        return { data: calculateRepaymentsOverview(mapped) } as T;
       } catch (err: any) {
         if (isTableMissingError(err)) {
           const { data: loans } = await supabase.from('loans').select('id, amt, repayments');
@@ -218,9 +240,23 @@ export const api = {
 
     if (path.startsWith('/admin/repayments')) {
       try {
-        const { data, error } = await supabase.from('loan_installments').select('*, loans(*)').order('due_date');
+        const { data, error } = await supabase.from('repayment_installments').select('*, loans(*)').order('due_date');
         if (error) throw error;
-        return { data } as T;
+        const mapped = (data || []).map((r: any, idx: number) => ({
+          id: r.id,
+          loan_id: r.loan_id,
+          loan: r.loans,
+          installment_number: r.installment_number,
+          due_date: r.due_date,
+          amount_due: r.amount_due,
+          status: (r.status || '').toLowerCase(),
+          paid_date: r.payment_date || null,
+          paid_amount: r.amount_paid || null,
+          payment_method: r.payment_method || null,
+          payment_reference: r.reference_note || null,
+          notes: r.reference_note || null
+        }));
+        return { data: mapped } as T;
       } catch (err: any) {
         if (isTableMissingError(err)) {
           const { data: loans } = await supabase.from('loans').select('*');
@@ -982,9 +1018,8 @@ export const api = {
           installment_number: i + 1,
           due_date: dueDateStr,
           amount_due: installmentAmount,
-          status: 'pending',
-          notification_sent_at: {},
-          notes: ''
+          status: 'PENDING',
+          amount_paid: 0
         });
 
         repaymentsArrayForFallback.push({
@@ -1009,12 +1044,12 @@ export const api = {
       await supabase.from('loans').update(loanUpdates).eq('id', loan.id);
 
       try {
-        await supabase.from('loan_installments').delete().eq('loan_id', loan.id);
-        const { error: insertErr } = await supabase.from('loan_installments').insert(installments);
+        await supabase.from('repayment_installments').delete().eq('loan_id', loan.id);
+        const { error: insertErr } = await supabase.from('repayment_installments').insert(installments);
         if (insertErr) throw insertErr;
       } catch (err: any) {
         if (isTableMissingError(err)) {
-          console.log('loan_installments table missing, stored repayments in loans JSON column.');
+          console.log('repayment_installments table missing, stored repayments in loans JSON column.');
         } else {
           throw err;
         }
@@ -1030,8 +1065,8 @@ export const api = {
 
       try {
         const { error } = await supabase
-          .from('loan_installments')
-          .update({ member_notified_requester_at: timestamp })
+          .from('repayment_installments')
+          .update({ reference_note: `Notified requester at ${timestamp}` })
           .eq('id', installmentId);
         if (error) throw error;
       } catch (err: any) {
@@ -1273,21 +1308,20 @@ export const api = {
       let isRelationalTableSuccess = false;
       try {
         const { error } = await supabase
-          .from('loan_installments')
+          .from('repayment_installments')
           .update({
-            status: Number(paid_amount) >= Number(body.amount_due) ? 'paid' : 'partially_paid',
-            paid_amount,
-            paid_date,
+            status: Number(paid_amount) >= Number(body.amount_due) ? 'PAID' : 'PARTIALLY_PAID',
+            amount_paid: paid_amount,
+            payment_date: paid_date,
             payment_method,
-            payment_reference,
-            notes,
-            marked_by
+            reference_note: notes || payment_reference || '',
+            recorded_by_user_id: marked_by
           })
           .eq('id', installmentId);
         if (error) throw error;
         isRelationalTableSuccess = true;
       } catch (err: any) {
-        if (!isTableMissingError(err)) throw err;
+        console.error('Failed to update repayment_installments:', err);
       }
 
       const repayments = loan.repayments || [];
@@ -1320,8 +1354,8 @@ export const api = {
 
       let calculatedPaid = 0;
       if (isRelationalTableSuccess) {
-        const { data: insts } = await supabase.from('loan_installments').select('paid_amount').eq('loan_id', loan.id).in('status', ['paid', 'partially_paid']);
-        calculatedPaid = (insts || []).reduce((s, i) => s + Number(i.paid_amount || 0), 0);
+        const { data: insts } = await supabase.from('repayment_installments').select('amount_paid').eq('loan_id', loan.id).in('status', ['PAID', 'PARTIALLY_PAID']);
+        calculatedPaid = (insts || []).reduce((s, i) => s + Number(i.amount_paid || 0), 0);
       } else {
         calculatedPaid = repayments.reduce((s, r) => s + Number(r.paid_amount || (r.paid ? r.amt : 0) || 0), 0);
       }
