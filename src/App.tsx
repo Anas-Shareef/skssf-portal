@@ -26,7 +26,6 @@ import FiledLoans from './pages/dashboard/FiledLoans';
 import FiledLoanDetail from './pages/dashboard/FiledLoanDetail';
 import MemberRepayments from './pages/dashboard/MemberRepayments';
 import MemberInventory from './pages/dashboard/MemberInventory';
-import MemberLeases from './pages/dashboard/MemberLeases';
 import MemberProfile from './pages/dashboard/MemberProfile';
 
 // Coordinator pages
@@ -123,7 +122,7 @@ function App() {
           <Route
             path="/member/dashboard"
             element={
-              <ProtectedRoute allowedRoles={['member']}>
+              <ProtectedRoute allowedRoles={['member', 'admin', 'super']}>
                 <DashboardLayout />
               </ProtectedRoute>
             }
@@ -140,8 +139,8 @@ function App() {
             <Route path="repayments" element={<MemberRepayments />} />
             {/* Inventory */}
             <Route path="inventory" element={<MemberInventory />} />
-            <Route path="inventory/catalogue" element={<MemberInventory />} />
-            <Route path="inventory/my-leases" element={<MemberLeases />} />
+            <Route path="inventory/catalogue" element={<Navigate to="/member/dashboard/inventory" replace />} />
+            <Route path="inventory/my-leases" element={<Navigate to="/member/dashboard/inventory" replace />} />
             {/* Profile */}
             <Route path="profile" element={<MemberProfile />} />
             {/* Other */}

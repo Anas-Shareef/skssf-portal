@@ -81,7 +81,7 @@ const buildNav = (role: string, isPanelCoordinator: boolean) => {
       { ic: ClipboardPenLine, lbl: 'New Application', path: '/apply' }
     ]},
     { sec: 'Logistics', items: [
-      { ic: Boxes, lbl: 'Inventory', path: '/inventory/catalogue' }
+      { ic: Boxes, lbl: 'Inventory', path: '/inventory' }
     ]},
     { sec: 'Finance', items: [
       { ic: HandHeart, lbl: 'Sahachari', path: '/sahachari' },
@@ -394,9 +394,9 @@ export default function DashboardLayout() {
                   <ClipboardPenLine size={20} />
                   <span style={{ fontSize: '10px', fontWeight: 800 }}>Apply</span>
                 </Link>
-                <Link to={`${prefix}/inventory/catalogue`} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', textDecoration: 'none', color: location.pathname.includes('/inventory') ? 'var(--teal)' : '#94a3b8' }}>
+                <Link to={`${prefix}/inventory`} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', textDecoration: 'none', color: location.pathname.includes('/inventory') ? 'var(--teal)' : '#94a3b8' }}>
                   <Boxes size={20} />
-                  <span style={{ fontSize: '10px', fontWeight: 800 }}>Catalog</span>
+                  <span style={{ fontSize: '10px', fontWeight: 800 }}>Inventory</span>
                 </Link>
                 <Link to={`${prefix}/profile`} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', textDecoration: 'none', color: location.pathname.includes('/profile') ? 'var(--teal)' : '#94a3b8' }}>
                   <User size={20} />

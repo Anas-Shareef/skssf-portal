@@ -114,6 +114,41 @@ export default async function handler(req, res) {
       }
     }
 
+    // --- 3. Inventory Overdue Checkout Alerts ---
+    console.log('Evaluating inventory lease checkouts for overdue status...');
+    const { data: activeCheckouts, error: checkoutsErr } = await supabase
+      .from('inventory_checkouts')
+      .select('*, items:item_id(name)')
+      .eq('status', 'active');
+
+    if (checkoutsErr) {
+      console.warn('inventory_checkouts query failed:', checkoutsErr.message);
+    } else if (activeCheckouts) {
+      for (const checkout of activeCheckouts) {
+        if (!checkout.due_return_date) continue;
+        const dueDate = new Date(checkout.due_return_date);
+        dueDate.setHours(0,0,0,0);
+        
+        if (dueDate < today) {
+          // Update status to overdue
+          await supabase
+            .from('inventory_checkouts')
+            .update({ status: 'overdue', updated_at: new Date().toISOString() })
+            .eq('id', checkout.id);
+
+          // Trigger notification if not notified today
+          // We can check if notification exists, or simply insert a notification
+          await supabase.from('notifications').insert({
+            user_id: checkout.member_id,
+            title: '🚨 Leased Item Overdue',
+            message: `Overdue Alert: The item "${checkout.items?.name || 'Lease supply'}" (Qty: ${checkout.quantity}) was due back on ${new Date(checkout.due_return_date).toLocaleDateString()}. Please check it in.`,
+            link_url: `/member/dashboard/inventory`,
+            is_read: false
+          });
+        }
+      }
+    }
+
     console.log(`Alert runner run complete. Evaluated ${installments.length} installments. Sent ${alertsSentCount} alerts.`);
     return res.status(200).json({
       success: true,
