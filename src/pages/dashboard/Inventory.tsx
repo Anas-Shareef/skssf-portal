@@ -130,7 +130,7 @@ export default function Inventory() {
   const loadCatalogue = async () => {
     try {
       setLoading(true);
-      const catRes = await fetch('/api/inventory/categories', { headers: getHeaders() });
+      const catRes = await fetch('/api/inventory-categories', { headers: getHeaders() });
       if (catRes.ok) {
         const catData = await catRes.json();
         setCategories(catData.categories || []);
@@ -139,7 +139,7 @@ export default function Inventory() {
         }
       }
 
-      const itemRes = await fetch('/api/inventory/items', { headers: getHeaders() });
+      const itemRes = await fetch('/api/inventory-items', { headers: getHeaders() });
       if (itemRes.ok) {
         const itemData = await itemRes.json();
         setItems(itemData.items || []);
@@ -155,7 +155,7 @@ export default function Inventory() {
   const loadCheckouts = async () => {
     try {
       setLoading(true);
-      const res = await fetch('/api/inventory/checkouts', { headers: getHeaders() });
+      const res = await fetch('/api/inventory-checkouts', { headers: getHeaders() });
       if (res.ok) {
         const data = await res.json();
         setAllCheckouts(data.checkouts || []);
@@ -185,7 +185,7 @@ export default function Inventory() {
 
     try {
       setFormSubmitting(true);
-      const res = await fetch('/api/inventory/items', {
+      const res = await fetch('/api/inventory-items', {
         method: 'POST',
         headers: getHeaders(),
         body: JSON.stringify({
@@ -226,10 +226,12 @@ export default function Inventory() {
 
     try {
       setFormSubmitting(true);
-      const res = await fetch(`/api/inventory/items/${editingItem.id}`, {
-        method: 'PATCH',
+      const res = await fetch('/api/inventory-item-actions', {
+        method: 'POST',
         headers: getHeaders(),
         body: JSON.stringify({
+          action: 'edit',
+          id: editingItem.id,
           name: editingItem.name,
           category_id: editingItem.category_id,
           lease_duration_days: editingItem.item_type === 'lease' ? editingItem.lease_duration_days : null,
@@ -261,10 +263,12 @@ export default function Inventory() {
 
     try {
       setFormSubmitting(true);
-      const res = await fetch(`/api/inventory/items/${adjustingItem.id}/adjust-stock`, {
+      const res = await fetch('/api/inventory-item-actions', {
         method: 'POST',
         headers: getHeaders(),
         body: JSON.stringify({
+          action: 'adjust-stock',
+          id: adjustingItem.id,
           new_available_stock: adjustNewStock,
           reason: adjustReason
         })
@@ -291,10 +295,12 @@ export default function Inventory() {
 
     try {
       setFormSubmitting(true);
-      const res = await fetch(`/api/inventory/checkouts/${overrideCheckout.id}/mark-returned`, {
-        method: 'PATCH',
+      const res = await fetch('/api/inventory-checkout-actions', {
+        method: 'POST',
         headers: getHeaders(),
         body: JSON.stringify({
+          action: 'mark-returned',
+          id: overrideCheckout.id,
           return_condition: overrideCondition,
           return_date: overrideDate
         })
@@ -317,9 +323,13 @@ export default function Inventory() {
   const handleDeactivate = async (id: string) => {
     if (!window.confirm('Are you sure you want to deactivate/hide this item from the catalogue?')) return;
     try {
-      const res = await fetch(`/api/inventory/items/${id}/deactivate`, {
-        method: 'PATCH',
-        headers: getHeaders()
+      const res = await fetch('/api/inventory-item-actions', {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({
+          action: 'deactivate',
+          id: id
+        })
       });
       if (res.ok) {
         popToast('s', 'Item deactivated successfully.');
@@ -337,9 +347,13 @@ export default function Inventory() {
   const handleDeleteItem = async (id: string) => {
     if (!window.confirm('CRITICAL: Are you sure you want to PERMANENTLY delete this item? This action is irreversible.')) return;
     try {
-      const res = await fetch(`/api/inventory/items/${id}`, {
-        method: 'DELETE',
-        headers: getHeaders()
+      const res = await fetch('/api/inventory-item-actions', {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({
+          action: 'delete',
+          id: id
+        })
       });
       if (res.ok) {
         popToast('s', 'Item permanently deleted.');
@@ -360,7 +374,7 @@ export default function Inventory() {
 
     try {
       setCatSubmitting(true);
-      const res = await fetch('/api/inventory/categories', {
+      const res = await fetch('/api/inventory-categories', {
         method: 'POST',
         headers: getHeaders(),
         body: JSON.stringify({ name: newCatName.trim() })
@@ -383,7 +397,7 @@ export default function Inventory() {
   const handleDeleteCategory = async (id: string) => {
     if (!window.confirm('Delete this category?')) return;
     try {
-      const res = await fetch(`/api/inventory/categories/${id}`, {
+      const res = await fetch(`/api/inventory-categories?id=${id}`, {
         method: 'DELETE',
         headers: getHeaders()
       });
