@@ -73,6 +73,8 @@ export default function Inventory() {
   const [allCheckouts, setAllCheckouts] = useState<CheckoutRecord[]>([]);
   
   const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [selectedType, setSelectedType] = useState<'all' | 'lease' | 'permanent'>('all');
@@ -127,9 +129,11 @@ export default function Inventory() {
   };
 
   // Fetch Master Data
-  const loadCatalogue = async () => {
+  // Fetch Master Data
+  const loadCatalogue = async (showSpinner = true) => {
     try {
-      setLoading(true);
+      if (showSpinner) setLoading(true);
+      else setRefreshing(true);
       const catRes = await fetch('/api/inventory?resource=categories', { headers: getHeaders() });
       if (catRes.ok) {
         const catData = await catRes.json();
@@ -148,13 +152,15 @@ export default function Inventory() {
       popToast('e', 'Failed to load catalogue');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
   // Fetch All Checkouts
-  const loadCheckouts = async () => {
+  const loadCheckouts = async (showSpinner = true) => {
     try {
-      setLoading(true);
+      if (showSpinner) setLoading(true);
+      else setRefreshing(true);
       const res = await fetch('/api/inventory?resource=checkouts', { headers: getHeaders() });
       if (res.ok) {
         const data = await res.json();
@@ -164,14 +170,27 @@ export default function Inventory() {
       popToast('e', 'Failed to load checkouts log');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
+  // Initial load both
   useEffect(() => {
+    const init = async () => {
+      setInitialLoading(true);
+      await Promise.all([loadCatalogue(false), loadCheckouts(false)]);
+      setInitialLoading(false);
+    };
+    init();
+  }, []);
+
+  // Background refresh on tab change
+  useEffect(() => {
+    if (initialLoading) return;
     if (activeTab === 'catalogue') {
-      loadCatalogue();
+      loadCatalogue(false);
     } else {
-      loadCheckouts();
+      loadCheckouts(false);
     }
   }, [activeTab]);
 
@@ -211,7 +230,7 @@ export default function Inventory() {
       setNewItemLeaseDays(30);
       setNewItemDesc('');
       setNewItemPhoto('');
-      loadCatalogue();
+      loadCatalogue(false);
     } catch (err: any) {
       popToast('e', err.message || 'Error adding item');
     } finally {
@@ -245,7 +264,7 @@ export default function Inventory() {
 
       popToast('s', 'Item updated successfully!');
       setEditingItem(null);
-      loadCatalogue();
+      loadCatalogue(false);
     } catch (err: any) {
       popToast('e', err.message || 'Error updating item');
     } finally {
@@ -280,7 +299,7 @@ export default function Inventory() {
       popToast('s', 'Stock count adjusted successfully!');
       setAdjustingItem(null);
       setAdjustReason('');
-      loadCatalogue();
+      loadCatalogue(false);
     } catch (err: any) {
       popToast('e', err.message || 'Error adjusting stock');
     } finally {
@@ -311,7 +330,7 @@ export default function Inventory() {
 
       popToast('s', 'Checkout overridden successfully.');
       setOverrideCheckout(null);
-      loadCheckouts();
+      loadCheckouts(false);
     } catch (err: any) {
       popToast('e', err.message || 'Override failed');
     } finally {
@@ -333,7 +352,7 @@ export default function Inventory() {
       });
       if (res.ok) {
         popToast('s', 'Item deactivated successfully.');
-        loadCatalogue();
+        loadCatalogue(false);
       } else {
         const err = await res.json();
         throw new Error(err.error || 'Failed to deactivate');
@@ -357,7 +376,7 @@ export default function Inventory() {
       });
       if (res.ok) {
         popToast('s', 'Item permanently deleted.');
-        loadCatalogue();
+        loadCatalogue(false);
       } else {
         const err = await res.json();
         throw new Error(err.error || 'Failed to delete');
@@ -385,7 +404,7 @@ export default function Inventory() {
 
       popToast('s', `Category "${newCatName}" created!`);
       setNewCatName('');
-      loadCatalogue();
+      loadCatalogue(false);
     } catch (err: any) {
       popToast('e', err.message);
     } finally {
@@ -404,7 +423,7 @@ export default function Inventory() {
 
       if (res.ok) {
         popToast('s', 'Category deleted.');
-        loadCatalogue();
+        loadCatalogue(false);
       } else {
         const err = await res.json();
         throw new Error(err.error || 'Deletion failed');
@@ -472,10 +491,12 @@ export default function Inventory() {
             <FolderPlus size={14} /> Manage Categories
           </button>
           <button 
-            onClick={activeTab === 'catalogue' ? loadCatalogue : loadCheckouts}
-            style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', border: '1.5px solid #e2e8f0', background: '#fff', borderRadius: '14px', fontSize: '13px', fontWeight: 700, color: '#475569', cursor: 'pointer' }}
+            onClick={() => activeTab === 'catalogue' ? loadCatalogue(false) : loadCheckouts(false)}
+            disabled={refreshing}
+            style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', border: '1.5px solid #e2e8f0', background: '#fff', borderRadius: '14px', fontSize: '13px', fontWeight: 700, color: '#475569', cursor: refreshing ? 'default' : 'pointer' }}
           >
-            <RefreshCw size={14} /> Refresh
+            <RefreshCw size={14} style={{ animation: refreshing ? 'spin 1s linear infinite' : 'none' }} /> 
+            {refreshing ? 'Syncing...' : 'Refresh'}
           </button>
         </div>
       </div>
@@ -515,12 +536,25 @@ export default function Inventory() {
       </div>
 
       {/* Loading state */}
-      {loading ? (
+      {initialLoading ? (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '100px 0', gap: '16px' }}>
           <div className="spinner" style={{ width: '40px', height: '40px', border: '4px solid #f1f5f9', borderTop: '4px solid var(--teal)', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
           <span style={{ fontSize: '14px', fontWeight: 700, color: '#64748b' }}>Syncing admin ledger...</span>
         </div>
-      ) : activeTab === 'catalogue' ? (
+      ) : (
+        <>
+          {refreshing && (
+            <div style={{ 
+              display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', fontWeight: 800, 
+              color: 'var(--teal)', background: '#f0fdfa', border: '1px solid #ccfbf1', 
+              borderRadius: '20px', padding: '4px 12px', width: 'fit-content', marginBottom: '16px',
+              animation: 'pulse 1.5s infinite'
+            }}>
+              <span className="spinner-mini" style={{ width: '10px', height: '10px', border: '1.5px solid #ccfbf1', borderTop: '1.5px solid var(--teal)', borderRadius: '50%', display: 'inline-block', animation: 'spin 1s linear infinite' }}></span>
+              Background Sync Active
+            </div>
+          )}
+          {activeTab === 'catalogue' ? (
         
         /* ──── CATALOGUE TAB ──── */
         <>
@@ -780,6 +814,8 @@ export default function Inventory() {
           )}
         </div>
       )}
+    </>
+  )}
 
       {/* Add Item Modal */}
       {showAddModal && (
