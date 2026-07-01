@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, AlertTriangle, CheckCircle2, Calendar, ShieldCheck, RefreshCw, X, Plus, Edit2, Trash2, Sliders, History, FileText, FolderPlus, HelpCircle } from 'lucide-react';
+import { Search, AlertTriangle, CheckCircle2, Calendar, ShieldCheck, RefreshCw, X, Plus, Edit2, Trash2, Sliders, History, FileText, FolderPlus, HelpCircle, Package } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 
 interface InventoryItem {
