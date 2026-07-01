@@ -108,7 +108,7 @@ export const api = {
         { data: inventoryTransactions }
       ] = await Promise.all([
         supabase.from('portal_configs').select('*').maybeSingle(),
-        fetch('/api/get-users', {
+        fetch('/api/users', {
           headers: {
             'Authorization': `Bearer ${sessionStorage.getItem('active_api_token')}`
           }
@@ -418,7 +418,7 @@ export const api = {
 
   post: async <T>(path: string, body?: any, _token?: string): Promise<T> => {
     if (path === '/loans/otp/send' || path === '/loans/otp/verify') {
-      const functionPath = path === '/loans/otp/send' ? '/api/send-otp' : '/api/verify-otp';
+      const functionPath = path === '/loans/otp/send' ? '/api/otp?action=send' : '/api/otp?action=verify';
       const res = await fetch(functionPath, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -488,7 +488,7 @@ export const api = {
     }
 
     if (path === '/users') {
-      const res = await fetch('/api/create-user', {
+      const res = await fetch('/api/users', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1218,7 +1218,7 @@ export const api = {
   patch: async <T>(path: string, body?: any, _token?: string): Promise<T> => {
     if (path.startsWith('/users/')) {
       const id = path.split('/')[2];
-      const res = await fetch(`/api/update-user?id=${id}`, {
+      const res = await fetch(`/api/users?id=${id}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -1493,7 +1493,7 @@ export const api = {
   del: async <T>(path: string, body?: any, _token?: string): Promise<T> => {
     if (path.startsWith('/users/')) {
       const id = path.split('/')[2];
-      const res = await fetch(`/api/delete-user?id=${id}`, {
+      const res = await fetch(`/api/users?id=${id}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${sessionStorage.getItem('active_api_token')}`

@@ -85,14 +85,14 @@ export default function MemberInventory() {
     try {
       setLoading(true);
       // Fetch categories
-      const catRes = await fetch('/api/inventory-categories', { headers: getHeaders() });
+      const catRes = await fetch('/api/inventory?resource=categories', { headers: getHeaders() });
       if (catRes.ok) {
         const catData = await catRes.json();
         setCategories(catData.categories || []);
       }
 
       // Fetch items
-      const itemRes = await fetch('/api/inventory-items', { headers: getHeaders() });
+      const itemRes = await fetch('/api/inventory?resource=items', { headers: getHeaders() });
       if (itemRes.ok) {
         const itemData = await itemRes.json();
         setItems(itemData.items || []);
@@ -111,7 +111,7 @@ export default function MemberInventory() {
   const loadMyItems = async () => {
     try {
       setLoading(true);
-      const res = await fetch('/api/inventory-checkouts?mine=true', { headers: getHeaders() });
+      const res = await fetch('/api/inventory?resource=checkouts&mine=true', { headers: getHeaders() });
       if (res.ok) {
         const data = await res.json();
         setMyCheckouts(data.checkouts || []);
@@ -146,7 +146,7 @@ export default function MemberInventory() {
 
     try {
       setCheckoutSubmitting(true);
-      const res = await fetch('/api/inventory-checkouts', {
+      const res = await fetch('/api/inventory?resource=checkouts', {
         method: 'POST',
         headers: getHeaders(),
         body: JSON.stringify({
@@ -178,7 +178,7 @@ export default function MemberInventory() {
 
     try {
       setReturnSubmitting(true);
-      const res = await fetch('/api/inventory-checkout-actions', {
+      const res = await fetch('/api/inventory?resource=checkout-actions', {
         method: 'POST',
         headers: getHeaders(),
         body: JSON.stringify({
