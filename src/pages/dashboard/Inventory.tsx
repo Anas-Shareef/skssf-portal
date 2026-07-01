@@ -826,8 +826,37 @@ export default function Inventory() {
               </div>
 
               <div>
-                <label className="fl2">Photo URL (Optional)</label>
-                <input type="text" placeholder="https://images.unsplash.com/..." value={newItemPhoto} onChange={e => setNewItemPhoto(e.target.value)} className="fi2" />
+                <label className="fl2">Product Photo</label>
+                <input type="file" id="add-prod-photo-up" hidden accept="image/*" onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    const reader = new FileReader();
+                    reader.onloadend = () => setNewItemPhoto(reader.result as string);
+                    reader.readAsDataURL(file);
+                  }
+                }} />
+                <div 
+                  onClick={() => document.getElementById('add-prod-photo-up')?.click()}
+                  style={{ 
+                    border: '2px dashed #e2e8f0', borderRadius: 14, padding: newItemPhoto ? 10 : 20, 
+                    textAlign: 'center', cursor: 'pointer', background: '#f8fafc',
+                    transition: 'all .2s', position: 'relative'
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--teal)'}
+                  onMouseLeave={e => e.currentTarget.style.borderColor = '#e2e8f0'}
+                >
+                  {newItemPhoto ? (
+                    <div style={{ position: 'relative', display: 'inline-block' }}>
+                      <img src={newItemPhoto} style={{ maxHeight: 100, borderRadius: 10, boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} alt="Preview" />
+                      <div style={{ position: 'absolute', top: -10, right: -10, background: 'var(--red)', color: '#fff', width: 22, height: 22, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 900 }} onClick={(e) => { e.stopPropagation(); setNewItemPhoto(''); }}>✕</div>
+                    </div>
+                  ) : (
+                    <div>
+                      <div style={{ fontSize: 24, marginBottom: 6 }}>📸</div>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: '#475569' }}>Click to upload photo</div>
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div>
@@ -877,8 +906,37 @@ export default function Inventory() {
               </div>
 
               <div>
-                <label className="fl2">Photo URL</label>
-                <input type="text" value={editingItem.photo_url || ''} onChange={e => setEditingItem({ ...editingItem, photo_url: e.target.value })} className="fi2" />
+                <label className="fl2">Product Photo</label>
+                <input type="file" id="edit-prod-photo-up" hidden accept="image/*" onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    const reader = new FileReader();
+                    reader.onloadend = () => setEditingItem({ ...editingItem, photo_url: reader.result as string });
+                    reader.readAsDataURL(file);
+                  }
+                }} />
+                <div 
+                  onClick={() => document.getElementById('edit-prod-photo-up')?.click()}
+                  style={{ 
+                    border: '2px dashed #e2e8f0', borderRadius: 14, padding: editingItem.photo_url ? 10 : 20, 
+                    textAlign: 'center', cursor: 'pointer', background: '#f8fafc',
+                    transition: 'all .2s', position: 'relative'
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--teal)'}
+                  onMouseLeave={e => e.currentTarget.style.borderColor = '#e2e8f0'}
+                >
+                  {editingItem.photo_url ? (
+                    <div style={{ position: 'relative', display: 'inline-block' }}>
+                      <img src={editingItem.photo_url} style={{ maxHeight: 100, borderRadius: 10, boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} alt="Preview" />
+                      <div style={{ position: 'absolute', top: -10, right: -10, background: 'var(--red)', color: '#fff', width: 22, height: 22, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 900 }} onClick={(e) => { e.stopPropagation(); setEditingItem({ ...editingItem, photo_url: null }); }}>✕</div>
+                    </div>
+                  ) : (
+                    <div>
+                      <div style={{ fontSize: 24, marginBottom: 6 }}>📸</div>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: '#475569' }}>Click to upload photo</div>
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div>
