@@ -1,9 +1,9 @@
-@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800;900&family=Noto+Sans+Malayalam:wght@400;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,300;1,9..40,400&family=Poppins:wght@300;400;500;600;700;800;900&family=Noto+Sans+Malayalam:wght@400;600&display=swap');
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Outfit", "Inter", sans-serif;
-  --font-serif: "Outfit", sans-serif;
+  --font-sans: "DM Sans", "Outfit", "Inter", sans-serif;
+  --font-serif: "DM Sans", "Outfit", sans-serif;
 }
 
 @layer base {
@@ -24,8 +24,8 @@
     --r:18px;--r-sm:11px;--r-xs:8px;
   }
   *{box-sizing:border-box;margin:0;padding:0;}
-  html, body{font-family:'Outfit',sans-serif;background:var(--bg);color:var(--dark);font-size:14px; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;}
-  input,select,textarea,button{font-family:'Outfit',sans-serif;}
+  html, body{font-family:'DM Sans','Outfit',sans-serif;background:var(--bg);color:var(--dark);font-size:14px; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;}
+  input,select,textarea,button{font-family:'DM Sans','Outfit',sans-serif;}
   ::-webkit-scrollbar{width:5px;height:5px;}
   ::-webkit-scrollbar-thumb{background:var(--border2);border-radius:10px;}
 }
