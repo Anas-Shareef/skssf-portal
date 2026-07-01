@@ -1,6 +1,50 @@
 {
   "rewrites": [
     {
+      "source": "/api/get-users",
+      "destination": "/api/users"
+    },
+    {
+      "source": "/api/create-user",
+      "destination": "/api/users"
+    },
+    {
+      "source": "/api/update-user",
+      "destination": "/api/users"
+    },
+    {
+      "source": "/api/delete-user",
+      "destination": "/api/users"
+    },
+    {
+      "source": "/api/send-otp",
+      "destination": "/api/otp?action=send"
+    },
+    {
+      "source": "/api/verify-otp",
+      "destination": "/api/otp?action=verify"
+    },
+    {
+      "source": "/api/inventory-categories",
+      "destination": "/api/inventory?resource=categories"
+    },
+    {
+      "source": "/api/inventory-items",
+      "destination": "/api/inventory?resource=items"
+    },
+    {
+      "source": "/api/inventory-item-actions",
+      "destination": "/api/inventory?resource=item-actions"
+    },
+    {
+      "source": "/api/inventory-checkouts",
+      "destination": "/api/inventory?resource=checkouts"
+    },
+    {
+      "source": "/api/inventory-checkout-actions",
+      "destination": "/api/inventory?resource=checkout-actions"
+    },
+    {
       "source": "/api/(.*)",
       "destination": "/api/$1"
     },
