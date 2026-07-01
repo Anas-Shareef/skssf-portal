@@ -383,10 +383,10 @@ function MemberDashboard({ profile, navigate }: any) {
 
         // 4. Items held
         const { count: itemsCount } = await supabase
-          .from('inventory_checkout_records')
+          .from('inventory_checkouts')
           .select('*', { count: 'exact', head: true })
-          .eq('checked_out_by_member_id', memberId)
-          .in('status', ['ACTIVE', 'OVERDUE']);
+          .eq('member_id', memberId)
+          .in('status', ['active', 'overdue']);
 
         setStats({
           filed: filedCount || 0,
