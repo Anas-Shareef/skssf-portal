@@ -102,6 +102,23 @@ async function run() {
       console.log('   Settings entries:', setRecs);
     }
 
+    // 5. Check inventory_reviews table
+    console.log('\n5. Checking inventory_reviews schema...');
+    const { data: revRecs, error: revErr } = await supabase
+      .from('inventory_reviews')
+      .select('*')
+      .limit(1);
+
+    if (revErr) {
+      if (revErr.code === 'PGRST205') {
+        console.log('❌ Table public.inventory_reviews does NOT exist in schema cache. Please run 010_inventory_reviews.sql.');
+      } else {
+        console.log('❌ Error inventory_reviews:', revErr.message);
+      }
+    } else {
+      console.log('✅ inventory_reviews table is accessible!');
+    }
+
     console.log('==================================================');
   } catch (err) {
     console.error('Fatal verification failure:', err);

@@ -791,7 +791,7 @@ export default function Inventory() {
                           <div style={{ fontSize: '10px', fontWeight: 800, color: 'var(--teal)', textTransform: 'uppercase', marginBottom: '6px', letterSpacing: '0.5px' }}>
                             {item.categories?.name || 'Uncategorized'}
                           </div>
-                          <h3 style={{ margin: '0 0 10px 0', fontSize: '18px', fontWeight: 900, color: '#0f172a', letterSpacing: '-0.3px' }}>{item.name}</h3>
+                          <h3 onClick={() => window.open('/catalog/' + item.id, '_blank')} style={{ margin: '0 0 10px 0', fontSize: '18px', fontWeight: 900, color: '#0f172a', letterSpacing: '-0.3px', cursor: 'pointer', transition: 'color 0.2s' }} onMouseEnter={e => e.currentTarget.style.color = 'var(--teal)'} onMouseLeave={e => e.currentTarget.style.color = '#0f172a'}>{item.name}</h3>
                           <p style={{ margin: '0 0 16px 0', fontSize: '13px', color: '#64748b', lineHeight: 1.45, flex: 1 }}>{item.description || 'No description provided.'}</p>
                           
                           {/* Live Barcode Rendering */}

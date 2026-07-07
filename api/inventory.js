@@ -40,7 +40,26 @@ export default async function handler(req, res) {
           .eq('item_id', id)
           .order('unit_number');
 
-        return res.status(200).json({ item, units: units || [] });
+        // Query reviews
+        let reviews = [];
+        try {
+          const { data: revs } = await supabase
+            .from('inventory_reviews')
+            .select('id, rating, review_text, created_at, member:member_id(name)')
+            .eq('item_id', id)
+            .order('created_at', { ascending: false });
+          reviews = (revs || []).map(r => ({
+            id: r.id,
+            rating: r.rating,
+            text: r.review_text,
+            date: r.created_at ? new Date(r.created_at).toLocaleDateString() : 'N/A',
+            memberName: r.member?.name || 'Anonymous'
+          }));
+        } catch (e) {
+          console.warn('Reviews fetch failed:', e.message);
+        }
+
+        return res.status(200).json({ item, units: units || [], reviews });
       }
 
       // 2. List items request
@@ -155,6 +174,46 @@ export default async function handler(req, res) {
         const { error } = await supabase.from('inventory_categories').delete().eq('id', id);
         if (error) throw error;
         return res.status(200).json({ success: true });
+      }
+    }
+
+    // ==========================================
+    // RESOURCE: REVIEWS
+    // ==========================================
+    if (resource === 'reviews') {
+      if (req.method === 'GET') {
+        const { item_id } = req.query;
+        if (!item_id) return res.status(400).json({ error: 'Item ID required' });
+        const { data, error } = await supabase
+          .from('inventory_reviews')
+          .select('id, rating, review_text, created_at, member:member_id(name)')
+          .eq('item_id', item_id)
+          .order('created_at', { ascending: false });
+        if (error) throw error;
+        const formatted = (data || []).map(r => ({
+          id: r.id,
+          rating: r.rating,
+          text: r.review_text,
+          date: r.created_at ? new Date(r.created_at).toLocaleDateString() : 'N/A',
+          memberName: r.member?.name || 'Anonymous'
+        }));
+        return res.status(200).json({ reviews: formatted });
+      }
+
+      if (req.method === 'POST') {
+        const { item_id, rating, review_text } = req.body;
+        if (!item_id || !rating) return res.status(400).json({ error: 'Item ID and rating required' });
+        const { data, error } = await supabase
+          .from('inventory_reviews')
+          .upsert({
+            item_id,
+            member_id: profile.id,
+            rating: Number(rating),
+            review_text
+          }, { onConflict: 'item_id,member_id' })
+          .select();
+        if (error) throw error;
+        return res.status(200).json({ review: data });
       }
     }
 

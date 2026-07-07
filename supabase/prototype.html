@@ -1,0 +1,226 @@
+📦 SKSSF Product Catalog + Barcode Check-in/Check-out System — Detailed Prompt
+
+🎯 CONCEPT
+Think of it like a library management system meets a warehouse inventory tracker — each product has a unique barcode, scanning checks items in/out instantly, and the catalog looks like a premium e-commerce product listing.
+
+🏷️ PART 1: BARCODE SYSTEM DESIGN
+Each product gets a unique barcode at creation:
+Format: SKSSF-[YEAR]-[CATEGORY-CODE]-[SEQ]
+Examples:
+  SKSSF-2025-EDU-001  →  Study Kit
+  SKSSF-2025-REL-002  →  Prayer Mat
+  SKSSF-2025-WEL-003  →  Grocery Pack
+
+Each physical UNIT (not just product type) gets its OWN barcode:
+  SKSSF-2025-EDU-001-U01  (Unit 1 of Study Kit)
+  SKSSF-2025-EDU-001-U02  (Unit 2 of Study Kit)
+  SKSSF-2025-EDU-001-U03  (Unit 3 of Study Kit)
+Barcode Types supported:
+
+CODE128 (default — works for alphanumeric SKSSF codes)
+QR Code (for mobile scanning — encodes product URL + unit ID)
+
+Barcode generation: Use JsBarcode library (CDN) for CODE128 rendering as SVG/Canvas
+Barcode scanning simulation:
+
+Camera scan via getUserMedia API (real device)
+Manual barcode entry input field (fallback)
+Keyboard wedge scanner support (HID input)
+
+
+🛍️ PART 2: PRODUCT CATALOG UI
+Reference sites to draw inspiration from:
+
+unsplash.com (card grid layout, hover overlays)
+notion.so (clean database-style table view)
+airtable.com (toggle between grid and gallery view)
+shopify.com/admin (product management panel)
+
+Catalog Views — toggle between:
+① GALLERY VIEW (default)
+┌────────────┐ ┌────────────┐ ┌────────────┐
+│  [Photo]   │ │  [Photo]   │ │  [Photo]   │
+│            │ │            │ │            │
+│ Study Kit  │ │ Prayer Mat │ │ First Aid  │
+│ Education  │ │ Religious  │ │ Health     │
+│ 20 units   │ │ 38 units   │ │ 12 units   │
+│ ✓ In Stock │ │ ✓ In Stock │ │ ⚠ Low      │
+│ [Barcode]  │ │ [Barcode]  │ │ [Barcode]  │
+│ [Checkout] │ │ [Checkout] │ │ [Checkout] │
+└────────────┘ └────────────┘ └────────────┘
+
+② TABLE VIEW
+Name | Category | SKU | Total | Available | Checked Out | Status | Actions
+
+③ BARCODE VIEW
+Grid of all product barcodes — print-ready layout
+Each tile: Product name + barcode SVG + SKU code
+Product Detail Page (click product):
+┌─────────────────────────────────────────────────┐
+│  [Large Photo]    Study Kit 2025                │
+│                   Category: Education            │
+│                   SKU: SKSSF-2025-EDU-001       │
+│                   ████████████████  (barcode)   │
+│                                                  │
+│  [Total: 25] [Available: 20] [Out: 5]           │
+│                                                  │
+│  TABS: [Units] [Distribution] [Reviews] [Print] │
+│                                                  │
+│  UNITS TAB — each physical unit listed:         │
+│  Unit ID          Status        Assigned To     │
+│  EDU-001-U01      ✅ Available   —              │
+│  EDU-001-U02      📤 Checked Out Faris A.       │
+│  EDU-001-U03      ✅ Available   —              │
+└─────────────────────────────────────────────────┘
+
+📱 PART 3: BARCODE SCANNER INTERFACE
+Scanner Page UI:
+┌──────────────────────────────────────────────┐
+│         📷 BARCODE SCANNER                  │
+│  ┌──────────────────────────────────────┐   │
+│  │                                      │   │
+│  │     [Camera viewfinder area]         │   │
+│  │           ─────────────             │   │
+│  │        (scanning crosshair)         │   │
+│  │           ─────────────             │   │
+│  │                                      │   │
+│  └──────────────────────────────────────┘   │
+│                                              │
+│  Or enter barcode manually:                  │
+│  [SKSSF-2025-EDU-001-U02    ] [Scan ▶]      │
+│                                              │
+│  SCAN MODE:  [● Check-Out]  [○ Check-In]    │
+│                                              │
+│  Select Member: [Faris Abdulrahman ▼]       │
+│  Mission: [Ramadan Package 2025 ▼]          │
+└──────────────────────────────────────────────┘
+
+After scan → shows product info card:
+┌──────────────────────────────────┐
+│  📚 Study Kit 2025               │
+│  Unit: EDU-001-U02               │
+│  Status: Available ✅            │
+│  [Confirm Check-Out to Faris A.] │
+└──────────────────────────────────┘
+
+🖨️ PART 4: BARCODE PRINT SYSTEM
+Print Layout — A4 sheet of barcode labels:
+┌──────────────┐ ┌──────────────┐ ┌──────────────┐
+│ SKSSF eGov   │ │ SKSSF eGov   │ │ SKSSF eGov   │
+│ [||||||||]   │ │ [||||||||]   │ │ [||||||||]   │
+│ EDU-001-U01  │ │ EDU-001-U02  │ │ EDU-001-U03  │
+│ Study Kit    │ │ Study Kit    │ │ Study Kit    │
+└──────────────┘ └──────────────┘ └──────────────┘
+
+Print all barcodes for a product
+Print single unit label
+Print all checked-out items list
+
+
+🗃️ PART 5: DATA MODEL
+javascriptPRODUCT {
+  id: "P001",
+  name: "Study Kit 2025",
+  category: "Education",
+  sku: "SKSSF-2025-EDU-001",
+  description: "...",
+  photo: [url or base64],
+  totalQty: 25,
+  units: [UNIT array]  ← each physical unit
+}
+
+UNIT {
+  unitId: "EDU-001-U01",
+  barcode: "SKSSF2025EDU001U01",
+  status: "available" | "checked_out" | "damaged" | "lost",
+  assignedTo: memberId | null,
+  assignedMission: missionId | null,
+  checkoutDate: date | null,
+  checkinDate: date | null,
+  history: [TRANSACTION array]
+}
+
+TRANSACTION {
+  type: "checkout" | "checkin",
+  memberId, memberName,
+  date, adminBy, note
+}
+
+🎨 PART 6: DESIGN SPECS
+Color for unit status indicators:
+Available    → Green dot + green pill badge
+Checked Out  → Blue dot + "With [Name]"
+Overdue      → Red pulsing dot + days overdue
+Damaged      → Orange dot
+Lost         → Red crossed dot
+Catalog card hover effect:
+- Scale up 1.03x
+- Shadow deepens
+- Overlay appears with quick-action buttons
+- Barcode slides up from bottom
+Product photo display:
+- If no photo: show gradient background + emoji large centered
+- If photo uploaded: fill card header (cover fit)
+- Skeleton loading shimmer while loading
+Libraries to use:
+- JsBarcode (CDN) → generate CODE128 barcodes as SVG
+- html5-qrcode or QuaggaJS (CDN) → camera-based scanning
+- Playfair Display + DM Sans fonts (existing)
+- SheetJS for Excel export
+
+✅ PART 7: FEATURES TO BUILD
+Admin:
+├── Add Product (with photo upload, auto-SKU generation)
+├── Generate barcodes for all units of a product
+├── Print barcode sheets (browser print API)
+├── Scanner page (camera + manual entry)
+│   ├── Scan → Check Out to member + mission
+│   └── Scan → Check In (return)
+├── Product detail with unit-level tracking
+├── Edit product (update qty, add more units)
+└── Distribution history per product
+
+Member:
+├── Browse catalog (gallery/table toggle)
+├── See which items are assigned to them
+├── View product details + leave star review
+└── See their item's barcode for return scanning
+
+Reports:
+├── Inventory report (available/checked-out per product)
+├── Member holdings report (who has what)
+└── Export to Excel
+
+Now building the full HTML file:Viewed a file, created a file, ran a commandViewed a file, created a file, ran a commandYour complete SKSSF Product Catalog & Barcode System is ready. Here's everything that's live:
+
+🛍️ Product Catalog — 3 Views
+Toggle between Gallery (beautiful product cards with hover overlays), Table (dense inventory view with inline barcodes), and Barcodes (print-ready barcode sheet for all products)
+
+📊 Real Barcodes (JsBarcode)
+Every product gets a CODE128 barcode auto-generated from its SKU (SKSSF-2025-EDU-001). Each physical unit also gets its own barcode (EDU-001-U01, EDU-001-U02...). Barcodes render live as SVG on every card, table row, detail page, and print sheet.
+
+📷 Scanner Page
+
+Animated camera viewfinder with scanning crosshair and scan line animation
+Simulate scan by clicking any product in the quick-scan list
+After scan: shows product info, availability, member selector, and Confirm Check Out button
+Mode toggle: Check Out vs Check In
+Manual barcode entry field (works with physical USB/Bluetooth barcode scanners too)
+
+
+🖨️ Print Labels
+Click Print Labels on any product → preview sheet of all unit barcodes in a 3-column grid, ready to Ctrl+P. Labels include org name, barcode SVG, unit ID, and product name.
+
+📦 Unit-Level Tracking
+Product detail page shows every individual unit with its status dot (green=available, blue=out), unit ID, barcode, who has it, and checkout date. Admin can check in/out individual units directly.
+
+📤 Currently Checked Out
+Live list of all items with members, days-out counter color-coded (green < 14 days, amber 14-30, red > 30), and Check In button per row.
+
+
+https://claude.ai/public/artifacts/dbc9d2d4-c548-4461-abc6-91e381e26e8f
+
+check the page and make every thing exact what you see in the 
+https://claude.ai/public/artifacts/dbc9d2d4-c548-4461-abc6-91e381e26e8f but make sure that is compatable and synced to the skssf design and style and alignation
+
+continue by understanding what you have done and make perfect and accuraate with a fullplan what will you do
