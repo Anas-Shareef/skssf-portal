@@ -206,6 +206,35 @@ const [pConfig, setPConfig] = useState(() => localDb.getPortalConfig());
     }
   }, [role]);
 
+  const [whatsappNumber, setWhatsappNumber] = useState('');
+
+  const getHeaders = () => {
+    const token = sessionStorage.getItem('active_api_token') || '';
+    return {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json'
+    };
+  };
+
+  useEffect(() => {
+    async function loadOrgSettings() {
+      try {
+        const res = await fetch('/api/inventory?resource=org-settings', {
+          headers: getHeaders()
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setWhatsappNumber(data.settings?.catalog_whatsapp || '');
+        }
+      } catch (err) {
+        console.warn('Failed to load org settings:', err);
+      }
+    }
+    if (role === 'super' || role === 'admin') {
+      loadOrgSettings();
+    }
+  }, [role]);
+
   // Listen for external profile updates (e.g. admin edited member in Members page)
   useEffect(() => {
     const handleExternalUpdate = () => {
@@ -255,7 +284,7 @@ const [pConfig, setPConfig] = useState(() => localDb.getPortalConfig());
     }
   };
 
-  const savePortalConfig = () => {
+  const savePortalConfig = async () => {
     const updates = {
       orgName: orgNameRef.current?.value || pConfig.orgName,
       maxLoan: Number(maxLoanRef.current?.value) || pConfig.maxLoan,
@@ -265,7 +294,19 @@ const [pConfig, setPConfig] = useState(() => localDb.getPortalConfig());
     };
     const newConfig = localDb.updatePortalConfig(updates);
     setPConfig(newConfig);
-    showToast('✅ Portal configuration saved!');
+
+    try {
+      const res = await fetch('/api/inventory?resource=org-settings', {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({ key: 'catalog_whatsapp', value: whatsappNumber })
+      });
+      if (!res.ok) throw new Error('Failed to save settings to database');
+      showToast('✅ Portal configuration & WhatsApp settings saved!');
+    } catch (err: any) {
+      showToast('❌ Configuration saved locally, database failed: ' + err.message);
+    }
+
     // Trigger a custom event to notify DashboardLayout
     window.dispatchEvent(new Event('portalConfigUpdated'));
   };
@@ -632,6 +673,10 @@ const [pConfig, setPConfig] = useState(() => localDb.getPortalConfig());
                 <div className="fg2">
                   <label className="fl2">Monthly Sahachari (₹)</label>
                   <input className="fi2" type="number" defaultValue={pConfig.sahAmt} ref={sahAmtRef} />
+                </div>
+                <div className="fg2 full">
+                  <label className="fl2">Catalog WhatsApp Number (e.g., 919876543210)</label>
+                  <input className="fi2" value={whatsappNumber} onChange={e => setWhatsappNumber(e.target.value)} placeholder="Include country code, no symbols or spaces" />
                 </div>
               </div>
               <div style={{ marginTop: '18px' }}>

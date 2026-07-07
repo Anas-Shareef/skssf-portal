@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import { Search, AlertTriangle, CheckCircle2, Calendar, ShieldCheck, RefreshCw, X, Plus, Edit2, Trash2, Sliders, History, FileText, FolderPlus, HelpCircle, Package, AlertCircle, EyeOff } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Search, AlertTriangle, CheckCircle2, Calendar, ShieldCheck, RefreshCw, X, Plus, Edit2, Trash2, Sliders, FolderPlus, Package, Printer, EyeOff, ClipboardList } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import JsBarcode from 'jsbarcode';
 
 interface InventoryItem {
   id: string;
@@ -16,6 +17,10 @@ interface InventoryItem {
   categories?: {
     name: string;
   };
+  barcode_value?: string | null;
+  public_visible?: boolean;
+  public_description?: string | null;
+  units?: any[];
 }
 
 interface CheckoutRecord {
@@ -37,11 +42,38 @@ interface CheckoutRecord {
     name: string;
   };
   items?: InventoryItem;
+  unit?: {
+    barcode_value: string;
+  } | null;
 }
 
 interface Category {
   id: string;
   name: string;
+}
+
+// Subcomponent for rendering barcode SVGs live
+function BarcodeSVG({ value }: { value: string }) {
+  const svgRef = useRef<SVGSVGElement>(null);
+
+  useEffect(() => {
+    if (svgRef.current && value) {
+      try {
+        JsBarcode(svgRef.current, value, {
+          format: 'CODE128',
+          width: 1.2,
+          height: 38,
+          displayValue: true,
+          fontSize: 9,
+          margin: 2
+        });
+      } catch (e) {
+        console.error('Barcode error:', e);
+      }
+    }
+  }, [value]);
+
+  return <svg ref={svgRef} style={{ maxWidth: '100%' }}></svg>;
 }
 
 export default function Inventory() {
@@ -67,10 +99,11 @@ export default function Inventory() {
     );
   }
 
-  const [activeTab, setActiveTab] = useState<'catalogue' | 'checkouts'>('catalogue');
+  const [activeTab, setActiveTab] = useState<'catalogue' | 'checkouts' | 'damage_review'>('catalogue');
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [allCheckouts, setAllCheckouts] = useState<CheckoutRecord[]>([]);
+  const [damageRecords, setDamageRecords] = useState<CheckoutRecord[]>([]);
   
   const [loading, setLoading] = useState(true);
   const [initialLoading, setInitialLoading] = useState(true);
@@ -89,7 +122,6 @@ export default function Inventory() {
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
   const [adjustingItem, setAdjustingItem] = useState<InventoryItem | null>(null);
   const [overrideCheckout, setOverrideCheckout] = useState<CheckoutRecord | null>(null);
-  const [editingCheckout, setEditingCheckout] = useState<CheckoutRecord | null>(null);
 
   // Confirm dialog state
   interface ConfirmOpts {
@@ -109,6 +141,8 @@ export default function Inventory() {
   const [newItemLeaseDays, setNewItemLeaseDays] = useState(30);
   const [newItemDesc, setNewItemDesc] = useState('');
   const [newItemPhoto, setNewItemPhoto] = useState('');
+  const [newItemPublicVisible, setNewItemPublicVisible] = useState(false);
+  const [newItemPublicDesc, setNewItemPublicDesc] = useState('');
   const [formSubmitting, setFormSubmitting] = useState(false);
 
   // Category form
@@ -121,6 +155,7 @@ export default function Inventory() {
 
   // Override return form
   const [overrideCondition, setOverrideCondition] = useState<'good' | 'damaged' | 'lost'>('good');
+  const [overrideNotes, setOverrideNotes] = useState('');
   const [overrideDate, setOverrideDate] = useState(new Date().toISOString().split('T')[0]);
 
   // Toast
@@ -139,7 +174,6 @@ export default function Inventory() {
     };
   };
 
-  // Fetch Master Data
   // Fetch Master Data
   const loadCatalogue = async (showSpinner = true) => {
     try {
@@ -185,11 +219,27 @@ export default function Inventory() {
     }
   };
 
-  // Initial load both
+  // Fetch Damage Reviews
+  const loadDamageReview = async (showSpinner = true) => {
+    try {
+      if (showSpinner) setLoading(true);
+      const res = await fetch('/api/inventory?resource=damage-review', { headers: getHeaders() });
+      if (res.ok) {
+        const data = await res.json();
+        setDamageRecords(data.records || []);
+      }
+    } catch (err) {
+      popToast('e', 'Failed to load damage reviews');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Initial load
   useEffect(() => {
     const init = async () => {
       setInitialLoading(true);
-      await Promise.all([loadCatalogue(false), loadCheckouts(false)]);
+      await Promise.all([loadCatalogue(false), loadCheckouts(false), loadDamageReview(false)]);
       setInitialLoading(false);
     };
     init();
@@ -200,8 +250,10 @@ export default function Inventory() {
     if (initialLoading) return;
     if (activeTab === 'catalogue') {
       loadCatalogue(false);
-    } else {
+    } else if (activeTab === 'checkouts') {
       loadCheckouts(false);
+    } else if (activeTab === 'damage_review') {
+      loadDamageReview(false);
     }
   }, [activeTab]);
 
@@ -225,7 +277,9 @@ export default function Inventory() {
           total_stock: newItemStock,
           lease_duration_days: newItemType === 'lease' ? newItemLeaseDays : null,
           description: newItemDesc,
-          photo_url: newItemPhoto
+          photo_url: newItemPhoto,
+          public_visible: newItemPublicVisible,
+          public_description: newItemPublicDesc
         })
       });
 
@@ -241,6 +295,8 @@ export default function Inventory() {
       setNewItemLeaseDays(30);
       setNewItemDesc('');
       setNewItemPhoto('');
+      setNewItemPublicVisible(false);
+      setNewItemPublicDesc('');
       loadCatalogue(false);
     } catch (err: any) {
       popToast('e', err.message || 'Error adding item');
@@ -264,9 +320,12 @@ export default function Inventory() {
           id: editingItem.id,
           name: editingItem.name,
           category_id: editingItem.category_id,
+          total_stock: editingItem.total_stock,
           lease_duration_days: editingItem.item_type === 'lease' ? editingItem.lease_duration_days : null,
           description: editingItem.description,
-          photo_url: editingItem.photo_url
+          photo_url: editingItem.photo_url,
+          public_visible: editingItem.public_visible,
+          public_description: editingItem.public_description
         })
       });
 
@@ -332,7 +391,8 @@ export default function Inventory() {
           action: 'mark-returned',
           id: overrideCheckout.id,
           return_condition: overrideCondition,
-          return_date: overrideDate
+          return_date: overrideDate,
+          condition_notes: overrideNotes
         })
       });
 
@@ -341,6 +401,7 @@ export default function Inventory() {
 
       popToast('s', 'Checkout overridden successfully.');
       setOverrideCheckout(null);
+      setOverrideNotes('');
       loadCheckouts(false);
     } catch (err: any) {
       popToast('e', err.message || 'Override failed');
@@ -448,11 +509,11 @@ export default function Inventory() {
             headers: getHeaders()
           });
           if (res.ok) {
-            popToast('s', 'Category deleted.');
+            popToast('s', 'Category deleted successfully.');
             loadCatalogue(false);
           } else {
             const err = await res.json();
-            throw new Error(err.error || 'Deletion failed');
+            throw new Error(err.error || 'Failed to delete category');
           }
         } catch (err: any) {
           popToast('e', err.message);
@@ -461,58 +522,55 @@ export default function Inventory() {
     });
   };
 
-  // Filter Catalog
+  // Resolve Damage/Loss Review record
+  const handleResolveDamageRecord = async (id: string, resolveAction: 'repaired' | 'writeoff') => {
+    try {
+      const res = await fetch('/api/inventory?resource=damage-review', {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({ id, resolve_action: resolveAction })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Resolution failed');
+
+      popToast('s', `Flag resolved successfully as ${resolveAction === 'repaired' ? 'repaired & restocked' : 'permanent write-off'}.`);
+      loadDamageReview(false);
+      loadCatalogue(false);
+    } catch (err: any) {
+      popToast('e', err.message || 'Error resolving record');
+    }
+  };
+
+  // Filters for Admin Catalog view
   const filteredCatalogue = items.filter(item => {
     const matchesSearch = item.name.toLowerCase().includes(search.toLowerCase()) || 
+                          (item.barcode_value && item.barcode_value.toLowerCase().includes(search.toLowerCase())) ||
                           (item.description && item.description.toLowerCase().includes(search.toLowerCase()));
     const matchesCategory = selectedCategory === 'all' || item.category_id === selectedCategory;
     const matchesType = selectedType === 'all' || item.item_type === selectedType;
     return matchesSearch && matchesCategory && matchesType;
   });
 
-  // Filter Checkouts
+  // Filters for ledger
   const filteredCheckouts = allCheckouts.filter(c => {
-    const matchesSearch = c.member?.name?.toLowerCase().includes(checkoutSearch.toLowerCase()) ||
-                          c.items?.name?.toLowerCase().includes(checkoutSearch.toLowerCase());
-    const matchesStatus = checkoutStatusFilter === 'all' || c.status === checkoutStatusFilter;
+    const name = c.member?.name || '';
+    const item = c.items?.name || '';
+    const matchesSearch = name.toLowerCase().includes(checkoutSearch.toLowerCase()) || 
+                          item.toLowerCase().includes(checkoutSearch.toLowerCase()) ||
+                          (c.unit?.barcode_value && c.unit.barcode_value.toLowerCase().includes(checkoutSearch.toLowerCase()));
+    
+    let matchesStatus = true;
+    if (checkoutStatusFilter === 'active') matchesStatus = c.status === 'active';
+    else if (checkoutStatusFilter === 'returned') matchesStatus = c.status === 'returned';
+    else if (checkoutStatusFilter === 'overdue') {
+      const isOverdue = c.status === 'overdue' || (c.status === 'active' && c.due_return_date && new Date(c.due_return_date) < new Date());
+      matchesStatus = isOverdue;
+    }
+    
     return matchesSearch && matchesStatus;
   });
 
   return (
-    <>
-    <style>{`
-      @media (max-width: 768px) {
-        .inv-wrap { padding: 16px !important; }
-        .inv-header { flex-direction: column !important; align-items: flex-start !important; gap: 12px !important; }
-        .inv-header-btns { width: 100%; display: flex; gap: 8px; }
-        .inv-header-btns button { flex: 1; justify-content: center; }
-        .inv-tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-        .inv-filters { flex-direction: column !important; align-items: stretch !important; }
-        .inv-filters > * { width: 100% !important; min-width: unset !important; }
-        .inv-type-pills { justify-content: stretch; }
-        .inv-type-pills button { flex: 1; }
-        .inv-grid { grid-template-columns: 1fr !important; }
-        .inv-checkout-search-row { flex-direction: column !important; align-items: stretch !important; }
-        .inv-checkout-search-row > * { width: 100% !important; min-width: unset !important; }
-        .inv-checkout-pills { justify-content: stretch; }
-        .inv-checkout-pills button { flex: 1; padding: 8px 6px !important; font-size: 11px !important; }
-        .inv-modal { width: 95vw !important; max-height: 90vh; overflow-y: auto; }
-        .inv-2col { grid-template-columns: 1fr !important; }
-        .inv-action-grid { grid-template-columns: 1fr 1fr !important; }
-        .inv-table th, .inv-table td { padding: 10px 8px !important; font-size: 12px !important; }
-        .inv-table th:nth-child(4), .inv-table td:nth-child(4) { display: none; }
-        .inv-table th:nth-child(5), .inv-table td:nth-child(5) { display: none; }
-      }
-      @media (max-width: 480px) {
-        .inv-table th:nth-child(3), .inv-table td:nth-child(3) { display: none; }
-        .inv-header h1 { font-size: 24px !important; }
-      }
-      @keyframes inv-dialog-in {
-        from { opacity: 0; transform: scale(0.92) translateY(12px); }
-        to   { opacity: 1; transform: scale(1) translateY(0); }
-      }
-      .inv-dialog { animation: inv-dialog-in 0.22s cubic-bezier(0.34,1.56,0.64,1) both; }
-    `}</style>
     <div className="inv-wrap" style={{ animation: 'fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1)', padding: '30px', maxWidth: '1400px', margin: '0 auto' }}>
       
       {/* Toast Alert */}
@@ -539,6 +597,28 @@ export default function Inventory() {
         </div>
       )}
 
+      {/* Confirm Dialog */}
+      {confirmDialog && (
+        <div className="ov" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 10000, background: 'rgba(15, 23, 42, 0.4)' }}>
+          <div className="modal" style={{ maxWidth: '400px', width: '90%', borderRadius: '24px', padding: '28px', textAlign: 'center' }}>
+            <div style={{ fontSize: '48px', marginBottom: '12px' }}>
+              {confirmDialog.icon === 'delete' ? '🗑️' : confirmDialog.icon === 'deactivate' ? '👁️' : '📁'}
+            </div>
+            <h3 style={{ fontSize: '18px', fontWeight: 900, color: '#0f172a', marginBottom: '12px' }}>{confirmDialog.title}</h3>
+            <p style={{ fontSize: '13px', color: '#64748b', lineHeight: 1.5, marginBottom: '24px' }}>{confirmDialog.message}</p>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button onClick={() => setConfirmDialog(null)} style={{ flex: 1, height: '42px', border: '1.5px solid #e2e8f0', background: '#fff', borderRadius: '12px', fontWeight: 800 }}>Cancel</button>
+              <button 
+                onClick={confirmDialog.onConfirm} 
+                style={{ flex: 1, height: '42px', border: 'none', background: confirmDialog.danger ? '#ef4444' : 'var(--teal)', color: '#fff', borderRadius: '12px', fontWeight: 800 }}
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="inv-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px', flexWrap: 'wrap', gap: '16px' }}>
         <div>
@@ -553,7 +633,7 @@ export default function Inventory() {
             <FolderPlus size={14} /> Manage Categories
           </button>
           <button 
-            onClick={() => activeTab === 'catalogue' ? loadCatalogue(false) : loadCheckouts(false)}
+            onClick={() => activeTab === 'catalogue' ? loadCatalogue(false) : activeTab === 'checkouts' ? loadCheckouts(false) : loadDamageReview(false)}
             disabled={refreshing}
             style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', border: '1.5px solid #e2e8f0', background: '#fff', borderRadius: '14px', fontSize: '13px', fontWeight: 700, color: '#475569', cursor: refreshing ? 'default' : 'pointer' }}
           >
@@ -595,6 +675,21 @@ export default function Inventory() {
         >
           📝 Members Checkouts Ledger
         </button>
+        <button
+          onClick={() => setActiveTab('damage_review')}
+          style={{
+            padding: '14px 28px',
+            fontWeight: 800,
+            fontSize: '15px',
+            border: 'none',
+            background: 'none',
+            borderBottom: activeTab === 'damage_review' ? '3.5px solid var(--teal)' : '3.5px solid transparent',
+            color: activeTab === 'damage_review' ? 'var(--teal)' : '#64748b',
+            cursor: 'pointer'
+          }}
+        >
+          ⚠️ Damage/Loss Queue ({damageRecords.length})
+        </button>
       </div>
 
       {/* Loading state */}
@@ -605,301 +700,386 @@ export default function Inventory() {
         </div>
       ) : (
         <>
-          {refreshing && (
-            <div style={{ 
-              display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', fontWeight: 800, 
-              color: 'var(--teal)', background: '#f0fdfa', border: '1px solid #ccfbf1', 
-              borderRadius: '20px', padding: '4px 12px', width: 'fit-content', marginBottom: '16px',
-              animation: 'pulse 1.5s infinite'
-            }}>
-              <span className="spinner-mini" style={{ width: '10px', height: '10px', border: '1.5px solid #ccfbf1', borderTop: '1.5px solid var(--teal)', borderRadius: '50%', display: 'inline-block', animation: 'spin 1s linear infinite' }}></span>
-              Background Sync Active
-            </div>
-          )}
-          {activeTab === 'catalogue' ? (
-        
-        /* ──── CATALOGUE TAB ──── */
-        <>
-          {/* Filters Bar */}
-          <div className="inv-filters" style={{ display: 'flex', gap: '14px', marginBottom: '32px', flexWrap: 'wrap', alignItems: 'center' }}>
-            <div style={{ position: 'relative', flex: 1, minWidth: '280px' }}>
-              <span style={{ position: 'absolute', left: '16px', top: '15px', color: '#94a3b8' }}>
-                <Search size={16} />
-              </span>
-              <input
-                type="text"
-                placeholder="Search catalogue items..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="fi2"
-                style={{ paddingLeft: '46px', width: '100%', height: '46px', borderRadius: '14px', fontSize: '13px' }}
-              />
-            </div>
-            
-            <select 
-              value={selectedCategory} 
-              onChange={(e) => setSelectedCategory(e.target.value)} 
-              className="sel2" 
-              style={{ width: '200px', height: '46px', borderRadius: '14px', fontSize: '13px' }}
-            >
-              <option value="all">All Categories</option>
-              {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-
-            {/* Type Filter Pills */}
-            <div className="inv-type-pills" style={{ display: 'flex', background: '#f1f5f9', padding: '4px', borderRadius: '14px' }}>
-              <button onClick={() => setSelectedType('all')} style={{ padding: '8px 16px', fontSize: '12px', fontWeight: 800, border: 'none', borderRadius: '10px', cursor: 'pointer', background: selectedType === 'all' ? '#fff' : 'transparent', color: selectedType === 'all' ? '#0f172a' : '#64748b' }}>All</button>
-              <button onClick={() => setSelectedType('lease')} style={{ padding: '8px 16px', fontSize: '12px', fontWeight: 800, border: 'none', borderRadius: '10px', cursor: 'pointer', background: selectedType === 'lease' ? '#fff' : 'transparent', color: selectedType === 'lease' ? '#0f172a' : '#64748b' }}>Lease</button>
-              <button onClick={() => setSelectedType('permanent')} style={{ padding: '8px 16px', fontSize: '12px', fontWeight: 800, border: 'none', borderRadius: '10px', cursor: 'pointer', background: selectedType === 'permanent' ? '#fff' : 'transparent', color: selectedType === 'permanent' ? '#0f172a' : '#64748b' }}>Permanent</button>
-            </div>
-
-            <button 
-              onClick={() => setShowAddModal(true)}
-              className="bsm s"
-              style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '0 24px', height: '46px', borderRadius: '14px', fontSize: '13px', fontWeight: 800 }}
-            >
-              <Plus size={16} /> Add Catalog Item
-            </button>
-          </div>
-
-          {/* Cards Grid */}
-          {filteredCatalogue.length === 0 ? (
-            <div className="card" style={{ padding: '80px 24px', textAlign: 'center', borderRadius: '24px', background: '#fff', border: '2px dashed #e2e8f0' }}>
-              <Package size={48} style={{ margin: '0 auto 16px', opacity: 0.4, color: '#64748b' }} />
-              <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 800, color: '#1e293b' }}>No Catalogue Matches</h3>
-              <p style={{ margin: '6px 0 0 0', fontSize: '14px', color: '#94a3b8' }}>Try adding items or clearing filters.</p>
-            </div>
-          ) : (
-            <div className="inv-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '24px' }}>
-              {filteredCatalogue.map(item => (
-                <div key={item.id} className="card" style={{ background: '#fff', borderRadius: '24px', border: item.is_active ? '1.5px solid #f1f5f9' : '2px dashed #cbd5e1', opacity: item.is_active ? 1 : 0.65, overflow: 'hidden', display: 'flex', flexDirection: 'column', height: '100%', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)' }}>
-                  
-                  {/* Photo Section */}
-                  <div style={{ height: '160px', background: '#f8fafc', borderBottom: '1.5px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '56px', position: 'relative' }}>
-                    {item.photo_url ? (
-                      <img src={item.photo_url} alt={item.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                    ) : (
-                      item.item_type === 'lease' ? '🛠️' : '📦'
-                    )}
-                    <span className={`bdg ${item.item_type === 'lease' ? 'bdg-b' : 'bdg-g'}`} style={{ position: 'absolute', top: '16px', right: '16px', fontSize: '10px', fontWeight: 900, textTransform: 'uppercase', padding: '5px 10px', borderRadius: '8px' }}>
-                      {item.item_type === 'lease' ? 'Lease' : 'Permanent'}
-                    </span>
-                    {!item.is_active && (
-                      <span style={{ position: 'absolute', top: '16px', left: '16px', fontSize: '9px', fontWeight: 900, color: '#fff', background: '#64748b', padding: '5px 10px', borderRadius: '8px' }}>
-                        DRAFT/HIDDEN
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Details */}
-                  <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', flex: 1 }}>
-                    <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--teal)', textTransform: 'uppercase', marginBottom: '6px' }}>
-                      {item.categories?.name || 'Uncategorized'}
-                    </div>
-                    <h3 style={{ margin: '0 0 10px 0', fontSize: '18px', fontWeight: 900, color: '#0f172a', letterSpacing: '-0.3px' }}>{item.name}</h3>
-                    <p style={{ margin: '0 0 20px 0', fontSize: '13px', color: '#64748b', lineHeight: 1.45, flex: 1 }}>{item.description || 'No description provided.'}</p>
-                    
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1.5px solid #f8fafc', paddingTop: '16px', marginBottom: '20px' }}>
-                      <div>
-                        <div style={{ fontSize: '10px', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase' }}>Available Stock</div>
-                        <div style={{ fontSize: '18px', fontWeight: 950, color: 'var(--teal)' }}>
-                          {item.available_stock} / {item.total_stock} Units
-                        </div>
-                      </div>
-                      {item.item_type === 'lease' && (
-                        <div style={{ textAlign: 'right' }}>
-                          <div style={{ fontSize: '10px', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase' }}>Limit</div>
-                          <div style={{ fontSize: '14px', fontWeight: 800, color: '#475569' }}>{item.lease_duration_days || 30} Days</div>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Actions Grid */}
-                    <div className="inv-action-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                      <button
-                        onClick={() => setEditingItem(item)}
-                        style={{ height: '38px', borderRadius: '10px', border: '1.5px solid #e2e8f0', background: '#fff', color: '#334155', fontWeight: 800, fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
-                      >
-                        <Edit2 size={12} /> Edit Catalog
-                      </button>
-                      <button
-                        onClick={() => {
-                          setAdjustingItem(item);
-                          setAdjustNewStock(item.available_stock);
-                        }}
-                        style={{ height: '38px', borderRadius: '10px', border: '1.5px solid #e2e8f0', background: '#fff', color: '#334155', fontWeight: 800, fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
-                      >
-                        <Sliders size={12} /> Adjust Stock
-                      </button>
-                    </div>
-
-                    <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
-                      {item.is_active ? (
-                        <button
-                          onClick={() => handleDeactivate(item.id)}
-                          style={{ flex: 1, height: '38px', borderRadius: '10px', border: 'none', background: '#f1f5f9', color: '#475569', fontWeight: 800, fontSize: '12px', cursor: 'pointer' }}
-                        >
-                          Deactivate / Hide
-                        </button>
-                      ) : (
-                        <span style={{ flex: 1, height: '38px', borderRadius: '10px', background: '#f8fafc', color: '#94a3b8', border: '1px solid #e2e8f0', fontWeight: 800, fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>Inactive</span>
-                      )}
-
-                      {isSuper && (
-                        <button
-                          onClick={() => handleDeleteItem(item.id)}
-                          style={{ width: '38px', height: '38px', borderRadius: '10px', border: 'none', background: '#fee2e2', color: '#ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
-                          title="Permanent Delete"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
+          {/* ① CATALOGUE TAB */}
+          {activeTab === 'catalogue' && (
+            <>
+              {/* Filters Bar */}
+              <div className="inv-filters" style={{ display: 'flex', gap: '14px', marginBottom: '32px', flexWrap: 'wrap', alignItems: 'center' }}>
+                <div style={{ position: 'relative', flex: 1, minWidth: '280px' }}>
+                  <span style={{ position: 'absolute', left: '16px', top: '15px', color: '#94a3b8' }}>
+                    <Search size={16} />
+                  </span>
+                  <input
+                    type="text"
+                    placeholder="Search catalogue items..."
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    className="fi2"
+                    style={{ paddingLeft: '46px', width: '100%', height: '46px', borderRadius: '14px', fontSize: '13px' }}
+                  />
                 </div>
-              ))}
-            </div>
-          )}
-        </>
-      ) : (
-        
-        /* ──── CHECKOUTS LEDGER TAB ──── */
-        <div className="card" style={{ padding: '28px', borderRadius: '24px', background: '#fff', border: '1.5px solid #f1f5f9', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)' }}>
-          
-          {/* Search & Filters */}
-          <div className="inv-checkout-search-row" style={{ display: 'flex', gap: '14px', marginBottom: '24px', flexWrap: 'wrap', alignItems: 'center' }}>
-            <div style={{ position: 'relative', flex: 1, minWidth: '280px' }}>
-              <span style={{ position: 'absolute', left: '16px', top: '15px', color: '#94a3b8' }}>
-                <Search size={16} />
-              </span>
-              <input
-                type="text"
-                placeholder="Search checkouts by member name or item..."
-                value={checkoutSearch}
-                onChange={(e) => setCheckoutSearch(e.target.value)}
-                className="fi2"
-                style={{ paddingLeft: '46px', width: '100%', height: '44px', borderRadius: '12px', fontSize: '13px' }}
-              />
-            </div>
-            
-            <div className="inv-checkout-pills" style={{ display: 'flex', background: '#f1f5f9', padding: '4px', borderRadius: '12px' }}>
-              {(['all', 'active', 'returned', 'overdue'] as const).map(status => (
-                <button
-                  key={status}
-                  onClick={() => setCheckoutStatusFilter(status)}
-                  style={{ 
-                    padding: '8px 16px', 
-                    fontSize: '12px', 
-                    fontWeight: 800, 
-                    border: 'none', 
-                    borderRadius: '8px', 
-                    cursor: 'pointer', 
-                    background: checkoutStatusFilter === status ? '#fff' : 'transparent', 
-                    color: checkoutStatusFilter === status ? '#0f172a' : '#64748b',
-                    textTransform: 'capitalize'
-                  }}
+                
+                <select 
+                  value={selectedCategory} 
+                  onChange={(e) => setSelectedCategory(e.target.value)} 
+                  className="sel2" 
+                  style={{ width: '200px', height: '46px', borderRadius: '14px', fontSize: '13px' }}
                 >
-                  {status}
-                </button>
-              ))}
-            </div>
-          </div>
+                  <option value="all">All Categories</option>
+                  {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
 
-          {filteredCheckouts.length === 0 ? (
-            <div style={{ padding: '50px', textAlign: 'center', color: '#94a3b8' }}>
-              No checkouts logs found matching your filters.
-            </div>
-          ) : (
-            <div style={{ overflowX: 'auto' }}>
-              <table className="inv-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr style={{ borderBottom: '1.5px solid #f1f5f9', backgroundColor: '#f8fafc' }}>
-                    <th style={{ textAlign: 'left', padding: '14px', fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 800 }}>Member</th>
-                    <th style={{ textAlign: 'left', padding: '14px', fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 800 }}>Item Checked-out</th>
-                    <th style={{ textAlign: 'left', padding: '14px', fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 800 }}>Qty</th>
-                    <th style={{ textAlign: 'left', padding: '14px', fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 800 }}>Checkout Date</th>
-                    <th style={{ textAlign: 'left', padding: '14px', fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 800 }}>Expected Return</th>
-                    <th style={{ textAlign: 'center', padding: '14px', fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 800 }}>Status</th>
-                    <th style={{ textAlign: 'right', padding: '14px', fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 800 }}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredCheckouts.map(c => {
-                    const isOverdue = c.status === 'overdue' || (c.due_return_date && new Date(c.due_return_date) < new Date() && c.status === 'active');
+                {/* Type Filter Pills */}
+                <div className="inv-type-pills" style={{ display: 'flex', background: '#f1f5f9', padding: '4px', borderRadius: '14px' }}>
+                  <button onClick={() => setSelectedType('all')} style={{ padding: '8px 16px', fontSize: '12px', fontWeight: 800, border: 'none', borderRadius: '10px', cursor: 'pointer', background: selectedType === 'all' ? '#fff' : 'transparent', color: selectedType === 'all' ? '#0f172a' : '#64748b' }}>All</button>
+                  <button onClick={() => setSelectedType('lease')} style={{ padding: '8px 16px', fontSize: '12px', fontWeight: 800, border: 'none', borderRadius: '10px', cursor: 'pointer', background: selectedType === 'lease' ? '#fff' : 'transparent', color: selectedType === 'lease' ? '#0f172a' : '#64748b' }}>Lease</button>
+                  <button onClick={() => setSelectedType('permanent')} style={{ padding: '8px 16px', fontSize: '12px', fontWeight: 800, border: 'none', borderRadius: '10px', cursor: 'pointer', background: selectedType === 'permanent' ? '#fff' : 'transparent', color: selectedType === 'permanent' ? '#0f172a' : '#64748b' }}>Permanent</button>
+                </div>
+
+                <button 
+                  onClick={() => setShowAddModal(true)}
+                  className="bsm s"
+                  style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '0 24px', height: '46px', borderRadius: '14px', fontSize: '13px', fontWeight: 800 }}
+                >
+                  <Plus size={16} /> Add Catalog Item
+                </button>
+              </div>
+
+              {/* Cards Grid */}
+              {filteredCatalogue.length === 0 ? (
+                <div className="card" style={{ padding: '80px 24px', textAlign: 'center', borderRadius: '24px', background: '#fff', border: '2px dashed #e2e8f0' }}>
+                  <Package size={48} style={{ margin: '0 auto 16px', opacity: 0.4, color: '#64748b' }} />
+                  <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 800, color: '#1e293b' }}>No Catalogue Matches</h3>
+                  <p style={{ margin: '6px 0 0 0', fontSize: '14px', color: '#94a3b8' }}>Try adding items or clearing filters.</p>
+                </div>
+              ) : (
+                <div className="inv-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '24px' }}>
+                  {filteredCatalogue.map(item => {
+                    const unitsList = item.units || [];
+                    const availableUnits = unitsList.filter((u: any) => u.status === 'available').length;
+                    const outUnits = unitsList.filter((u: any) => u.status === 'checked_out').length;
+                    const damagedUnits = unitsList.filter((u: any) => u.status === 'damaged').length;
+                    const lostUnits = unitsList.filter((u: any) => u.status === 'lost').length;
+
                     return (
-                      <tr key={c.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                        <td style={{ padding: '16px 14px' }}>
-                          <div style={{ fontWeight: 800, color: '#0f172a' }}>{c.member?.name || 'Member Account'}</div>
-                        </td>
-                        <td style={{ padding: '16px 14px' }}>
-                          <div style={{ fontWeight: 800, color: '#0f172a' }}>{c.items?.name || 'Supply Item'}</div>
-                          {c.notes && <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>📝 "{c.notes}"</div>}
-                        </td>
-                        <td style={{ padding: '16px 14px', fontWeight: 800, color: '#334155' }}>{c.quantity}</td>
-                        <td style={{ padding: '16px 14px', fontSize: '13px', color: '#64748b' }}>
-                          {c.checkout_date ? new Date(c.checkout_date).toLocaleDateString() : 'N/A'}
-                        </td>
-                        <td style={{ padding: '16px 14px', fontSize: '13px', color: '#64748b' }}>
-                          {c.due_return_date ? new Date(c.due_return_date).toLocaleDateString() : 'Permanent'}
-                        </td>
-                        <td style={{ padding: '16px 14px', textAlign: 'center' }}>
-                          <span style={{ 
-                            padding: '4px 10px', 
-                            borderRadius: '6px', 
-                            fontSize: '10px', 
-                            fontWeight: 900,
-                            textTransform: 'uppercase',
-                            background: c.status === 'returned' ? '#ecfdf5' : isOverdue ? '#fee2e2' : '#eff6ff',
-                            color: c.status === 'returned' ? '#059669' : isOverdue ? '#ef4444' : '#2563eb'
-                          }}>
-                            {c.status === 'returned' ? `Returned (${c.return_condition})` : isOverdue ? 'Overdue' : 'Active'}
+                      <div key={item.id} className="card" style={{ background: '#fff', borderRadius: '24px', border: item.is_active ? '1.5px solid #f1f5f9' : '2px dashed #cbd5e1', opacity: item.is_active ? 1 : 0.65, overflow: 'hidden', display: 'flex', flexDirection: 'column', height: '100%', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)' }}>
+                        
+                        {/* Photo Section */}
+                        <div style={{ height: '160px', background: '#f8fafc', borderBottom: '1.5px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '56px', position: 'relative' }}>
+                          {item.photo_url ? (
+                            <img src={item.photo_url} alt={item.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          ) : (
+                            item.item_type === 'lease' ? '🛠️' : '📦'
+                          )}
+                          <span className={`bdg ${item.item_type === 'lease' ? 'bdg-b' : 'bdg-g'}`} style={{ position: 'absolute', top: '16px', right: '16px', fontSize: '10px', fontWeight: 900, textTransform: 'uppercase', padding: '5px 10px', borderRadius: '8px' }}>
+                            {item.item_type === 'lease' ? 'Lease' : 'Permanent'}
                           </span>
-                        </td>
-                        <td style={{ padding: '16px 14px', textAlign: 'right' }}>
-                          <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', alignItems: 'center' }}>
-                            {/* Edit Override — available on all rows */}
+                          {!item.is_active && (
+                            <span style={{ position: 'absolute', top: '16px', left: '16px', fontSize: '9px', fontWeight: 900, color: '#fff', background: '#64748b', padding: '5px 10px', borderRadius: '8px' }}>
+                              DRAFT/HIDDEN
+                            </span>
+                          )}
+                          {item.public_visible && (
+                            <span style={{ position: 'absolute', bottom: '10px', left: '16px', fontSize: '9px', fontWeight: 900, color: '#fff', background: 'var(--teal)', padding: '4px 8px', borderRadius: '6px' }}>
+                              📢 PUBLIC
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Details */}
+                        <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', flex: 1 }}>
+                          <div style={{ fontSize: '10px', fontWeight: 800, color: 'var(--teal)', textTransform: 'uppercase', marginBottom: '6px', letterSpacing: '0.5px' }}>
+                            {item.categories?.name || 'Uncategorized'}
+                          </div>
+                          <h3 style={{ margin: '0 0 10px 0', fontSize: '18px', fontWeight: 900, color: '#0f172a', letterSpacing: '-0.3px' }}>{item.name}</h3>
+                          <p style={{ margin: '0 0 16px 0', fontSize: '13px', color: '#64748b', lineHeight: 1.45, flex: 1 }}>{item.description || 'No description provided.'}</p>
+                          
+                          {/* Live Barcode Rendering */}
+                          {item.barcode_value && (
+                            <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '14px', marginBottom: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center', border: '1px solid #f1f5f9' }}>
+                              <div style={{ fontSize: '9px', fontWeight: 800, color: '#94a3b8', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>PRODUCT SKU BARCODE</div>
+                              <BarcodeSVG value={item.barcode_value} />
+                              <div style={{ fontSize: '9.5px', color: 'var(--muted)', fontWeight: 800, marginTop: '4px', display: 'flex', gap: '6px', flexWrap: 'wrap', justifyContent: 'center' }}>
+                                <span style={{ color: '#059669' }}>● {availableUnits} Avail</span>
+                                <span style={{ color: '#1c7ed6' }}>● {outUnits} Out</span>
+                                {damagedUnits > 0 && <span style={{ color: '#f76707' }}>● {damagedUnits} Dmg</span>}
+                                {lostUnits > 0 && <span style={{ color: '#fa5252' }}>● {lostUnits} Lost</span>}
+                              </div>
+                            </div>
+                          )}
+
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1.5px solid #f8fafc', paddingTop: '16px', marginBottom: '20px' }}>
+                            <div>
+                              <div style={{ fontSize: '10px', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase' }}>Available Stock</div>
+                              <div style={{ fontSize: '17px', fontWeight: 950, color: 'var(--teal)' }}>
+                                {item.available_stock} / {item.total_stock} Units
+                              </div>
+                            </div>
+                            {item.item_type === 'lease' && (
+                              <div style={{ textAlign: 'right' }}>
+                                <div style={{ fontSize: '10px', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase' }}>Limit</div>
+                                <div style={{ fontSize: '14px', fontWeight: 800, color: '#475569' }}>{item.lease_duration_days || 30} Days</div>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Actions Grid */}
+                          <div className="inv-action-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                            <button
+                              onClick={() => setEditingItem(item)}
+                              style={{ height: '38px', borderRadius: '10px', border: '1.5px solid #e2e8f0', background: '#fff', color: '#334155', fontWeight: 800, fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                            >
+                              <Edit2 size={12} /> Edit Catalog
+                            </button>
                             <button
                               onClick={() => {
-                                setOverrideCondition((c.return_condition as any) || 'good');
-                                setOverrideDate(c.actual_return_date ? c.actual_return_date.split('T')[0] : new Date().toISOString().split('T')[0]);
-                                setOverrideCheckout(c);
+                                setAdjustingItem(item);
+                                setAdjustNewStock(item.available_stock);
                               }}
-                              style={{ 
-                                display: 'flex', alignItems: 'center', gap: '5px',
-                                padding: '6px 10px', fontSize: '11px', fontWeight: 700, borderRadius: '8px', 
-                                border: '1.5px solid #e2e8f0', background: '#fff', color: '#475569', cursor: 'pointer'
-                              }}
-                              title="Edit override / mark returned"
+                              style={{ height: '38px', borderRadius: '10px', border: '1.5px solid #e2e8f0', background: '#fff', color: '#334155', fontWeight: 800, fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
                             >
-                              <Edit2 size={11} /> Edit
+                              <Sliders size={12} /> Adjust Stock
                             </button>
-                            {c.status !== 'returned' && (
+                          </div>
+
+                          <button
+                            onClick={() => window.open(`/catalog/${item.id}`, '_blank')}
+                            style={{ marginTop: '8px', width: '100%', height: '38px', borderRadius: '10px', border: '1.5px solid var(--teal)', background: '#fff', color: 'var(--teal)', fontWeight: 800, fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                          >
+                            <Printer size={12} /> Print Barcode Labels
+                          </button>
+
+                          <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                            {item.is_active ? (
                               <button
-                                onClick={() => {
-                                  setOverrideCondition('good');
-                                  setOverrideDate(new Date().toISOString().split('T')[0]);
-                                  setOverrideCheckout(c);
-                                }}
-                                className="bsm s"
-                                style={{ padding: '6px 12px', fontSize: '11px', borderRadius: '8px', background: '#2563eb' }}
+                                onClick={() => handleDeactivate(item.id)}
+                                style={{ flex: 1, height: '38px', borderRadius: '10px', border: 'none', background: '#f1f5f9', color: '#475569', fontWeight: 800, fontSize: '12px', cursor: 'pointer' }}
                               >
-                                ⚙️ Force Check-in
+                                Deactivate / Hide
+                              </button>
+                            ) : (
+                              <span style={{ flex: 1, height: '38px', borderRadius: '10px', background: '#f8fafc', color: '#94a3b8', border: '1px solid #e2e8f0', fontWeight: 800, fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>Inactive</span>
+                            )}
+
+                            {isSuper && (
+                              <button
+                                onClick={() => handleDeleteItem(item.id)}
+                                style={{ width: '38px', height: '38px', borderRadius: '10px', border: 'none', background: '#fee2e2', color: '#ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+                                title="Permanent Delete"
+                              >
+                                <Trash2 size={14} />
                               </button>
                             )}
                           </div>
-                        </td>
-                      </tr>
+                        </div>
+
+                      </div>
                     );
                   })}
-                </tbody>
-              </table>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* ② CHECKOUTS LEDGER TAB */}
+          {activeTab === 'checkouts' && (
+            <div className="card" style={{ padding: '28px', borderRadius: '24px', background: '#fff', border: '1.5px solid #f1f5f9', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)' }}>
+              
+              {/* Search & Filters */}
+              <div className="inv-checkout-search-row" style={{ display: 'flex', gap: '14px', marginBottom: '24px', flexWrap: 'wrap', alignItems: 'center' }}>
+                <div style={{ position: 'relative', flex: 1, minWidth: '280px' }}>
+                  <span style={{ position: 'absolute', left: '16px', top: '15px', color: '#94a3b8' }}>
+                    <Search size={16} />
+                  </span>
+                  <input
+                    type="text"
+                    placeholder="Search checkouts by member name, item, or barcode SKU..."
+                    value={checkoutSearch}
+                    onChange={(e) => setCheckoutSearch(e.target.value)}
+                    className="fi2"
+                    style={{ paddingLeft: '46px', width: '100%', height: '44px', borderRadius: '12px', fontSize: '13px' }}
+                  />
+                </div>
+                
+                <div className="inv-checkout-pills" style={{ display: 'flex', background: '#f1f5f9', padding: '4px', borderRadius: '12px' }}>
+                  {(['all', 'active', 'returned', 'overdue'] as const).map(status => (
+                    <button
+                      key={status}
+                      onClick={() => setCheckoutStatusFilter(status)}
+                      style={{
+                        padding: '8px 16px', fontSize: '12px', fontWeight: 800, border: 'none', borderRadius: '10px', cursor: 'pointer',
+                        background: checkoutStatusFilter === status ? '#fff' : 'transparent',
+                        color: checkoutStatusFilter === status ? '#0f172a' : '#64748b'
+                      }}
+                    >
+                      {status.toUpperCase()}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Table */}
+              {filteredCheckouts.length === 0 ? (
+                <div style={{ padding: '40px', textAlign: 'center', color: '#94a3b8', fontSize: '13.5px', fontWeight: 600 }}>No checkouts matches found.</div>
+              ) : (
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '2px solid #f1f5f9' }}>
+                        <th style={{ padding: '12px 14px', fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 900 }}>Member</th>
+                        <th style={{ padding: '12px 14px', fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 900 }}>Item details</th>
+                        <th style={{ padding: '12px 14px', fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 900 }}>Qty</th>
+                        <th style={{ padding: '12px 14px', fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 900 }}>Borrowed</th>
+                        <th style={{ padding: '12px 14px', fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 900 }}>Expected Return</th>
+                        <th style={{ padding: '12px 14px', fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 900, textAlign: 'center' }}>Status</th>
+                        <th style={{ padding: '12px 14px', fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 900, textAlign: 'right' }}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredCheckouts.map(c => {
+                        const isOverdue = c.status === 'active' && c.due_return_date && new Date(c.due_return_date) < new Date();
+                        return (
+                          <tr key={c.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                            <td style={{ padding: '16px 14px' }}>
+                              <div style={{ fontWeight: 800, color: '#0f172a' }}>{c.member?.name || 'Member Account'}</div>
+                            </td>
+                            <td style={{ padding: '16px 14px' }}>
+                              <div style={{ fontWeight: 800, color: '#0f172a' }}>{c.items?.name || 'Supply Item'}</div>
+                              {c.unit?.barcode_value && (
+                                <div style={{ fontSize: '11.5px', color: 'var(--teal)', fontWeight: 800, fontFamily: 'monospace', marginTop: '4px' }}>
+                                  Unit: {c.unit.barcode_value}
+                                </div>
+                              )}
+                              {c.notes && <div style={{ fontSize: '11.5px', color: '#64748b', marginTop: '2px' }}>📝 "{c.notes}"</div>}
+                            </td>
+                            <td style={{ padding: '16px 14px', fontWeight: 800, color: '#334155' }}>{c.quantity}</td>
+                            <td style={{ padding: '16px 14px', fontSize: '13px', color: '#64748b' }}>
+                              {c.checkout_date ? new Date(c.checkout_date).toLocaleDateString() : 'N/A'}
+                            </td>
+                            <td style={{ padding: '16px 14px', fontSize: '13px', color: '#64748b' }}>
+                              {c.due_return_date ? new Date(c.due_return_date).toLocaleDateString() : 'Permanent'}
+                            </td>
+                            <td style={{ padding: '16px 14px', textAlign: 'center' }}>
+                              <span style={{ 
+                                padding: '4px 10px', 
+                                borderRadius: '6px', 
+                                fontSize: '10px', 
+                                fontWeight: 900,
+                                textTransform: 'uppercase',
+                                background: c.status === 'returned' ? '#ecfdf5' : isOverdue ? '#fee2e2' : '#eff6ff',
+                                color: c.status === 'returned' ? '#059669' : isOverdue ? '#ef4444' : '#2563eb'
+                              }}>
+                                {c.status === 'returned' ? `Returned (${c.return_condition})` : isOverdue ? 'Overdue' : 'Active'}
+                              </span>
+                            </td>
+                            <td style={{ padding: '16px 14px', textAlign: 'right' }}>
+                              <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', alignItems: 'center' }}>
+                                <button
+                                  onClick={() => {
+                                    setOverrideCondition((c.return_condition as any) || 'good');
+                                    setOverrideDate(c.actual_return_date ? c.actual_return_date.split('T')[0] : new Date().toISOString().split('T')[0]);
+                                    setOverrideNotes(c.condition_notes || '');
+                                    setOverrideCheckout(c);
+                                  }}
+                                  style={{ 
+                                    display: 'flex', alignItems: 'center', gap: '5px',
+                                    padding: '6px 10px', fontSize: '11px', fontWeight: 700, borderRadius: '8px', 
+                                    border: '1.5px solid #e2e8f0', background: '#fff', color: '#475569', cursor: 'pointer'
+                                  }}
+                                  title="Edit override / mark returned"
+                                >
+                                  <Edit2 size={11} /> Edit
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           )}
-        </div>
+
+          {/* ③ DAMAGE/LOSS REVIEW TAB */}
+          {activeTab === 'damage_review' && (
+            <div className="card" style={{ padding: '28px', borderRadius: '24px', background: '#fff', border: '1.5px solid #f1f5f9', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px' }}>
+                <ClipboardList style={{ color: 'var(--teal)' }} size={20} />
+                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 900, color: '#0f172a' }}>Flagged Damage & Loss Review Queue</h3>
+              </div>
+
+              {damageRecords.length === 0 ? (
+                <div style={{ padding: '40px 20px', textAlign: 'center', color: '#94a3b8', fontSize: '13.5px', fontWeight: 600 }}>
+                  🎉 Clear! No physical items currently flagged in the damage/loss review queue.
+                </div>
+              ) : (
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '2px solid #f1f5f9', background: '#f8fafc' }}>
+                        <th style={{ padding: '12px 14px', fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 900 }}>Member</th>
+                        <th style={{ padding: '12px 14px', fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 900 }}>Item & Unit SKU</th>
+                        <th style={{ padding: '12px 14px', fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 900 }}>Observed Status</th>
+                        <th style={{ padding: '12px 14px', fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 900 }}>Damage Notes</th>
+                        <th style={{ padding: '12px 14px', fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 900, textAlign: 'right' }}>Resolution Options</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {damageRecords.map(rec => (
+                        <tr key={rec.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                          <td style={{ padding: '16px 14px' }}>
+                            <div style={{ fontWeight: 800, color: '#0f172a' }}>{rec.member?.name || 'Borrower'}</div>
+                          </td>
+                          <td style={{ padding: '16px 14px' }}>
+                            <div style={{ fontWeight: 800, color: '#0f172a' }}>{rec.items?.name}</div>
+                            {rec.unit?.barcode_value && (
+                              <div style={{ fontSize: '11.5px', color: 'var(--teal)', fontWeight: 800, fontFamily: 'monospace', marginTop: '2px' }}>
+                                SKU: {rec.unit.barcode_value}
+                              </div>
+                            )}
+                          </td>
+                          <td style={{ padding: '16px 14px' }}>
+                            <span style={{ 
+                              padding: '4px 10px', borderRadius: '6px', fontSize: '10px', fontWeight: 900, textTransform: 'uppercase',
+                              background: rec.return_condition === 'damaged' ? '#fff4e6' : '#fff5f5',
+                              color: rec.return_condition === 'damaged' ? '#f76707' : '#fa5252'
+                            }}>
+                              {rec.return_condition}
+                            </span>
+                          </td>
+                          <td style={{ padding: '16px 14px', fontSize: '13px', color: '#475569' }}>
+                            {rec.condition_notes || 'No remarks provided.'}
+                          </td>
+                          <td style={{ padding: '16px 14px', textAlign: 'right' }}>
+                            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                              <button
+                                onClick={() => handleResolveDamageRecord(rec.id, 'repaired')}
+                                className="bsm s"
+                                style={{ padding: '6px 12px', fontSize: '11px', borderRadius: '8px' }}
+                              >
+                                ✅ Restock / Repaired
+                              </button>
+                              <button
+                                onClick={() => handleResolveDamageRecord(rec.id, 'writeoff')}
+                                className="bsm r"
+                                style={{ padding: '6px 12px', fontSize: '11px', borderRadius: '8px', background: '#fee2e2', color: '#ef4444' }}
+                              >
+                                ❌ Write Off
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+        </>
       )}
-    </>
-  )}
 
       {/* Add Item Modal */}
       {showAddModal && (
@@ -980,8 +1160,30 @@ export default function Inventory() {
               </div>
 
               <div>
-                <label className="fl2">Catalog Description</label>
-                <textarea placeholder="Write detail specifications or logistics guidelines..." value={newItemDesc} onChange={e => setNewItemDesc(e.target.value)} className="ta2" rows={3} />
+                <label className="fl2">Internal Description</label>
+                <textarea placeholder="Write detail specifications or logistics guidelines..." value={newItemDesc} onChange={e => setNewItemDesc(e.target.value)} className="ta2" rows={2} />
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: '4px 0' }}>
+                <input 
+                  type="checkbox" 
+                  id="add-pub-visible"
+                  checked={newItemPublicVisible} 
+                  onChange={e => setNewItemPublicVisible(e.target.checked)} 
+                  style={{ width: '18px', height: '18px', accentColor: 'var(--teal)', cursor: 'pointer' }}
+                />
+                <label htmlFor="add-pub-visible" style={{ fontSize: '13px', fontWeight: 700, color: '#334155', cursor: 'pointer' }}>Make visible in Public Catalog</label>
+              </div>
+
+              <div>
+                <label className="fl2">Public Catalog Description</label>
+                <textarea 
+                  placeholder="Specifications displayed on the public browsing portal..." 
+                  value={newItemPublicDesc} 
+                  onChange={e => setNewItemPublicDesc(e.target.value)} 
+                  className="ta2" 
+                  rows={2} 
+                />
               </div>
 
               <div style={{ display: 'flex', gap: '10px', marginTop: '12px' }}>
@@ -1025,6 +1227,13 @@ export default function Inventory() {
                 )}
               </div>
 
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }} className="inv-2col">
+                <div>
+                  <label className="fl2">Total Stock Count *</label>
+                  <input type="number" min={0} value={editingItem.total_stock} onChange={e => setEditingItem({ ...editingItem, total_stock: Number(e.target.value) })} className="fi2" required />
+                </div>
+              </div>
+
               <div>
                 <label className="fl2">Product Photo</label>
                 <input type="file" id="edit-prod-photo-up" hidden accept="image/*" onChange={(e) => {
@@ -1060,8 +1269,29 @@ export default function Inventory() {
               </div>
 
               <div>
-                <label className="fl2">Catalog Description</label>
-                <textarea value={editingItem.description || ''} onChange={e => setEditingItem({ ...editingItem, description: e.target.value })} className="ta2" rows={3} />
+                <label className="fl2">Internal Description</label>
+                <textarea value={editingItem.description || ''} onChange={e => setEditingItem({ ...editingItem, description: e.target.value })} className="ta2" rows={2} />
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: '4px 0' }}>
+                <input 
+                  type="checkbox" 
+                  id="edit-pub-visible"
+                  checked={editingItem.public_visible || false} 
+                  onChange={e => setEditingItem({ ...editingItem, public_visible: e.target.checked })} 
+                  style={{ width: '18px', height: '18px', accentColor: 'var(--teal)', cursor: 'pointer' }}
+                />
+                <label htmlFor="edit-pub-visible" style={{ fontSize: '13px', fontWeight: 700, color: '#334155', cursor: 'pointer' }}>Visible in Public Catalog</label>
+              </div>
+
+              <div>
+                <label className="fl2">Public Catalog Description</label>
+                <textarea 
+                  value={editingItem.public_description || ''} 
+                  onChange={e => setEditingItem({ ...editingItem, public_description: e.target.value })} 
+                  className="ta2" 
+                  rows={2} 
+                />
               </div>
 
               <div style={{ display: 'flex', gap: '10px', marginTop: '12px' }}>
@@ -1103,7 +1333,7 @@ export default function Inventory() {
               <div style={{ display: 'flex', gap: '10px', marginTop: '12px' }}>
                 <button type="button" onClick={() => setAdjustingItem(null)} style={{ flex: 1, height: '44px', border: '1.5px solid #e2e8f0', background: '#fff', borderRadius: '12px', fontWeight: 800 }}>Cancel</button>
                 <button type="submit" disabled={formSubmitting} className="bsm s" style={{ flex: 1, height: '44px', borderRadius: '12px' }}>
-                  {formSubmitting ? 'Adjusting...' : 'Confirm Stock Correction'}
+                  {formSubmitting ? 'Adjusting...' : 'Save Stock'}
                 </button>
               </div>
             </form>
@@ -1124,16 +1354,30 @@ export default function Inventory() {
               <div style={{ padding: '12px', background: '#f8fafc', borderRadius: '12px', fontSize: '13px' }}>
                 <div><b>Borrower:</b> {overrideCheckout.member?.name}</div>
                 <div><b>Item:</b> {overrideCheckout.items?.name}</div>
+                {overrideCheckout.unit?.barcode_value && (
+                  <div><b>Unit Barcode:</b> <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{overrideCheckout.unit.barcode_value}</span></div>
+                )}
                 <div><b>Borrowed Qty:</b> {overrideCheckout.quantity} Units</div>
               </div>
 
               <div>
                 <label className="fl2">Observed Condition upon return</label>
-                <select value={overrideCondition} onChange={e => setOverrideCondition(e.target.value as any)} className="sel2" style={{ width: '100%' }}>
+                <select value={overrideCondition} onChange={e => setOverrideCondition(e.target.value as any)} className="sel2" style={{ width: '100%', height: '44px', borderRadius: '12px' }}>
                   <option value="good">Good Condition (Adds back to available stock)</option>
                   <option value="damaged">Damaged (Does not add back to stock)</option>
                   <option value="lost">Lost / Misplaced (Does not add back to stock)</option>
                 </select>
+              </div>
+
+              <div>
+                <label className="fl2">Return Condition Remarks / Notes</label>
+                <textarea 
+                  placeholder="Specify details if item is damaged, contents lost, or specify return location..." 
+                  value={overrideNotes} 
+                  onChange={e => setOverrideNotes(e.target.value)} 
+                  className="ta2" 
+                  rows={2} 
+                />
               </div>
 
               <div>
@@ -1144,7 +1388,7 @@ export default function Inventory() {
               <div style={{ display: 'flex', gap: '10px', marginTop: '12px' }}>
                 <button type="button" onClick={() => setOverrideCheckout(null)} style={{ flex: 1, height: '44px', border: '1.5px solid #e2e8f0', background: '#fff', borderRadius: '12px', fontWeight: 800 }}>Cancel</button>
                 <button type="submit" disabled={formSubmitting} className="bsm s" style={{ flex: 1, height: '44px', borderRadius: '12px' }}>
-                  {formSubmitting ? 'Overriding...' : 'Force Check-in'}
+                  {formSubmitting ? 'Overriding...' : 'Save Override'}
                 </button>
               </div>
             </form>
@@ -1178,123 +1422,39 @@ export default function Inventory() {
                 {categories.length === 0 ? (
                   <div style={{ padding: '16px', color: '#94a3b8', textAlign: 'center' }}>No categories created.</div>
                 ) : (
-                  categories.map(c => (
-                    <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', borderBottom: '1px solid #f1f5f9' }}>
-                      <span style={{ fontWeight: 800, color: '#334155' }}>{c.name}</span>
-                      {isSuper && (
-                        <button
-                          onClick={() => handleDeleteCategory(c.id)}
-                          style={{ border: 'none', background: 'none', color: '#ef4444', cursor: 'pointer', padding: '4px' }}
-                          title="Delete Category"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      )}
-                    </div>
-                  ))
+                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
+                    <thead>
+                      <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                        <th style={{ padding: '10px 14px', fontWeight: 800 }}>Category Name</th>
+                        <th style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 800 }}>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {categories.map(c => (
+                        <tr key={c.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                          <td style={{ padding: '12px 14px', fontWeight: 700 }}>{c.name}</td>
+                          <td style={{ padding: '12px 14px', textAlign: 'right' }}>
+                            {isSuper && (
+                              <button 
+                                onClick={() => handleDeleteCategory(c.id)}
+                                style={{ border: 'none', background: 'transparent', color: '#ef4444', cursor: 'pointer', display: 'inline-flex', padding: '4px' }}
+                                title="Delete Category"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 )}
               </div>
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '8px' }}>
-                <button type="button" onClick={() => setShowCategoryModal(false)} style={{ height: '42px', padding: '0 24px', border: '1.5px solid #e2e8f0', background: '#fff', borderRadius: '12px', fontWeight: 800, cursor: 'pointer' }}>Close</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-      {/* ─── Elegant Confirm Dialog ─── */}
-      {confirmDialog && (
-        <div
-          style={{
-            position: 'fixed', inset: 0, zIndex: 9999,
-            background: 'rgba(15,23,42,0.55)', backdropFilter: 'blur(6px)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px'
-          }}
-          onClick={() => setConfirmDialog(null)}
-        >
-          <div
-            className="inv-dialog inv-modal"
-            onClick={e => e.stopPropagation()}
-            style={{
-              background: '#fff',
-              borderRadius: '24px',
-              maxWidth: '420px',
-              width: '100%',
-              overflow: 'hidden',
-              boxShadow: '0 32px 80px rgba(15,23,42,0.28), 0 0 0 1px rgba(255,255,255,0.06)'
-            }}
-          >
-            {/* Icon header strip */}
-            <div style={{
-              padding: '28px 28px 20px',
-              background: confirmDialog.danger
-                ? 'linear-gradient(135deg, #fff1f2 0%, #ffe4e6 100%)'
-                : 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)',
-              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px'
-            }}>
-              <div style={{
-                width: '60px', height: '60px', borderRadius: '50%',
-                background: confirmDialog.danger ? '#fee2e2' : '#d1fae5',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                boxShadow: confirmDialog.danger
-                  ? '0 0 0 8px rgba(239,68,68,0.1)'
-                  : '0 0 0 8px rgba(16,185,129,0.1)'
-              }}>
-                {confirmDialog.icon === 'delete' && <Trash2 size={26} color="#ef4444" />}
-                {confirmDialog.icon === 'deactivate' && <EyeOff size={26} color="#0d9488" />}
-                {confirmDialog.icon === 'category' && <Trash2 size={26} color="#ef4444" />}
-              </div>
-              <div style={{ textAlign: 'center' }}>
-                <div style={{ fontSize: '18px', fontWeight: 800, color: '#0f172a', marginBottom: '6px' }}>
-                  {confirmDialog.title}
-                </div>
-                <div style={{ fontSize: '13px', color: '#64748b', lineHeight: 1.6, maxWidth: '300px' }}>
-                  {confirmDialog.message}
-                </div>
-              </div>
-            </div>
-
-            {/* Actions */}
-            <div style={{ padding: '20px 28px 28px', display: 'flex', gap: '10px' }}>
-              <button
-                onClick={() => setConfirmDialog(null)}
-                style={{
-                  flex: 1, height: '46px', border: '1.5px solid #e2e8f0',
-                  background: '#fff', borderRadius: '14px',
-                  fontSize: '14px', fontWeight: 700, color: '#475569',
-                  cursor: 'pointer', transition: 'all .15s'
-                }}
-                onMouseEnter={e => { e.currentTarget.style.background = '#f8fafc'; e.currentTarget.style.borderColor = '#cbd5e1'; }}
-                onMouseLeave={e => { e.currentTarget.style.background = '#fff'; e.currentTarget.style.borderColor = '#e2e8f0'; }}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={confirmDialog.onConfirm}
-                style={{
-                  flex: 1, height: '46px', border: 'none',
-                  background: confirmDialog.danger
-                    ? 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)'
-                    : 'linear-gradient(135deg, var(--teal) 0%, var(--teal2) 100%)',
-                  borderRadius: '14px',
-                  fontSize: '14px', fontWeight: 700, color: '#fff',
-                  cursor: 'pointer',
-                  boxShadow: confirmDialog.danger
-                    ? '0 4px 14px rgba(239,68,68,0.35)'
-                    : '0 4px 14px rgba(13,115,119,0.35)',
-                  transition: 'all .15s'
-                }}
-                onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = confirmDialog?.danger ? '0 6px 20px rgba(239,68,68,0.45)' : '0 6px 20px rgba(13,115,119,0.45)'; }}
-                onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = confirmDialog?.danger ? '0 4px 14px rgba(239,68,68,0.35)' : '0 4px 14px rgba(13,115,119,0.35)'; }}
-              >
-                {confirmDialog.icon === 'deactivate' ? 'Yes, Deactivate' : 'Yes, Delete'}
-              </button>
             </div>
           </div>
         </div>
       )}
 
     </div>
-    </>
   );
 }

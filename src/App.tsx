@@ -18,6 +18,8 @@ import Settings from './pages/dashboard/Settings';
 import LoanApplication from './pages/dashboard/LoanApplication';
 import Inventory from './pages/dashboard/Inventory';
 import ResetPassword from './pages/ResetPassword';
+import PublicCatalog from './pages/PublicCatalog';
+import PublicCatalogDetail from './pages/PublicCatalogDetail';
 import PublicLoanRequest from './pages/PublicLoanRequest';
 
 // Member sub-pages
@@ -58,6 +60,10 @@ function App() {
           {/* Public loan request — works with or without member code */}
           <Route path="/request" element={<PublicLoanRequest />} />
           <Route path="/request/:code" element={<PublicLoanRequest />} />
+
+          {/* ── Public Catalog (no auth, no role) ── */}
+          <Route path="/catalog" element={<PublicCatalog />} />
+          <Route path="/catalog/:itemId" element={<PublicCatalogDetail />} />
 
           {/* ── Super Admin Dashboard ── */}
           <Route
