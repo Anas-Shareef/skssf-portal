@@ -1,7 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, AlertTriangle, CheckCircle2, Calendar, ShieldCheck, RefreshCw, X, Plus, Edit2, Trash2, Sliders, FolderPlus, Package, Printer, EyeOff, ClipboardList } from 'lucide-react';
+import { 
+  Search, AlertTriangle, CheckCircle2, Calendar, ShieldCheck, RefreshCw, X, Plus, Edit2, 
+  Trash2, Sliders, FolderPlus, Package, Printer, EyeOff, ClipboardList, Grid, List, 
+  Barcode as BarcodeIcon, Users, QrCode, FileSpreadsheet, Star, HelpCircle
+} from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import JsBarcode from 'jsbarcode';
+import * as XLSX from 'xlsx';
 
 interface InventoryItem {
   id: string;
@@ -40,6 +45,7 @@ interface CheckoutRecord {
   manually_returned_by: string | null;
   member?: {
     name: string;
+    membership_no?: string;
   };
   items?: InventoryItem;
   unit?: {
@@ -50,6 +56,13 @@ interface CheckoutRecord {
 interface Category {
   id: string;
   name: string;
+}
+
+interface Profile {
+  id: string;
+  name: string;
+  role: string;
+  membership_no?: string;
 }
 
 // Subcomponent for rendering barcode SVGs live
@@ -99,11 +112,14 @@ export default function Inventory() {
     );
   }
 
-  const [activeTab, setActiveTab] = useState<'catalogue' | 'checkouts' | 'damage_review'>('catalogue');
+  // State Declarations
+  const [activeTab, setActiveTab] = useState<'catalogue' | 'scanner' | 'checkouts' | 'missions' | 'reports' | 'damage_review'>('catalogue');
+  const [viewMode, setViewMode] = useState<'gallery' | 'table' | 'barcodes'>('gallery');
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [allCheckouts, setAllCheckouts] = useState<CheckoutRecord[]>([]);
   const [damageRecords, setDamageRecords] = useState<CheckoutRecord[]>([]);
+  const [members, setMembers] = useState<Profile[]>([]);
   
   const [loading, setLoading] = useState(true);
   const [initialLoading, setInitialLoading] = useState(true);
@@ -112,7 +128,7 @@ export default function Inventory() {
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [selectedType, setSelectedType] = useState<'all' | 'lease' | 'permanent'>('all');
 
-  // Checkout table filter
+  // Checkout ledger search
   const [checkoutSearch, setCheckoutSearch] = useState('');
   const [checkoutStatusFilter, setCheckoutStatusFilter] = useState<'all' | 'active' | 'returned' | 'overdue'>('all');
 
@@ -122,6 +138,17 @@ export default function Inventory() {
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
   const [adjustingItem, setAdjustingItem] = useState<InventoryItem | null>(null);
   const [overrideCheckout, setOverrideCheckout] = useState<CheckoutRecord | null>(null);
+  const [selectedProductDetail, setSelectedProductDetail] = useState<InventoryItem | null>(null);
+
+  // Scanner State
+  const [scannerMode, setScannerMode] = useState<'checkout' | 'checkin'>('checkout');
+  const [manualBarcode, setManualBarcode] = useState('');
+  const [scanLookupResult, setScanLookupResult] = useState<any | null>(null);
+  const [scanNotes, setScanNotes] = useState('');
+  const [scannerMemberId, setScannerMemberId] = useState('');
+  const [scannerMission, setScannerMission] = useState('General Distribution');
+  const [scanError, setScanError] = useState('');
+  const [scanSubmitting, setScanSubmitting] = useState(false);
 
   // Confirm dialog state
   interface ConfirmOpts {
@@ -158,7 +185,7 @@ export default function Inventory() {
   const [overrideNotes, setOverrideNotes] = useState('');
   const [overrideDate, setOverrideDate] = useState(new Date().toISOString().split('T')[0]);
 
-  // Toast
+  // Toast alert
   const [toast, setToast] = useState<{ type: 's' | 'e'; msg: string } | null>(null);
 
   const popToast = (type: 's' | 'e', msg: string) => {
@@ -235,11 +262,27 @@ export default function Inventory() {
     }
   };
 
+  // Fetch Members Profiles list for Scanner dropdowns
+  const loadMembers = async () => {
+    try {
+      const res = await fetch('/api/members', { headers: getHeaders() });
+      if (res.ok) {
+        const data = await res.json();
+        setMembers(data.members || []);
+        if (data.members?.length > 0) {
+          setScannerMemberId(data.members[0].id);
+        }
+      }
+    } catch (e) {
+      console.warn("Failed to load profiles list:", e);
+    }
+  };
+
   // Initial load
   useEffect(() => {
     const init = async () => {
       setInitialLoading(true);
-      await Promise.all([loadCatalogue(false), loadCheckouts(false), loadDamageReview(false)]);
+      await Promise.all([loadCatalogue(false), loadCheckouts(false), loadDamageReview(false), loadMembers()]);
       setInitialLoading(false);
     };
     init();
@@ -403,10 +446,41 @@ export default function Inventory() {
       setOverrideCheckout(null);
       setOverrideNotes('');
       loadCheckouts(false);
+      loadCatalogue(false);
+      loadDamageReview(false);
     } catch (err: any) {
       popToast('e', err.message || 'Override failed');
     } finally {
       setFormSubmitting(false);
+    }
+  };
+
+  // Quick Return Quick Check-in action from Checkouts lists
+  const handleQuickReturn = async (checkoutId: string, condition: 'good' | 'damaged' | 'lost') => {
+    try {
+      const res = await fetch('/api/inventory?resource=checkout-actions', {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({
+          action: 'mark-returned',
+          id: checkoutId,
+          return_condition: condition,
+          return_date: new Date().toISOString().split('T')[0],
+          condition_notes: `Returned via quick check-in`
+        })
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Check-in failed');
+      }
+
+      popToast('s', 'Item unit checked in successfully!');
+      loadCheckouts(false);
+      loadCatalogue(false);
+      loadDamageReview(false);
+    } catch (err: any) {
+      popToast('e', err.message);
     }
   };
 
@@ -541,7 +615,155 @@ export default function Inventory() {
     }
   };
 
-  // Filters for Admin Catalog view
+  // Scanner manual barcode lookup
+  const handleBarcodeLookup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!manualBarcode.trim()) return;
+
+    try {
+      setScanError('');
+      setScanLookupResult(null);
+      
+      const res = await fetch(`/api/inventory?resource=barcode-lookup&barcode=${manualBarcode.trim()}`, {
+        headers: getHeaders()
+      });
+      
+      if (!res.ok) {
+        throw new Error('No product or physical unit matches this barcode.');
+      }
+      
+      const data = await res.json();
+      setScanLookupResult(data);
+    } catch (err: any) {
+      setScanError(err.message || 'Error searching barcode');
+    }
+  };
+
+  // Scanner Quick Scan Click Selection (Viewfinder simulations)
+  const handleSelectQuickScan = async (barcodeVal: string) => {
+    try {
+      setScanError('');
+      setScanLookupResult(null);
+      const res = await fetch(`/api/inventory?resource=barcode-lookup&barcode=${barcodeVal}`, {
+        headers: getHeaders()
+      });
+      if (!res.ok) throw new Error('No matching barcode');
+      const data = await res.json();
+      setScanLookupResult(data);
+    } catch (err: any) {
+      setScanError('Quick scan lookup failed.');
+    }
+  };
+
+  // Confirm Scanner Action (Checkout or Checkin)
+  const handleConfirmScannerAction = async () => {
+    if (!scanLookupResult) return;
+    try {
+      setScanSubmitting(true);
+      setScanError('');
+      
+      const isUnit = scanLookupResult.type === 'unit';
+      const item = scanLookupResult.item;
+      
+      if (scannerMode === 'checkout') {
+        const unitId = isUnit ? scanLookupResult.unit.id : null;
+        const res = await fetch('/api/inventory', {
+          method: 'POST',
+          headers: getHeaders(),
+          body: JSON.stringify({
+            resource: 'checkouts',
+            item_id: item.id,
+            unit_id: unitId,
+            member_id: scannerMemberId,
+            quantity: 1,
+            notes: scanNotes || `Scanned checkout for ${scannerMission}`
+          })
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.error || 'Checkout failed');
+        }
+        popToast('s', `Checked out "${item.name}" unit successfully!`);
+      } else {
+        // Return / Check-in
+        if (!isUnit) {
+          throw new Error('Please scan a specific physical UNIT barcode (ending in -UXX) to return.');
+        }
+        const unit = scanLookupResult.unit;
+        if (unit.status !== 'checked_out' || !unit.current_checkout_id) {
+          throw new Error('This physical unit is not currently marked as checked out.');
+        }
+        const res = await fetch('/api/inventory', {
+          method: 'POST',
+          headers: getHeaders(),
+          body: JSON.stringify({
+            resource: 'checkout-actions',
+            action: 'checkin',
+            id: unit.current_checkout_id,
+            return_condition: 'good', // default scan return as good
+            condition_notes: scanNotes || 'Scanned returned'
+          })
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.error || 'Return check-in failed');
+        }
+        popToast('s', `Checked in "${item.name}" unit successfully!`);
+      }
+      
+      // Clean scan state
+      setScanLookupResult(null);
+      setManualBarcode('');
+      setScanNotes('');
+      loadCatalogue(false);
+      loadCheckouts(false);
+    } catch (err: any) {
+      setScanError(err.message || 'Action execution failed');
+    } finally {
+      setScanSubmitting(false);
+    }
+  };
+
+  // SheetJS Excel Report Export
+  const handleExportExcel = () => {
+    // 1. Catalog sheet
+    const catalogData = items.map(p => ({
+      'Item Name': p.name,
+      'SKU Code': p.barcode_value || 'N/A',
+      'Category': p.categories?.name || 'Uncategorized',
+      'Type': p.item_type === 'lease' ? 'Lease' : 'Permanent',
+      'Total Stock': p.total_stock,
+      'Available': p.available_stock,
+      'Checked Out': p.total_stock - p.available_stock,
+      'Lease Duration (Days)': p.lease_duration_days || 'Permanent',
+      'Public Visible': p.public_visible ? 'Yes' : 'No'
+    }));
+
+    // 2. Active Leases sheet
+    const activeLeases = allCheckouts
+      .filter(c => c.status === 'active')
+      .map(c => ({
+        'Borrower': c.member?.name || 'N/A',
+        'Item Name': c.items?.name || 'N/A',
+        'Unit SKU': c.unit?.barcode_value || 'N/A',
+        'Qty': c.quantity,
+        'Checkout Date': c.checkout_date,
+        'Due Return Date': c.due_return_date || 'Permanent',
+        'Notes': c.notes || ''
+      }));
+
+    const wb = XLSX.utils.book_new();
+    const wsCatalog = XLSX.utils.json_to_sheet(catalogData);
+    const wsLeases = XLSX.utils.json_to_sheet(activeLeases);
+
+    XLSX.utils.book_append_sheet(wb, wsCatalog, 'Welfare Inventory');
+    XLSX.utils.book_append_sheet(wb, wsLeases, 'Active Checkouts Ledger');
+
+    XLSX.writeFile(wb, `SKSSF_Inventory_Report_${new Date().toISOString().split('T')[0]}.xlsx`);
+    popToast('s', 'Excel inventory report exported successfully!');
+  };
+
+  // Filter Catalog
   const filteredCatalogue = items.filter(item => {
     const matchesSearch = item.name.toLowerCase().includes(search.toLowerCase()) || 
                           (item.barcode_value && item.barcode_value.toLowerCase().includes(search.toLowerCase())) ||
@@ -551,7 +773,7 @@ export default function Inventory() {
     return matchesSearch && matchesCategory && matchesType;
   });
 
-  // Filters for ledger
+  // Filter ledger
   const filteredCheckouts = allCheckouts.filter(c => {
     const name = c.member?.name || '';
     const item = c.items?.name || '';
@@ -569,6 +791,14 @@ export default function Inventory() {
     
     return matchesSearch && matchesStatus;
   });
+
+  // Overdue math
+  const getDaysOut = (dateStr: string) => {
+    const start = new Date(dateStr);
+    const end = new Date();
+    const diff = Math.floor((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+    return diff > 0 ? diff : 0;
+  };
 
   return (
     <div className="inv-wrap" style={{ animation: 'fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1)', padding: '30px', maxWidth: '1400px', margin: '0 auto' }}>
@@ -633,7 +863,11 @@ export default function Inventory() {
             <FolderPlus size={14} /> Manage Categories
           </button>
           <button 
-            onClick={() => activeTab === 'catalogue' ? loadCatalogue(false) : activeTab === 'checkouts' ? loadCheckouts(false) : loadDamageReview(false)}
+            onClick={() => {
+              if (activeTab === 'catalogue') loadCatalogue(false);
+              else if (activeTab === 'checkouts') loadCheckouts(false);
+              else if (activeTab === 'damage_review') loadDamageReview(false);
+            }}
             disabled={refreshing}
             style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', border: '1.5px solid #e2e8f0', background: '#fff', borderRadius: '14px', fontSize: '13px', fontWeight: 700, color: '#475569', cursor: refreshing ? 'default' : 'pointer' }}
           >
@@ -643,52 +877,67 @@ export default function Inventory() {
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="inv-tabs" style={{ display: 'flex', gap: '8px', marginBottom: '32px', borderBottom: '2.5px solid #f1f5f9', paddingBottom: '2px' }}>
+      {/* Tabs list matching Claude Prototype */}
+      <div className="inv-tabs" style={{ display: 'flex', gap: '8px', marginBottom: '32px', borderBottom: '2.5px solid #f1f5f9', paddingBottom: '2px', overflowX: 'auto' }}>
         <button
           onClick={() => setActiveTab('catalogue')}
           style={{
-            padding: '14px 28px',
-            fontWeight: 800,
-            fontSize: '15px',
-            border: 'none',
-            background: 'none',
+            padding: '14px 20px', fontWeight: 800, fontSize: '14.5px', border: 'none', background: 'none',
             borderBottom: activeTab === 'catalogue' ? '3.5px solid var(--teal)' : '3.5px solid transparent',
-            color: activeTab === 'catalogue' ? 'var(--teal)' : '#64748b',
-            cursor: 'pointer'
+            color: activeTab === 'catalogue' ? 'var(--teal)' : '#64748b', cursor: 'pointer', whiteSpace: 'nowrap'
           }}
         >
-          📂 Catalog Stock
+          🛍️ Product Catalog
+        </button>
+        <button
+          onClick={() => setActiveTab('scanner')}
+          style={{
+            padding: '14px 20px', fontWeight: 800, fontSize: '14.5px', border: 'none', background: 'none',
+            borderBottom: activeTab === 'scanner' ? '3.5px solid var(--teal)' : '3.5px solid transparent',
+            color: activeTab === 'scanner' ? 'var(--teal)' : '#64748b', cursor: 'pointer', whiteSpace: 'nowrap'
+          }}
+        >
+          📷 Scanner (Check In/Out)
         </button>
         <button
           onClick={() => setActiveTab('checkouts')}
           style={{
-            padding: '14px 28px',
-            fontWeight: 800,
-            fontSize: '15px',
-            border: 'none',
-            background: 'none',
+            padding: '14px 20px', fontWeight: 800, fontSize: '14.5px', border: 'none', background: 'none',
             borderBottom: activeTab === 'checkouts' ? '3.5px solid var(--teal)' : '3.5px solid transparent',
-            color: activeTab === 'checkouts' ? 'var(--teal)' : '#64748b',
-            cursor: 'pointer'
+            color: activeTab === 'checkouts' ? 'var(--teal)' : '#64748b', cursor: 'pointer', whiteSpace: 'nowrap'
           }}
         >
-          📝 Members Checkouts Ledger
+          📤 Currently Checked Out
+        </button>
+        <button
+          onClick={() => setActiveTab('missions')}
+          style={{
+            padding: '14px 20px', fontWeight: 800, fontSize: '14.5px', border: 'none', background: 'none',
+            borderBottom: activeTab === 'missions' ? '3.5px solid var(--teal)' : '3.5px solid transparent',
+            color: activeTab === 'missions' ? 'var(--teal)' : '#64748b', cursor: 'pointer', whiteSpace: 'nowrap'
+          }}
+        >
+          🎯 Mission Packages
+        </button>
+        <button
+          onClick={() => setActiveTab('reports')}
+          style={{
+            padding: '14px 20px', fontWeight: 800, fontSize: '14.5px', border: 'none', background: 'none',
+            borderBottom: activeTab === 'reports' ? '3.5px solid var(--teal)' : '3.5px solid transparent',
+            color: activeTab === 'reports' ? 'var(--teal)' : '#64748b', cursor: 'pointer', whiteSpace: 'nowrap'
+          }}
+        >
+          📊 Inventory Reports
         </button>
         <button
           onClick={() => setActiveTab('damage_review')}
           style={{
-            padding: '14px 28px',
-            fontWeight: 800,
-            fontSize: '15px',
-            border: 'none',
-            background: 'none',
+            padding: '14px 20px', fontWeight: 800, fontSize: '14.5px', border: 'none', background: 'none',
             borderBottom: activeTab === 'damage_review' ? '3.5px solid var(--teal)' : '3.5px solid transparent',
-            color: activeTab === 'damage_review' ? 'var(--teal)' : '#64748b',
-            cursor: 'pointer'
+            color: activeTab === 'damage_review' ? 'var(--teal)' : '#64748b', cursor: 'pointer', whiteSpace: 'nowrap'
           }}
         >
-          ⚠️ Damage/Loss Queue ({damageRecords.length})
+          ⚠️ Damage Queue ({damageRecords.length})
         </button>
       </div>
 
@@ -729,11 +978,23 @@ export default function Inventory() {
                   {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
 
-                {/* Type Filter Pills */}
                 <div className="inv-type-pills" style={{ display: 'flex', background: '#f1f5f9', padding: '4px', borderRadius: '14px' }}>
                   <button onClick={() => setSelectedType('all')} style={{ padding: '8px 16px', fontSize: '12px', fontWeight: 800, border: 'none', borderRadius: '10px', cursor: 'pointer', background: selectedType === 'all' ? '#fff' : 'transparent', color: selectedType === 'all' ? '#0f172a' : '#64748b' }}>All</button>
                   <button onClick={() => setSelectedType('lease')} style={{ padding: '8px 16px', fontSize: '12px', fontWeight: 800, border: 'none', borderRadius: '10px', cursor: 'pointer', background: selectedType === 'lease' ? '#fff' : 'transparent', color: selectedType === 'lease' ? '#0f172a' : '#64748b' }}>Lease</button>
                   <button onClick={() => setSelectedType('permanent')} style={{ padding: '8px 16px', fontSize: '12px', fontWeight: 800, border: 'none', borderRadius: '10px', cursor: 'pointer', background: selectedType === 'permanent' ? '#fff' : 'transparent', color: selectedType === 'permanent' ? '#0f172a' : '#64748b' }}>Permanent</button>
+                </div>
+
+                {/* View Toggles matching Claude Prototype */}
+                <div style={{ display: 'flex', background: '#f1f5f9', padding: '4px', borderRadius: '14px', marginRight: 'auto' }}>
+                  <button onClick={() => setViewMode('gallery')} style={{ padding: '8px 14px', fontSize: '12px', fontWeight: 800, border: 'none', borderRadius: '10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', background: viewMode === 'gallery' ? '#fff' : 'transparent', color: viewMode === 'gallery' ? '#0f172a' : '#64748b' }}>
+                    <Grid size={13} /> Gallery
+                  </button>
+                  <button onClick={() => setViewMode('table')} style={{ padding: '8px 14px', fontSize: '12px', fontWeight: 800, border: 'none', borderRadius: '10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', background: viewMode === 'table' ? '#fff' : 'transparent', color: viewMode === 'table' ? '#0f172a' : '#64748b' }}>
+                    <List size={13} /> Table
+                  </button>
+                  <button onClick={() => setViewMode('barcodes')} style={{ padding: '8px 14px', fontSize: '12px', fontWeight: 800, border: 'none', borderRadius: '10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', background: viewMode === 'barcodes' ? '#fff' : 'transparent', color: viewMode === 'barcodes' ? '#0f172a' : '#64748b' }}>
+                    <BarcodeIcon size={13} /> Barcodes
+                  </button>
                 </div>
 
                 <button 
@@ -745,7 +1006,6 @@ export default function Inventory() {
                 </button>
               </div>
 
-              {/* Cards Grid */}
               {filteredCatalogue.length === 0 ? (
                 <div className="card" style={{ padding: '80px 24px', textAlign: 'center', borderRadius: '24px', background: '#fff', border: '2px dashed #e2e8f0' }}>
                   <Package size={48} style={{ margin: '0 auto 16px', opacity: 0.4, color: '#64748b' }} />
@@ -753,135 +1013,385 @@ export default function Inventory() {
                   <p style={{ margin: '6px 0 0 0', fontSize: '14px', color: '#94a3b8' }}>Try adding items or clearing filters.</p>
                 </div>
               ) : (
-                <div className="inv-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '24px' }}>
-                  {filteredCatalogue.map(item => {
-                    const unitsList = item.units || [];
-                    const availableUnits = unitsList.filter((u: any) => u.status === 'available').length;
-                    const outUnits = unitsList.filter((u: any) => u.status === 'checked_out').length;
-                    const damagedUnits = unitsList.filter((u: any) => u.status === 'damaged').length;
-                    const lostUnits = unitsList.filter((u: any) => u.status === 'lost').length;
+                <>
+                  {/* ① GALLERY VIEW */}
+                  {viewMode === 'gallery' && (
+                    <div className="inv-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '24px' }}>
+                      {filteredCatalogue.map(item => {
+                        const unitsList = item.units || [];
+                        const availableUnits = unitsList.filter((u: any) => u.status === 'available').length;
+                        const outUnits = unitsList.filter((u: any) => u.status === 'checked_out').length;
+                        const damagedUnits = unitsList.filter((u: any) => u.status === 'damaged').length;
+                        const lostUnits = unitsList.filter((u: any) => u.status === 'lost').length;
+                        const pctAvailable = item.total_stock > 0 ? Math.round((availableUnits / item.total_stock) * 100) : 0;
+                        const stockColor = availableUnits > item.total_stock * 0.5 ? '#059669' : availableUnits > 0 ? '#d97706' : '#dc2626';
 
-                    return (
-                      <div key={item.id} className="card" style={{ background: '#fff', borderRadius: '24px', border: item.is_active ? '1.5px solid #f1f5f9' : '2px dashed #cbd5e1', opacity: item.is_active ? 1 : 0.65, overflow: 'hidden', display: 'flex', flexDirection: 'column', height: '100%', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)' }}>
-                        
-                        {/* Photo Section */}
-                        <div style={{ height: '160px', background: '#f8fafc', borderBottom: '1.5px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '56px', position: 'relative' }}>
-                          {item.photo_url ? (
-                            <img src={item.photo_url} alt={item.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                          ) : (
-                            item.item_type === 'lease' ? '🛠️' : '📦'
-                          )}
-                          <span className={`bdg ${item.item_type === 'lease' ? 'bdg-b' : 'bdg-g'}`} style={{ position: 'absolute', top: '16px', right: '16px', fontSize: '10px', fontWeight: 900, textTransform: 'uppercase', padding: '5px 10px', borderRadius: '8px' }}>
-                            {item.item_type === 'lease' ? 'Lease' : 'Permanent'}
-                          </span>
-                          {!item.is_active && (
-                            <span style={{ position: 'absolute', top: '16px', left: '16px', fontSize: '9px', fontWeight: 900, color: '#fff', background: '#64748b', padding: '5px 10px', borderRadius: '8px' }}>
-                              DRAFT/HIDDEN
-                            </span>
-                          )}
-                          {item.public_visible && (
-                            <span style={{ position: 'absolute', bottom: '10px', left: '16px', fontSize: '9px', fontWeight: 900, color: '#fff', background: 'var(--teal)', padding: '4px 8px', borderRadius: '6px' }}>
-                              📢 PUBLIC
-                            </span>
-                          )}
-                        </div>
+                        return (
+                          <div key={item.id} className="card pc-card" style={{ background: '#fff', borderRadius: '24px', border: item.is_active ? '1.5px solid #f1f5f9' : '2px dashed #cbd5e1', opacity: item.is_active ? 1 : 0.65, overflow: 'hidden', display: 'flex', flexDirection: 'column', height: '100%', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)', position: 'relative' }}>
+                            
+                            {/* Photo Section */}
+                            <div style={{ height: '160px', background: '#f8fafc', borderBottom: '1.5px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyItems: 'center', justifyContent: 'center', fontSize: '56px', position: 'relative', overflow: 'hidden' }}>
+                              {item.photo_url ? (
+                                <img src={item.photo_url} alt={item.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                              ) : (
+                                item.item_type === 'lease' ? '🛠️' : '📦'
+                              )}
+                              <span className={`bdg ${item.item_type === 'lease' ? 'bdg-b' : 'bdg-g'}`} style={{ position: 'absolute', top: '16px', right: '16px', fontSize: '10px', fontWeight: 900, textTransform: 'uppercase', padding: '5px 10px', borderRadius: '8px' }}>
+                                {item.item_type === 'lease' ? 'Lease' : 'Permanent'}
+                              </span>
+                              {!item.is_active && (
+                                <span style={{ position: 'absolute', top: '16px', left: '16px', fontSize: '9px', fontWeight: 900, color: '#fff', background: '#64748b', padding: '5px 10px', borderRadius: '8px' }}>
+                                  DRAFT
+                                </span>
+                              )}
+                              {item.public_visible && (
+                                <span style={{ position: 'absolute', bottom: '10px', left: '16px', fontSize: '9px', fontWeight: 900, color: '#fff', background: 'var(--teal)', padding: '4px 8px', borderRadius: '6px' }}>
+                                  📢 PUBLIC
+                                </span>
+                              )}
 
-                        {/* Details */}
-                        <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', flex: 1 }}>
-                          <div style={{ fontSize: '10px', fontWeight: 800, color: 'var(--teal)', textTransform: 'uppercase', marginBottom: '6px', letterSpacing: '0.5px' }}>
-                            {item.categories?.name || 'Uncategorized'}
-                          </div>
-                          <h3 onClick={() => window.open('/catalog/' + item.id, '_blank')} style={{ margin: '0 0 10px 0', fontSize: '18px', fontWeight: 900, color: '#0f172a', letterSpacing: '-0.3px', cursor: 'pointer', transition: 'color 0.2s' }} onMouseEnter={e => e.currentTarget.style.color = 'var(--teal)'} onMouseLeave={e => e.currentTarget.style.color = '#0f172a'}>{item.name}</h3>
-                          <p style={{ margin: '0 0 16px 0', fontSize: '13px', color: '#64748b', lineHeight: 1.45, flex: 1 }}>{item.description || 'No description provided.'}</p>
-                          
-                          {/* Live Barcode Rendering */}
-                          {item.barcode_value && (
-                            <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '14px', marginBottom: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center', border: '1px solid #f1f5f9' }}>
-                              <div style={{ fontSize: '9px', fontWeight: 800, color: '#94a3b8', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>PRODUCT SKU BARCODE</div>
-                              <BarcodeSVG value={item.barcode_value} />
-                              <div style={{ fontSize: '9.5px', color: 'var(--muted)', fontWeight: 800, marginTop: '4px', display: 'flex', gap: '6px', flexWrap: 'wrap', justifyContent: 'center' }}>
-                                <span style={{ color: '#059669' }}>● {availableUnits} Avail</span>
-                                <span style={{ color: '#1c7ed6' }}>● {outUnits} Out</span>
-                                {damagedUnits > 0 && <span style={{ color: '#f76707' }}>● {damagedUnits} Dmg</span>}
-                                {lostUnits > 0 && <span style={{ color: '#fa5252' }}>● {lostUnits} Lost</span>}
+                              {/* Stock Fill Progress Bar */}
+                              <div style={{ position: 'absolute', bottom: 0, left: 0, width: '100%', height: '4px', background: '#e2e8f0' }}>
+                                <div style={{ height: '100%', width: `${pctAvailable}%`, background: stockColor, transition: 'width 0.4s ease' }} />
                               </div>
                             </div>
-                          )}
 
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1.5px solid #f8fafc', paddingTop: '16px', marginBottom: '20px' }}>
-                            <div>
-                              <div style={{ fontSize: '10px', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase' }}>Available Stock</div>
-                              <div style={{ fontSize: '17px', fontWeight: 950, color: 'var(--teal)' }}>
-                                {item.available_stock} / {item.total_stock} Units
+                            {/* Details */}
+                            <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', flex: 1 }}>
+                              <div style={{ fontSize: '10px', fontWeight: 800, color: 'var(--teal)', textTransform: 'uppercase', marginBottom: '6px', letterSpacing: '0.5px' }}>
+                                {item.categories?.name || 'Uncategorized'}
+                              </div>
+                              <h3 onClick={() => setSelectedProductDetail(item)} style={{ margin: '0 0 10px 0', fontSize: '18px', fontWeight: 900, color: '#0f172a', letterSpacing: '-0.3px', cursor: 'pointer', transition: 'color 0.2s' }} onMouseEnter={e => e.currentTarget.style.color = 'var(--teal)'} onMouseLeave={e => e.currentTarget.style.color = '#0f172a'}>{item.name}</h3>
+                              <p style={{ margin: '0 0 16px 0', fontSize: '13px', color: '#64748b', lineHeight: 1.45, flex: 1, minHeight: '38px', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{item.description || 'No description provided.'}</p>
+                              
+                              {/* Live Barcode Rendering */}
+                              {item.barcode_value && (
+                                <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '14px', marginBottom: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center', border: '1px solid #f1f5f9' }}>
+                                  <BarcodeSVG value={item.barcode_value} />
+                                  <div style={{ fontSize: '9.5px', color: 'var(--muted)', fontWeight: 800, marginTop: '4px', display: 'flex', gap: '6px', flexWrap: 'wrap', justifyContent: 'center' }}>
+                                    <span style={{ color: '#059669' }}>● {availableUnits} Avail</span>
+                                    <span style={{ color: '#1c7ed6' }}>● {outUnits} Out</span>
+                                    {damagedUnits > 0 && <span style={{ color: '#f76707' }}>● {damagedUnits} Dmg</span>}
+                                    {lostUnits > 0 && <span style={{ color: '#fa5252' }}>● {lostUnits} Lost</span>}
+                                  </div>
+                                </div>
+                              )}
+
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1.5px solid #f8fafc', paddingTop: '16px', marginBottom: '20px' }}>
+                                <div>
+                                  <div style={{ fontSize: '10px', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase' }}>Available Stock</div>
+                                  <div style={{ fontSize: '17px', fontWeight: 950, color: 'var(--teal)' }}>
+                                    {item.available_stock} / {item.total_stock} Units
+                                  </div>
+                                </div>
+                                {item.item_type === 'lease' && (
+                                  <div style={{ textAlign: 'right' }}>
+                                    <div style={{ fontSize: '10px', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase' }}>Limit</div>
+                                    <div style={{ fontSize: '14px', fontWeight: 800, color: '#475569' }}>{item.lease_duration_days || 30} Days</div>
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Actions Grid */}
+                              <div className="inv-action-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                                <button
+                                  onClick={() => setEditingItem(item)}
+                                  style={{ height: '38px', borderRadius: '10px', border: '1.5px solid #e2e8f0', background: '#fff', color: '#334155', fontWeight: 800, fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                                >
+                                  <Edit2 size={12} /> Edit Catalog
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setAdjustingItem(item);
+                                    setAdjustNewStock(item.available_stock);
+                                  }}
+                                  style={{ height: '38px', borderRadius: '10px', border: '1.5px solid #e2e8f0', background: '#fff', color: '#334155', fontWeight: 800, fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                                >
+                                  <Sliders size={12} /> Adjust Stock
+                                </button>
+                              </div>
+
+                              <button
+                                onClick={() => setSelectedProductDetail(item)}
+                                style={{ marginTop: '8px', width: '100%', height: '38px', borderRadius: '10px', border: '1.5px solid var(--teal)', background: '#fff', color: 'var(--teal)', fontWeight: 800, fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                              >
+                                📋 View Unit Tracking &amp; Print
+                              </button>
+
+                              <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                                {item.is_active ? (
+                                  <button
+                                    onClick={() => handleDeactivate(item.id)}
+                                    style={{ flex: 1, height: '38px', borderRadius: '10px', border: 'none', background: '#f1f5f9', color: '#475569', fontWeight: 800, fontSize: '12px', cursor: 'pointer' }}
+                                  >
+                                    Deactivate / Hide
+                                  </button>
+                                ) : (
+                                  <span style={{ flex: 1, height: '38px', borderRadius: '10px', background: '#f8fafc', color: '#94a3b8', border: '1px solid #e2e8f0', fontWeight: 800, fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>Inactive</span>
+                                )}
+
+                                {isSuper && (
+                                  <button
+                                    onClick={() => handleDeleteItem(item.id)}
+                                    style={{ width: '38px', height: '38px', borderRadius: '10px', border: 'none', background: '#fee2e2', color: '#ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+                                    title="Permanent Delete"
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
+                                )}
                               </div>
                             </div>
-                            {item.item_type === 'lease' && (
-                              <div style={{ textAlign: 'right' }}>
-                                <div style={{ fontSize: '10px', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase' }}>Limit</div>
-                                <div style={{ fontSize: '14px', fontWeight: 800, color: '#475569' }}>{item.lease_duration_days || 30} Days</div>
-                              </div>
-                            )}
+
                           </div>
+                        );
+                      })}
+                    </div>
+                  )}
 
-                          {/* Actions Grid */}
-                          <div className="inv-action-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                            <button
-                              onClick={() => setEditingItem(item)}
-                              style={{ height: '38px', borderRadius: '10px', border: '1.5px solid #e2e8f0', background: '#fff', color: '#334155', fontWeight: 800, fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
-                            >
-                              <Edit2 size={12} /> Edit Catalog
-                            </button>
-                            <button
-                              onClick={() => {
-                                setAdjustingItem(item);
-                                setAdjustNewStock(item.available_stock);
-                              }}
-                              style={{ height: '38px', borderRadius: '10px', border: '1.5px solid #e2e8f0', background: '#fff', color: '#334155', fontWeight: 800, fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
-                            >
-                              <Sliders size={12} /> Adjust Stock
-                            </button>
-                          </div>
-
-                          <button
-                            onClick={() => window.open(`/catalog/${item.id}`, '_blank')}
-                            style={{ marginTop: '8px', width: '100%', height: '38px', borderRadius: '10px', border: '1.5px solid var(--teal)', background: '#fff', color: 'var(--teal)', fontWeight: 800, fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
-                          >
-                            <Printer size={12} /> Print Barcode Labels
-                          </button>
-
-                          <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
-                            {item.is_active ? (
-                              <button
-                                onClick={() => handleDeactivate(item.id)}
-                                style={{ flex: 1, height: '38px', borderRadius: '10px', border: 'none', background: '#f1f5f9', color: '#475569', fontWeight: 800, fontSize: '12px', cursor: 'pointer' }}
-                              >
-                                Deactivate / Hide
-                              </button>
-                            ) : (
-                              <span style={{ flex: 1, height: '38px', borderRadius: '10px', background: '#f8fafc', color: '#94a3b8', border: '1px solid #e2e8f0', fontWeight: 800, fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>Inactive</span>
-                            )}
-
-                            {isSuper && (
-                              <button
-                                onClick={() => handleDeleteItem(item.id)}
-                                style={{ width: '38px', height: '38px', borderRadius: '10px', border: 'none', background: '#fee2e2', color: '#ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
-                                title="Permanent Delete"
-                              >
-                                <Trash2 size={14} />
-                              </button>
-                            )}
-                          </div>
-                        </div>
-
+                  {/* ② TABLE VIEW */}
+                  {viewMode === 'table' && (
+                    <div className="card" style={{ padding: 0, borderRadius: '24px', overflow: 'hidden', border: '1.5px solid #f1f5f9', background: '#fff' }}>
+                      <div style={{ overflowX: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
+                          <thead>
+                            <tr style={{ background: '#f8fafc', borderBottom: '1.5px solid #e2e8f0' }}>
+                              <th style={{ padding: '16px 20px', fontWeight: 800, color: '#475569' }}>Product Info</th>
+                              <th style={{ padding: '16px 20px', fontWeight: 800, color: '#475569' }}>Category</th>
+                              <th style={{ padding: '16px 20px', fontWeight: 800, color: '#475569' }}>Barcode SKU</th>
+                              <th style={{ padding: '16px 20px', fontWeight: 800, color: '#475569' }}>Type</th>
+                              <th style={{ padding: '16px 20px', fontWeight: 800, color: '#475569' }}>Available Stock</th>
+                              <th style={{ padding: '16px 20px', fontWeight: 800, color: '#475569', textAlign: 'right' }}>Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {filteredCatalogue.map(item => {
+                              const unitsList = item.units || [];
+                              const availableUnits = unitsList.filter((u: any) => u.status === 'available').length;
+                              return (
+                                <tr key={item.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                  <td style={{ padding: '16px 20px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                      <div style={{ width: '40px', height: '40px', background: '#f1f5f9', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px', overflow: 'hidden' }}>
+                                        {item.photo_url ? <img src={item.photo_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : (item.item_type === 'lease' ? '🛠️' : '📦')}
+                                      </div>
+                                      <div>
+                                        <div style={{ fontWeight: 800, color: '#1e293b' }}>{item.name}</div>
+                                        <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>Total stock: {item.total_stock}</div>
+                                      </div>
+                                    </div>
+                                  </td>
+                                  <td style={{ padding: '16px 20px', fontWeight: 700, color: '#475569' }}>{item.categories?.name || 'Uncategorized'}</td>
+                                  <td style={{ padding: '16px 20px', minWidth: '150px' }}>
+                                    {item.barcode_value ? <BarcodeSVG value={item.barcode_value} /> : '—'}
+                                  </td>
+                                  <td style={{ padding: '16px 20px' }}>
+                                    <span className={`bdg ${item.item_type === 'lease' ? 'bdg-b' : 'bdg-g'}`} style={{ fontSize: '10px', textTransform: 'uppercase' }}>
+                                      {item.item_type}
+                                    </span>
+                                  </td>
+                                  <td style={{ padding: '16px 20px' }}>
+                                    <div style={{ fontWeight: 800, color: availableUnits > 0 ? '#059669' : '#ef4444' }}>
+                                      {availableUnits} / {item.total_stock} Units
+                                    </div>
+                                  </td>
+                                  <td style={{ padding: '16px 20px', textAlign: 'right' }}>
+                                    <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
+                                      <button onClick={() => setSelectedProductDetail(item)} className="bsm s" style={{ fontSize: '11px', padding: '5px 12px', borderRadius: '8px' }}>View Detail</button>
+                                      <button onClick={() => setEditingItem(item)} className="bsm g" style={{ fontSize: '11px', padding: '5px 12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>Edit</button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
                       </div>
-                    );
-                  })}
-                </div>
+                    </div>
+                  )}
+
+                  {/* ③ BARCODES PRINT VIEW */}
+                  {viewMode === 'barcodes' && (
+                    <div style={{ background: '#fff', border: '1.5px solid #f1f5f9', borderRadius: '24px', padding: '28px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+                        <div>
+                          <h3 style={{ fontSize: '16px', fontWeight: 900, color: '#0f172a' }}>All Product SKU Barcodes</h3>
+                          <p style={{ fontSize: '12px', color: '#64748b' }}>Ready-to-print SKU sheets for product catalog shelves.</p>
+                        </div>
+                        <button onClick={() => window.print()} className="bsm dark" style={{ height: '38px', borderRadius: '10px' }}>
+                          <Printer size={13} /> Print Barcode Sheet
+                        </button>
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '14px' }}>
+                        {filteredCatalogue.map(item => (
+                          <div key={item.id} style={{ border: '1.5px solid #e2e8f0', borderRadius: '12px', padding: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
+                            <div style={{ fontSize: '9px', fontWeight: 900, color: 'var(--teal)', letterSpacing: '0.5px', textTransform: 'uppercase', marginBottom: '4px' }}>SKSSF POYANAD BRANCH</div>
+                            <div style={{ fontSize: '12px', fontWeight: 800, color: '#1e293b', height: '18px', overflow: 'hidden', width: '100%' }}>{item.name}</div>
+                            <div style={{ margin: '6px 0' }}>
+                              {item.barcode_value ? <BarcodeSVG value={item.barcode_value} /> : 'No Barcode'}
+                            </div>
+                            <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 700 }}>{item.categories?.name || 'General'}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
             </>
           )}
 
-          {/* ② CHECKOUTS LEDGER TAB */}
+          {/* ② BARCODE SCANNER TAB */}
+          {activeTab === 'scanner' && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '28px', alignItems: 'start' }} className="inv-2col">
+              
+              {/* Left Column: Viewfinder simulation */}
+              <div style={{ background: '#1e293b', borderRadius: '24px', padding: '28px', color: '#fff' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
+                  <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 900, letterSpacing: '-0.3px' }}>📷 Barcode Scanner</h3>
+                  <div className="inv-type-pills" style={{ display: 'flex', background: 'rgba(255,255,255,0.1)', padding: '3px', borderRadius: '10px' }}>
+                    <button onClick={() => { setScannerMode('checkout'); setScanLookupResult(null); }} style={{ padding: '6px 12px', fontSize: '11px', fontWeight: 800, border: 'none', borderRadius: '8px', cursor: 'pointer', background: scannerMode === 'checkout' ? 'var(--teal)' : 'transparent', color: '#fff' }}>Checkout</button>
+                    <button onClick={() => { setScannerMode('checkin'); setScanLookupResult(null); }} style={{ padding: '6px 12px', fontSize: '11px', fontWeight: 800, border: 'none', borderRadius: '8px', cursor: 'pointer', background: scannerMode === 'checkin' ? 'var(--teal)' : 'transparent', color: '#fff' }}>Check In</button>
+                  </div>
+                </div>
+
+                <div style={{ width: '100%', aspectRatio: '16/10', background: '#090d16', borderRadius: '16px', position: 'relative', overflow: 'hidden', border: '2px solid rgba(255,255,255,0.15)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                  <div style={{ width: '60%', height: '50%', border: '2px dashed rgba(27, 184, 154, 0.4)', borderRadius: '12px', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <div style={{ position: 'absolute', left: 0, width: '100%', height: '3px', background: '#1BB89A', boxShadow: '0 0 10px #1BB89A', animation: 'scanLineAnim 2s linear infinite' }} />
+                  </div>
+                  <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', marginTop: '16px', fontWeight: 700 }}>viewfinder active (getUserMedia)</span>
+
+                  <style>{`
+                    @keyframes scanLineAnim {
+                      0% { top: 10% }
+                      50% { top: 90% }
+                      100% { top: 10% }
+                    }
+                  `}</style>
+                </div>
+
+                <form onSubmit={handleBarcodeLookup} style={{ display: 'flex', gap: '8px', marginTop: '20px' }}>
+                  <input 
+                    type="text" 
+                    placeholder="Enter or scan barcode (SKSSF-2025-...)" 
+                    value={manualBarcode} 
+                    onChange={e => setManualBarcode(e.target.value)} 
+                    style={{ flex: 1, height: '44px', background: 'rgba(255,255,255,0.08)', border: '1.5px solid rgba(255,255,255,0.15)', borderRadius: '12px', color: '#fff', padding: '0 16px', fontFamily: 'monospace', fontSize: '13px', outline: 'none' }}
+                  />
+                  <button type="submit" className="bsm s" style={{ height: '44px', borderRadius: '12px', padding: '0 20px' }}>Lookup</button>
+                </form>
+
+                <div style={{ marginTop: '20px', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '16px' }}>
+                  <div style={{ fontSize: '11px', fontWeight: 800, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', marginBottom: '10px' }}>Simulate Scan Detection</div>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', maxHeight: '110px', overflowY: 'auto' }}>
+                    {items.flatMap(item => (item.units || []).slice(0, 2)).map((unit: any) => (
+                      <button 
+                        key={unit.id} 
+                        onClick={() => handleSelectQuickScan(unit.barcode_value)}
+                        style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.85)', padding: '5px 10px', borderRadius: '8px', fontSize: '11px', fontFamily: 'monospace', cursor: 'pointer' }}
+                      >
+                        {unit.barcode_value}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Right Column */}
+              <div style={{ background: '#fff', border: '1.5px solid #f1f5f9', borderRadius: '24px', padding: '28px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)' }}>
+                <h3 style={{ margin: '0 0 20px 0', fontSize: '18px', fontWeight: 900 }}>Scan Processing Details</h3>
+
+                {scannerMode === 'checkout' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '24px' }}>
+                    <div>
+                      <label className="fl2">Assign to Member *</label>
+                      <select 
+                        value={scannerMemberId} 
+                        onChange={e => setScannerMemberId(e.target.value)} 
+                        className="sel2" 
+                        style={{ width: '100%', height: '42px', borderRadius: '10px' }}
+                      >
+                        {members.map(m => <option key={m.id} value={m.id}>{m.name} ({m.membership_no || 'No Member No'})</option>)}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="fl2">Welfare Mission Package *</label>
+                      <select 
+                        value={scannerMission} 
+                        onChange={e => setScannerMission(e.target.value)} 
+                        className="sel2" 
+                        style={{ width: '100%', height: '42px', borderRadius: '10px' }}
+                      >
+                        <option value="General Distribution">General Distribution</option>
+                        <option value="Ramadan Welfare 2025">Ramadan Welfare 2025</option>
+                        <option value="Student Support Drive 2025">Student Support Drive 2025</option>
+                        <option value="Medical Relief Camp">Medical Relief Camp</option>
+                      </select>
+                    </div>
+                  </div>
+                )}
+
+                {scannerMode === 'checkin' && (
+                  <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '16px', border: '1px solid #f1f5f9', fontSize: '13px', color: '#475569', marginBottom: '24px', lineHeight: 1.5 }}>
+                    📌 <strong>Check In Mode</strong>: Scanning physical units automatically releases them back to warehouse storage and resolves their checkout records.
+                  </div>
+                )}
+
+                {scanError && (
+                  <div style={{ background: '#fef2f2', border: '1.5px solid #fee2e2', borderRadius: '16px', padding: '16px', display: 'flex', alignItems: 'center', gap: '10px', color: '#b91c1c', fontSize: '13px', fontWeight: 700, marginBottom: '20px' }}>
+                    <AlertTriangle size={16} /> {scanError}
+                  </div>
+                )}
+
+                {scanLookupResult ? (
+                  <div style={{ background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: '16px', padding: '20px' }}>
+                    <div style={{ fontSize: '10px', fontWeight: 800, color: 'var(--teal)', textTransform: 'uppercase', marginBottom: '4px' }}>
+                      Scanned Code Match Detected
+                    </div>
+                    <h4 style={{ margin: '0 0 6px 0', fontSize: '17px', fontWeight: 900 }}>{scanLookupResult.item.name}</h4>
+                    <div style={{ display: 'flex', gap: '8px', fontSize: '11px', fontFamily: 'monospace', color: '#64748b', marginBottom: '16px' }}>
+                      <span>SKU: {scanLookupResult.item.barcode_value}</span>
+                      {scanLookupResult.type === 'unit' && (
+                        <span style={{ color: 'var(--teal)', fontWeight: 800 }}>● Unit: {scanLookupResult.unit.barcode_value}</span>
+                      )}
+                    </div>
+
+                    <div style={{ marginBottom: '16px' }}>
+                      <label className="fl2">Operational Remarks / Condition notes</label>
+                      <input 
+                        type="text" 
+                        placeholder="E.g., pristine condition, repackaged..." 
+                        value={scanNotes}
+                        onChange={e => setScanNotes(e.target.value)}
+                        className="fi2" 
+                      />
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '10px' }}>
+                      <button onClick={() => setScanLookupResult(null)} style={{ flex: 1, height: '42px', border: '1.5px solid #e2e8f0', background: '#fff', borderRadius: '10px', fontSize: '12px', fontWeight: 800 }}>Cancel</button>
+                      <button 
+                        onClick={handleConfirmScannerAction} 
+                        disabled={scanSubmitting}
+                        className="bsm s" 
+                        style={{ flex: 1, height: '42px', borderRadius: '10px', fontSize: '12px' }}
+                      >
+                        {scanSubmitting ? 'Confirming...' : scannerMode === 'checkout' ? 'Confirm Checkout' : 'Confirm Check-in'}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ padding: '40px', border: '2px dashed #e2e8f0', borderRadius: '16px', textAlign: 'center', color: '#94a3b8' }}>
+                    <BarcodeIcon size={36} style={{ margin: '0 auto 10px', opacity: 0.3 }} />
+                    <div style={{ fontSize: '13px', fontWeight: 700 }}>Awaiting Barcode Scan Detection</div>
+                    <p style={{ fontSize: '11px', marginTop: '4px' }}>Scan a barcode or lookup manually to process checkout/check-in.</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ③ CURRENTLY CHECKED OUT TAB */}
           {activeTab === 'checkouts' && (
             <div className="card" style={{ padding: '28px', borderRadius: '24px', background: '#fff', border: '1.5px solid #f1f5f9', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)' }}>
               
@@ -901,50 +1411,52 @@ export default function Inventory() {
                   />
                 </div>
                 
-                <div className="inv-checkout-pills" style={{ display: 'flex', background: '#f1f5f9', padding: '4px', borderRadius: '12px' }}>
-                  {(['all', 'active', 'returned', 'overdue'] as const).map(status => (
-                    <button
-                      key={status}
-                      onClick={() => setCheckoutStatusFilter(status)}
-                      style={{
-                        padding: '8px 16px', fontSize: '12px', fontWeight: 800, border: 'none', borderRadius: '10px', cursor: 'pointer',
-                        background: checkoutStatusFilter === status ? '#fff' : 'transparent',
-                        color: checkoutStatusFilter === status ? '#0f172a' : '#64748b'
-                      }}
-                    >
-                      {status.toUpperCase()}
-                    </button>
-                  ))}
-                </div>
+                <select
+                  value={checkoutStatusFilter}
+                  onChange={(e) => setCheckoutStatusFilter(e.target.value as any)}
+                  className="sel2"
+                  style={{ width: '180px', height: '44px', borderRadius: '12px', fontSize: '13px' }}
+                >
+                  <option value="all">All Records</option>
+                  <option value="active">Active Checkouts</option>
+                  <option value="overdue">Overdue Loans</option>
+                  <option value="returned">Returned items</option>
+                </select>
               </div>
 
-              {/* Table */}
               {filteredCheckouts.length === 0 ? (
-                <div style={{ padding: '40px', textAlign: 'center', color: '#94a3b8', fontSize: '13.5px', fontWeight: 600 }}>No checkouts matches found.</div>
+                <div style={{ padding: '40px', textAlign: 'center', color: '#94a3b8', fontSize: '13.5px', fontWeight: 600 }}>
+                  No checkout matches found in ledger.
+                </div>
               ) : (
                 <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
                     <thead>
-                      <tr style={{ borderBottom: '2px solid #f1f5f9' }}>
-                        <th style={{ padding: '12px 14px', fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 900 }}>Member</th>
-                        <th style={{ padding: '12px 14px', fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 900 }}>Item details</th>
-                        <th style={{ padding: '12px 14px', fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 900 }}>Qty</th>
-                        <th style={{ padding: '12px 14px', fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 900 }}>Borrowed</th>
-                        <th style={{ padding: '12px 14px', fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 900 }}>Expected Return</th>
-                        <th style={{ padding: '12px 14px', fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 900, textAlign: 'center' }}>Status</th>
-                        <th style={{ padding: '12px 14px', fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 900, textAlign: 'right' }}>Actions</th>
+                      <tr style={{ borderBottom: '1.5px solid #f1f5f9', background: '#f8fafc' }}>
+                        <th style={{ padding: '14px', fontWeight: 800, color: '#475569' }}>Borrower</th>
+                        <th style={{ padding: '14px', fontWeight: 800, color: '#475569' }}>Item Details</th>
+                        <th style={{ padding: '14px', fontWeight: 800, color: '#475569' }}>Qty</th>
+                        <th style={{ padding: '14px', fontWeight: 800, color: '#475569' }}>Checkout Date</th>
+                        <th style={{ padding: '14px', fontWeight: 800, color: '#475569' }}>Expected Return</th>
+                        <th style={{ padding: '14px', fontWeight: 800, color: '#475569' }}>Days Out</th>
+                        <th style={{ padding: '14px', fontWeight: 800, color: '#475569', textAlign: 'center' }}>Status</th>
+                        <th style={{ padding: '14px', fontWeight: 800, color: '#475569', textAlign: 'right' }}>Actions</th>
                       </tr>
                     </thead>
                     <tbody>
                       {filteredCheckouts.map(c => {
                         const isOverdue = c.status === 'active' && c.due_return_date && new Date(c.due_return_date) < new Date();
+                        const daysOut = c.status === 'active' ? getDaysOut(c.checkout_date) : 0;
+                        const daysColor = daysOut > 30 ? '#dc2626' : daysOut > 14 ? '#d97706' : '#2563eb';
+
                         return (
                           <tr key={c.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                             <td style={{ padding: '16px 14px' }}>
-                              <div style={{ fontWeight: 800, color: '#0f172a' }}>{c.member?.name || 'Member Account'}</div>
+                              <div style={{ fontWeight: 800, color: '#0f172a' }}>{c.member?.name || 'Borrower'}</div>
+                              <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>{c.member?.membership_no || 'No Membership No'}</div>
                             </td>
                             <td style={{ padding: '16px 14px' }}>
-                              <div style={{ fontWeight: 800, color: '#0f172a' }}>{c.items?.name || 'Supply Item'}</div>
+                              <div style={{ fontWeight: 800, color: '#0f172a' }}>{c.items?.name || 'Loading Item...'}</div>
                               {c.unit?.barcode_value && (
                                 <div style={{ fontSize: '11.5px', color: 'var(--teal)', fontWeight: 800, fontFamily: 'monospace', marginTop: '4px' }}>
                                   Unit: {c.unit.barcode_value}
@@ -958,6 +1470,9 @@ export default function Inventory() {
                             </td>
                             <td style={{ padding: '16px 14px', fontSize: '13px', color: '#64748b' }}>
                               {c.due_return_date ? new Date(c.due_return_date).toLocaleDateString() : 'Permanent'}
+                            </td>
+                            <td style={{ padding: '16px 14px', fontWeight: 800, color: daysColor }}>
+                              {c.status === 'active' ? `${daysOut} Days` : '—'}
                             </td>
                             <td style={{ padding: '16px 14px', textAlign: 'center' }}>
                               <span style={{ 
@@ -974,6 +1489,15 @@ export default function Inventory() {
                             </td>
                             <td style={{ padding: '16px 14px', textAlign: 'right' }}>
                               <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', alignItems: 'center' }}>
+                                {c.status === 'active' && (
+                                  <button
+                                    onClick={() => handleQuickReturn(c.id, 'good')}
+                                    className="bsm s"
+                                    style={{ padding: '5px 12px', borderRadius: '8px', fontSize: '11px' }}
+                                  >
+                                    📥 Check In
+                                  </button>
+                                )}
                                 <button
                                   onClick={() => {
                                     setOverrideCondition((c.return_condition as any) || 'good');
@@ -988,7 +1512,7 @@ export default function Inventory() {
                                   }}
                                   title="Edit override / mark returned"
                                 >
-                                  <Edit2 size={11} /> Edit
+                                  <Edit2 size={11} /> Override
                                 </button>
                               </div>
                             </td>
@@ -1002,12 +1526,183 @@ export default function Inventory() {
             </div>
           )}
 
-          {/* ③ DAMAGE/LOSS REVIEW TAB */}
+          {/* ④ MISSION PACKAGES TAB */}
+          {activeTab === 'missions' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '28px' }}>
+              <div className="card" style={{ background: '#fff', border: '1.5px solid #f1f5f9', borderRadius: '24px', padding: '28px' }}>
+                <h3 style={{ fontSize: '18px', fontWeight: 900, marginBottom: '6px' }}>🎯 Welfare Mission Packages</h3>
+                <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '24px' }}>Track distributed items assigned under specific SKSSF support missions.</p>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '18px' }}>
+                  {[
+                    { name: 'Ramadan Welfare 2025', desc: 'Welfare food packs and prayer mats distributed for the holy month.', itemsCount: allCheckouts.filter(c => c.notes?.includes('Ramadan Welfare')).length },
+                    { name: 'Student Support Drive 2025', desc: 'Stationery kits and study sets allocated for Poyanad Branch students.', itemsCount: allCheckouts.filter(c => c.notes?.includes('Student Support')).length },
+                    { name: 'Medical Relief Camp', desc: 'First Aid boxes and healthcare supplies allocated to medical teams.', itemsCount: allCheckouts.filter(c => c.notes?.includes('Medical Relief')).length },
+                    { name: 'General Distribution', desc: 'Standard item distributions for local families and members.', itemsCount: allCheckouts.filter(c => !c.notes?.includes('Ramadan') && !c.notes?.includes('Student') && !c.notes?.includes('Medical')).length }
+                  ].map((mission, idx) => (
+                    <div key={idx} style={{ background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: '16px', padding: '20px', display: 'flex', flexDirection: 'column' }}>
+                      <div style={{ fontSize: '28px', marginBottom: '8px' }}>{idx === 0 ? '🌙' : idx === 1 ? '📚' : idx === 2 ? '🚑' : '🤝'}</div>
+                      <h4 style={{ fontSize: '15px', fontWeight: 800, color: '#0f172a', marginBottom: '6px' }}>{mission.name}</h4>
+                      <p style={{ fontSize: '12px', color: '#64748b', lineHeight: 1.45, flex: 1, marginBottom: '16px' }}>{mission.desc}</p>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #e2e8f0', paddingTop: '12px' }}>
+                        <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 800, textTransform: 'uppercase' }}>Items Dispatched</span>
+                        <strong style={{ fontSize: '16px', color: 'var(--teal)', fontWeight: 900 }}>{mission.itemsCount} Units</strong>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Detailed Mission Distribution log */}
+              <div className="card" style={{ background: '#fff', border: '1.5px solid #f1f5f9', borderRadius: '24px', padding: '28px' }}>
+                <h3 style={{ fontSize: '16px', fontWeight: 900, marginBottom: '16px' }}>Mission Allocations Ledger</h3>
+                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1.5px solid #e2e8f0', background: '#f8fafc' }}>
+                      <th style={{ padding: '12px 14px', fontWeight: 800 }}>Item Unit</th>
+                      <th style={{ padding: '12px 14px', fontWeight: 800 }}>Assigned Member</th>
+                      <th style={{ padding: '12px 14px', fontWeight: 800 }}>Welfare Mission</th>
+                      <th style={{ padding: '12px 14px', fontWeight: 800 }}>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {allCheckouts.map(c => {
+                      const isOverdue = c.status === 'active' && c.due_return_date && new Date(c.due_return_date) < new Date();
+                      let missionName = 'General Distribution';
+                      if (c.notes?.includes('Ramadan Welfare')) missionName = 'Ramadan Welfare 2025';
+                      else if (c.notes?.includes('Student Support')) missionName = 'Student Support Drive 2025';
+                      else if (c.notes?.includes('Medical Relief')) missionName = 'Medical Relief Camp';
+
+                      return (
+                        <tr key={c.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                          <td style={{ padding: '12px 14px' }}>
+                            <div style={{ fontWeight: 800 }}>{c.items?.name}</div>
+                            {c.unit?.barcode_value && <div style={{ fontSize: '11px', color: 'var(--teal)', fontFamily: 'monospace' }}>{c.unit.barcode_value}</div>}
+                          </td>
+                          <td style={{ padding: '12px 14px', fontWeight: 700 }}>{c.member?.name}</td>
+                          <td style={{ padding: '12px 14px', color: '#475569' }}>{missionName}</td>
+                          <td style={{ padding: '12px 14px' }}>
+                            <span style={{ 
+                              padding: '3px 8px', borderRadius: '50px', fontSize: '10px', fontWeight: 800,
+                              background: c.status === 'returned' ? '#e6fcf5' : isOverdue ? '#fff5f5' : '#e7f5ff',
+                              color: c.status === 'returned' ? '#0ca678' : isOverdue ? '#f03e3e' : '#1c7ed6'
+                            }}>{c.status === 'returned' ? 'Returned' : isOverdue ? 'Overdue' : 'Dispatched'}</span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* ⑤ REPORTS TAB */}
+          {activeTab === 'reports' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '28px' }}>
+              
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '18px' }} className="inv-grid">
+                <div style={{ background: '#fff', border: '1.5px solid #f1f5f9', borderRadius: '20px', padding: '20px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <span style={{ fontSize: '11px', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase' }}>Catalogue Items</span>
+                    <span style={{ fontSize: '20px' }}>📦</span>
+                  </div>
+                  <strong style={{ fontSize: '24px', fontWeight: 900, color: '#0f172a' }}>{items.length} Types</strong>
+                  <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>Total products registered</div>
+                </div>
+
+                <div style={{ background: '#fff', border: '1.5px solid #f1f5f9', borderRadius: '20px', padding: '20px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <span style={{ fontSize: '11px', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase' }}>Total Physical Units</span>
+                    <span style={{ fontSize: '20px' }}>🏷️</span>
+                  </div>
+                  <strong style={{ fontSize: '24px', fontWeight: 900, color: '#0f172a' }}>{items.reduce((acc, p) => acc + p.total_stock, 0)} Units</strong>
+                  <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>Barcoded items on catalog</div>
+                </div>
+
+                <div style={{ background: '#fff', border: '1.5px solid #f1f5f9', borderRadius: '20px', padding: '20px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <span style={{ fontSize: '11px', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase' }}>Active Leases</span>
+                    <span style={{ fontSize: '20px' }}>📤</span>
+                  </div>
+                  <strong style={{ fontSize: '24px', fontWeight: 900, color: '#0f172a' }}>{allCheckouts.filter(c => c.status === 'active').length} Out</strong>
+                  <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>Units held by members</div>
+                </div>
+
+                <div style={{ background: '#fff', border: '1.5px solid #f1f5f9', borderRadius: '20px', padding: '20px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <span style={{ fontSize: '11px', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase' }}>Damage Resolving</span>
+                    <span style={{ fontSize: '20px' }}>⚠️</span>
+                  </div>
+                  <strong style={{ fontSize: '24px', fontWeight: 900, color: '#0f172a' }}>{damageRecords.length} Flagged</strong>
+                  <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>Awaiting resolution reviews</div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fff', border: '1.5px solid #f1f5f9', borderRadius: '20px', padding: '20px 28px' }}>
+                <div>
+                  <h3 style={{ fontSize: '16px', fontWeight: 900 }}>Compile Workbook Reports</h3>
+                  <p style={{ fontSize: '12px', color: '#64748b' }}>Generate consolidated spreadsheet reports of all items, stock levels, and active checkout ledgers.</p>
+                </div>
+                <button onClick={handleExportExcel} className="bsm s" style={{ height: '44px', borderRadius: '12px', background: '#059669', border: 'none', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <FileSpreadsheet size={15} /> Export Reports to Excel
+                </button>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }} className="inv-2col">
+                <div className="card" style={{ background: '#fff', border: '1.5px solid #f1f5f9', borderRadius: '24px', padding: '24px' }}>
+                  <h3 style={{ fontSize: '16px', fontWeight: 900, marginBottom: '16px', color: '#dc2626' }}>⚠️ Low Stock Warnings</h3>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    {items.filter(item => item.available_stock <= 1).length === 0 ? (
+                      <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>All catalog stock levels are adequate.</div>
+                    ) : (
+                      items.filter(item => item.available_stock <= 1).map(item => (
+                        <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fff5f5', border: '1px solid #fee2e2', borderRadius: '12px', padding: '12px 16px' }}>
+                          <div>
+                            <strong style={{ fontSize: '13.5px', color: '#991b1b' }}>{item.name}</strong>
+                            <div style={{ fontSize: '11px', color: '#b91c1t', marginTop: '2px' }}>{item.categories?.name || 'General'}</div>
+                          </div>
+                          <span style={{ fontSize: '13px', fontWeight: 900, color: '#dc2626' }}>{item.available_stock} Left</span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                <div className="card" style={{ background: '#fff', border: '1.5px solid #f1f5f9', borderRadius: '24px', padding: '24px' }}>
+                  <h3 style={{ fontSize: '16px', fontWeight: 900, marginBottom: '16px' }}>👤 Member Holdings Summary</h3>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    {allCheckouts.filter(c => c.status === 'active').length === 0 ? (
+                      <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>No items are currently checked out by members.</div>
+                    ) : (
+                      Array.from(new Map(allCheckouts.filter(c => c.status === 'active' && c.member).map(c => [c.member_id, c.member])).values())
+                        .slice(0, 5)
+                        .map((mem: any) => {
+                          const holdCount = allCheckouts.filter(c => c.status === 'active' && c.member_id === mem.id).length;
+                          return (
+                            <div key={mem.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '12px 16px' }}>
+                              <div>
+                                <strong style={{ fontSize: '13.5px', color: '#0f172a' }}>{mem.name}</strong>
+                                <div style={{ fontSize: '11px', color: '#64748b' }}>{mem.membership_no || 'No Member No'}</div>
+                              </div>
+                              <span style={{ fontSize: '12.5px', fontWeight: 800, color: 'var(--teal)', background: '#e6fcf5', padding: '4px 10px', borderRadius: '8px' }}>{holdCount} items</span>
+                            </div>
+                          );
+                        })
+                    )}
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          )}
+
+          {/* ⑥ DAMAGE QUEUE TAB */}
           {activeTab === 'damage_review' && (
             <div className="card" style={{ padding: '28px', borderRadius: '24px', background: '#fff', border: '1.5px solid #f1f5f9', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px' }}>
                 <ClipboardList style={{ color: 'var(--teal)' }} size={20} />
-                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 900, color: '#0f172a' }}>Flagged Damage & Loss Review Queue</h3>
+                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 900, color: '#0f172a' }}>Flagged Damage &amp; Loss Review Queue</h3>
               </div>
 
               {damageRecords.length === 0 ? (
@@ -1016,14 +1711,14 @@ export default function Inventory() {
                 </div>
               ) : (
                 <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
                     <thead>
                       <tr style={{ borderBottom: '2px solid #f1f5f9', background: '#f8fafc' }}>
-                        <th style={{ padding: '12px 14px', fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 900 }}>Member</th>
-                        <th style={{ padding: '12px 14px', fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 900 }}>Item & Unit SKU</th>
-                        <th style={{ padding: '12px 14px', fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 900 }}>Observed Status</th>
-                        <th style={{ padding: '12px 14px', fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 900 }}>Damage Notes</th>
-                        <th style={{ padding: '12px 14px', fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 900, textAlign: 'right' }}>Resolution Options</th>
+                        <th style={{ padding: '12px 14px', fontWeight: 900 }}>Member</th>
+                        <th style={{ padding: '12px 14px', fontWeight: 900 }}>Item &amp; Unit SKU</th>
+                        <th style={{ padding: '12px 14px', fontWeight: 900 }}>Observed Status</th>
+                        <th style={{ padding: '12px 14px', fontWeight: 900 }}>Damage Notes</th>
+                        <th style={{ padding: '12px 14px', fontWeight: 900, textAlign: 'right' }}>Resolution Options</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1049,7 +1744,7 @@ export default function Inventory() {
                               {rec.return_condition}
                             </span>
                           </td>
-                          <td style={{ padding: '16px 14px', fontSize: '13px', color: '#475569' }}>
+                          <td style={{ padding: '16px 14px', color: '#475569' }}>
                             {rec.condition_notes || 'No remarks provided.'}
                           </td>
                           <td style={{ padding: '16px 14px', textAlign: 'right' }}>
@@ -1059,14 +1754,14 @@ export default function Inventory() {
                                 className="bsm s"
                                 style={{ padding: '6px 12px', fontSize: '11px', borderRadius: '8px' }}
                               >
-                                ✅ Restock / Repaired
+                                Repaired &amp; Restock
                               </button>
                               <button
                                 onClick={() => handleResolveDamageRecord(rec.id, 'writeoff')}
                                 className="bsm r"
                                 style={{ padding: '6px 12px', fontSize: '11px', borderRadius: '8px', background: '#fee2e2', color: '#ef4444' }}
                               >
-                                ❌ Write Off
+                                Write Off
                               </button>
                             </div>
                           </td>
@@ -1079,6 +1774,82 @@ export default function Inventory() {
             </div>
           )}
         </>
+      )}
+
+      {/* Product Detail Modal */}
+      {selectedProductDetail && (
+        <div className="ov" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, background: 'rgba(15, 23, 42, 0.4)' }}>
+          <div className="modal inv-modal" style={{ maxWidth: '800px', width: '95%', borderRadius: '24px', padding: '28px', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div className="modal-head" style={{ border: 'none', padding: '0 0 16px 0', marginBottom: '8px' }}>
+              <span className="modal-title" style={{ fontSize: '22px', fontWeight: 900 }}>{selectedProductDetail.name} Details</span>
+              <button onClick={() => setSelectedProductDetail(null)} className="modal-close"><X size={20} /></button>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '20px', marginBottom: '24px' }} className="inv-2col">
+              <div style={{ height: '180px', background: '#f8fafc', borderRadius: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '56px', overflow: 'hidden' }}>
+                {selectedProductDetail.photo_url ? (
+                  <img src={selectedProductDetail.photo_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                ) : (
+                  selectedProductDetail.item_type === 'lease' ? '🛠️' : '📦'
+                )}
+              </div>
+              <div>
+                <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--teal)', textTransform: 'uppercase', marginBottom: '4px' }}>{selectedProductDetail.categories?.name || 'General'}</div>
+                <h4 style={{ fontSize: '16px', fontWeight: 900, marginBottom: '6px' }}>{selectedProductDetail.name}</h4>
+                <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '12px' }}>{selectedProductDetail.description || 'No description provided.'}</p>
+                {selectedProductDetail.barcode_value && (
+                  <div style={{ display: 'inline-flex', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '10px', background: '#f8fafc' }}>
+                    <BarcodeSVG value={selectedProductDetail.barcode_value} />
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div>
+              <h4 style={{ fontSize: '14px', fontWeight: 900, marginBottom: '10px' }}>Physical Units Ledger</h4>
+              <div style={{ maxHeight: '250px', overflowY: 'auto', border: '1.5px solid #e2e8f0', borderRadius: '12px' }}>
+                {(selectedProductDetail.units || []).length === 0 ? (
+                  <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>No physical units tracked for this item.</div>
+                ) : (
+                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '12px' }}>
+                    <thead>
+                      <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                        <th style={{ padding: '8px 12px', fontWeight: 800 }}>Unit No</th>
+                        <th style={{ padding: '8px 12px', fontWeight: 800 }}>Unit barcode SKU</th>
+                        <th style={{ padding: '8px 12px', fontWeight: 800 }}>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(selectedProductDetail.units || []).map((u: any) => {
+                        let statusColor = '#059669';
+                        let statusBg = '#e6fcf5';
+                        if (u.status === 'checked_out') { statusColor = '#1c7ed6'; statusBg = '#e7f5ff'; }
+                        else if (u.status === 'damaged') { statusColor = '#f76707'; statusBg = '#fff4e6'; }
+                        else if (u.status === 'lost') { statusColor = '#fa5252'; statusBg = '#fff5f5'; }
+
+                        return (
+                          <tr key={u.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                            <td style={{ padding: '10px 12px', fontWeight: 800 }}>#{String(u.unit_number).padStart(2, '0')}</td>
+                            <td style={{ padding: '10px 12px', fontFamily: 'monospace', fontWeight: 600 }}>{u.barcode_value}</td>
+                            <td style={{ padding: '10px 12px' }}>
+                              <span style={{ padding: '3px 8px', borderRadius: '6px', fontSize: '10px', fontWeight: 900, textTransform: 'uppercase', background: statusBg, color: statusColor }}>
+                                {u.status}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+            
+            <div style={{ display: 'flex', gap: '10px', marginTop: '20px', justifyContent: 'flex-end' }}>
+              <button onClick={() => setSelectedProductDetail(null)} className="bsm s" style={{ height: '40px', borderRadius: '10px', padding: '0 24px' }}>Close</button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Add Item Modal */}
@@ -1209,7 +1980,7 @@ export default function Inventory() {
             <form onSubmit={handleEditItemSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <div>
                 <label className="fl2">Item Name *</label>
-                <input type="text" value={editingItem.name} onChange={e => setEditingItem({ ...editingItem, name: e.target.value })} className="fi2" required />
+                <input type="text" placeholder="E.g., Medical Aid Kit Type A" value={editingItem.name} onChange={e => setEditingItem({ ...editingItem, name: e.target.value })} className="fi2" required />
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }} className="inv-2col">
@@ -1219,19 +1990,27 @@ export default function Inventory() {
                     {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </select>
                 </div>
+                <div>
+                  <label className="fl2">Allocation Type *</label>
+                  <select value={editingItem.item_type} disabled className="sel2" style={{ width: '100%', opacity: 0.65 }}>
+                    <option value="lease">Lease / Return required</option>
+                    <option value="permanent">Permanent grant / Aid package</option>
+                  </select>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }} className="inv-2col">
+                <div>
+                  <label className="fl2">Stock Count (Total) *</label>
+                  <input type="number" min={0} disabled value={editingItem.total_stock} className="fi2" style={{ opacity: 0.65 }} />
+                  <span style={{ fontSize: '10.5px', color: '#64748b', marginTop: '2px', display: 'block' }}>Use Adjust Stock to change counts.</span>
+                </div>
                 {editingItem.item_type === 'lease' && (
                   <div>
                     <label className="fl2">Lease Limit (Days)</label>
                     <input type="number" min={1} value={editingItem.lease_duration_days || 30} onChange={e => setEditingItem({ ...editingItem, lease_duration_days: Number(e.target.value) })} className="fi2" required />
                   </div>
                 )}
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }} className="inv-2col">
-                <div>
-                  <label className="fl2">Total Stock Count *</label>
-                  <input type="number" min={0} value={editingItem.total_stock} onChange={e => setEditingItem({ ...editingItem, total_stock: Number(e.target.value) })} className="fi2" required />
-                </div>
               </div>
 
               <div>
@@ -1270,7 +2049,7 @@ export default function Inventory() {
 
               <div>
                 <label className="fl2">Internal Description</label>
-                <textarea value={editingItem.description || ''} onChange={e => setEditingItem({ ...editingItem, description: e.target.value })} className="ta2" rows={2} />
+                <textarea placeholder="Write detail specifications or logistics guidelines..." value={editingItem.description || ''} onChange={e => setEditingItem({ ...editingItem, description: e.target.value })} className="ta2" rows={2} />
               </div>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: '4px 0' }}>
@@ -1281,12 +2060,13 @@ export default function Inventory() {
                   onChange={e => setEditingItem({ ...editingItem, public_visible: e.target.checked })} 
                   style={{ width: '18px', height: '18px', accentColor: 'var(--teal)', cursor: 'pointer' }}
                 />
-                <label htmlFor="edit-pub-visible" style={{ fontSize: '13px', fontWeight: 700, color: '#334155', cursor: 'pointer' }}>Visible in Public Catalog</label>
+                <label htmlFor="edit-pub-visible" style={{ fontSize: '13px', fontWeight: 700, color: '#334155', cursor: 'pointer' }}>Make visible in Public Catalog</label>
               </div>
 
               <div>
                 <label className="fl2">Public Catalog Description</label>
                 <textarea 
+                  placeholder="Specifications displayed on the public browsing portal..." 
                   value={editingItem.public_description || ''} 
                   onChange={e => setEditingItem({ ...editingItem, public_description: e.target.value })} 
                   className="ta2" 
@@ -1297,7 +2077,7 @@ export default function Inventory() {
               <div style={{ display: 'flex', gap: '10px', marginTop: '12px' }}>
                 <button type="button" onClick={() => setEditingItem(null)} style={{ flex: 1, height: '44px', border: '1.5px solid #e2e8f0', background: '#fff', borderRadius: '12px', fontWeight: 800 }}>Cancel</button>
                 <button type="submit" disabled={formSubmitting} className="bsm s" style={{ flex: 1, height: '44px', borderRadius: '12px' }}>
-                  {formSubmitting ? 'Saving...' : 'Save Product'}
+                  {formSubmitting ? 'Saving...' : 'Save Product Details'}
                 </button>
               </div>
             </form>
@@ -1308,32 +2088,46 @@ export default function Inventory() {
       {/* Adjust Stock Modal */}
       {adjustingItem && (
         <div className="ov" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, background: 'rgba(15, 23, 42, 0.4)' }}>
-          <div className="modal inv-modal" style={{ maxWidth: '440px', width: '90%', borderRadius: '24px', padding: '28px', animation: 'slideUp 0.25s ease' }}>
+          <div className="modal inv-modal" style={{ maxWidth: '440px', width: '90%', borderRadius: '24px', padding: '28px', animation: 'slideUp 0.2s ease' }}>
             <div className="modal-head" style={{ border: 'none', padding: '0 0 16px 0', marginBottom: '8px' }}>
-              <span className="modal-title" style={{ fontSize: '20px', fontWeight: 900 }}>Adjust Supply Stock</span>
+              <span className="modal-title" style={{ fontSize: '20px', fontWeight: 900 }}>Adjust Stock Levels</span>
               <button onClick={() => setAdjustingItem(null)} className="modal-close"><X size={20} /></button>
             </div>
             
             <form onSubmit={handleAdjustStockSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <div style={{ padding: '12px', background: '#f8fafc', borderRadius: '12px', fontSize: '13px' }}>
-                <div><b>Product:</b> {adjustingItem.name}</div>
-                <div><b>Current Available:</b> {adjustingItem.available_stock} Units</div>
+              <div style={{ background: '#f8fafc', padding: '14px', borderRadius: '12px', border: '1.5px solid #e2e8f0', fontSize: '13px', color: '#475569' }}>
+                <strong>Product:</strong> {adjustingItem.name} <br />
+                <strong>Current Stock Count:</strong> {adjustingItem.available_stock} Units
               </div>
 
               <div>
                 <label className="fl2">New Available Stock Count *</label>
-                <input type="number" min={0} value={adjustNewStock} onChange={e => setAdjustNewStock(Number(e.target.value))} className="fi2" required />
+                <input 
+                  type="number" 
+                  min={0} 
+                  value={adjustNewStock} 
+                  onChange={e => setAdjustNewStock(Number(e.target.value))} 
+                  className="fi2" 
+                  required 
+                />
               </div>
 
               <div>
-                <label className="fl2">Adjustment Reason *</label>
-                <textarea placeholder="E.g., Stock reconciliation, physical inventory audit, damaged kit deduction..." value={adjustReason} onChange={e => setAdjustReason(e.target.value)} className="ta2" rows={3} required />
+                <label className="fl2">Reason for adjustment *</label>
+                <textarea 
+                  placeholder="E.g., damaged in transit, supplier correction..." 
+                  value={adjustReason} 
+                  onChange={e => setAdjustReason(e.target.value)} 
+                  className="ta2" 
+                  rows={3} 
+                  required
+                />
               </div>
 
               <div style={{ display: 'flex', gap: '10px', marginTop: '12px' }}>
-                <button type="button" onClick={() => setAdjustingItem(null)} style={{ flex: 1, height: '44px', border: '1.5px solid #e2e8f0', background: '#fff', borderRadius: '12px', fontWeight: 800 }}>Cancel</button>
-                <button type="submit" disabled={formSubmitting} className="bsm s" style={{ flex: 1, height: '44px', borderRadius: '12px' }}>
-                  {formSubmitting ? 'Adjusting...' : 'Save Stock'}
+                <button type="button" onClick={() => setAdjustingItem(null)} style={{ flex: 1, height: '42px', border: '1.5px solid #e2e8f0', background: '#fff', borderRadius: '12px', fontWeight: 800 }}>Cancel</button>
+                <button type="submit" disabled={formSubmitting} className="bsm s" style={{ flex: 1, height: '42px', borderRadius: '12px' }}>
+                  {formSubmitting ? 'Adjusting...' : 'Apply Adjustments'}
                 </button>
               </div>
             </form>
@@ -1341,38 +2135,43 @@ export default function Inventory() {
         </div>
       )}
 
-      {/* Force Return Override Modal */}
+      {/* Override Checkout Modal */}
       {overrideCheckout && (
         <div className="ov" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, background: 'rgba(15, 23, 42, 0.4)' }}>
-          <div className="modal inv-modal" style={{ maxWidth: '440px', width: '90%', borderRadius: '24px', padding: '28px', animation: 'slideUp 0.25s ease' }}>
+          <div className="modal inv-modal" style={{ maxWidth: '480px', width: '90%', borderRadius: '24px', padding: '28px', animation: 'slideUp 0.25s ease' }}>
             <div className="modal-head" style={{ border: 'none', padding: '0 0 16px 0', marginBottom: '8px' }}>
-              <span className="modal-title" style={{ fontSize: '20px', fontWeight: 900 }}>Force Return Override</span>
+              <span className="modal-title" style={{ fontSize: '18px', fontWeight: 900 }}>Override Checkout Details</span>
               <button onClick={() => setOverrideCheckout(null)} className="modal-close"><X size={20} /></button>
             </div>
             
             <form onSubmit={handleOverrideSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <div style={{ padding: '12px', background: '#f8fafc', borderRadius: '12px', fontSize: '13px' }}>
+              <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '14px', border: '1.5px solid #e2e8f0', fontSize: '13px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
                 <div><b>Borrower:</b> {overrideCheckout.member?.name}</div>
-                <div><b>Item:</b> {overrideCheckout.items?.name}</div>
+                <div><b>Product:</b> {overrideCheckout.items?.name}</div>
                 {overrideCheckout.unit?.barcode_value && (
                   <div><b>Unit Barcode:</b> <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{overrideCheckout.unit.barcode_value}</span></div>
                 )}
-                <div><b>Borrowed Qty:</b> {overrideCheckout.quantity} Units</div>
+                <div><b>Checkout Date:</b> {overrideCheckout.checkout_date}</div>
               </div>
 
               <div>
-                <label className="fl2">Observed Condition upon return</label>
-                <select value={overrideCondition} onChange={e => setOverrideCondition(e.target.value as any)} className="sel2" style={{ width: '100%', height: '44px', borderRadius: '12px' }}>
-                  <option value="good">Good Condition (Adds back to available stock)</option>
-                  <option value="damaged">Damaged (Does not add back to stock)</option>
-                  <option value="lost">Lost / Misplaced (Does not add back to stock)</option>
+                <label className="fl2">Return Condition *</label>
+                <select value={overrideCondition} onChange={e => setOverrideCondition(e.target.value as any)} className="sel2" style={{ width: '100%' }}>
+                  <option value="good">Good / Repackaged</option>
+                  <option value="damaged">Damaged unit storage</option>
+                  <option value="lost">Lost / Unreturned writeoff</option>
                 </select>
               </div>
 
               <div>
-                <label className="fl2">Return Condition Remarks / Notes</label>
+                <label className="fl2">Actual Return Date *</label>
+                <input type="date" value={overrideDate} onChange={e => setOverrideDate(e.target.value)} className="fi2" required />
+              </div>
+
+              <div>
+                <label className="fl2">Condition remarks &amp; notes</label>
                 <textarea 
-                  placeholder="Specify details if item is damaged, contents lost, or specify return location..." 
+                  placeholder="Explain condition anomalies, lost writeoffs, or repair comments..." 
                   value={overrideNotes} 
                   onChange={e => setOverrideNotes(e.target.value)} 
                   className="ta2" 
@@ -1380,15 +2179,10 @@ export default function Inventory() {
                 />
               </div>
 
-              <div>
-                <label className="fl2">Record Return Date</label>
-                <input type="date" value={overrideDate} onChange={e => setOverrideDate(e.target.value)} className="fi2" required />
-              </div>
-
               <div style={{ display: 'flex', gap: '10px', marginTop: '12px' }}>
-                <button type="button" onClick={() => setOverrideCheckout(null)} style={{ flex: 1, height: '44px', border: '1.5px solid #e2e8f0', background: '#fff', borderRadius: '12px', fontWeight: 800 }}>Cancel</button>
-                <button type="submit" disabled={formSubmitting} className="bsm s" style={{ flex: 1, height: '44px', borderRadius: '12px' }}>
-                  {formSubmitting ? 'Overriding...' : 'Save Override'}
+                <button type="button" onClick={() => setOverrideCheckout(null)} style={{ flex: 1, height: '42px', border: '1.5px solid #e2e8f0', background: '#fff', borderRadius: '12px', fontWeight: 800 }}>Cancel</button>
+                <button type="submit" disabled={formSubmitting} className="bsm s" style={{ flex: 1, height: '42px', borderRadius: '12px' }}>
+                  {formSubmitting ? 'Applying...' : 'Save Override Record'}
                 </button>
               </div>
             </form>
@@ -1396,7 +2190,7 @@ export default function Inventory() {
         </div>
       )}
 
-      {/* Categories Management Modal */}
+      {/* Categories modal */}
       {showCategoryModal && (
         <div className="ov" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, background: 'rgba(15, 23, 42, 0.4)' }}>
           <div className="modal inv-modal" style={{ maxWidth: '520px', width: '90%', borderRadius: '24px', padding: '28px', animation: 'slideUp 0.25s ease' }}>
@@ -1406,7 +2200,6 @@ export default function Inventory() {
             </div>
             
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-              {/* Add category form */}
               <form onSubmit={handleAddCategory} style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
                 <div style={{ flex: 1 }}>
                   <label className="fl2">New Category Name</label>
@@ -1417,7 +2210,6 @@ export default function Inventory() {
                 </button>
               </form>
 
-              {/* Category list */}
               <div style={{ maxHeight: '260px', overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: '12px' }}>
                 {categories.length === 0 ? (
                   <div style={{ padding: '16px', color: '#94a3b8', textAlign: 'center' }}>No categories created.</div>
