@@ -168,6 +168,8 @@ export default function Inventory() {
   const [adjustingItem, setAdjustingItem] = useState<InventoryItem | null>(null);
   const [overrideCheckout, setOverrideCheckout] = useState<CheckoutRecord | null>(null);
   const [selectedProductDetail, setSelectedProductDetail] = useState<InventoryItem | null>(null);
+  const [selectedMissionDetail, setSelectedMissionDetail] = useState<any | null>(null);
+  const [printJob, setPrintJob] = useState<{ type: 'single' | 'all'; item?: InventoryItem } | null>(null);
 
   // Missions & Bundling State
   const [showCreateMissionModal, setShowCreateMissionModal] = useState(false);
@@ -358,6 +360,16 @@ export default function Inventory() {
       setSelectedDetailTab('units');
     }
   }, [selectedProductDetail]);
+
+  useEffect(() => {
+    if (printJob) {
+      const timer = setTimeout(() => {
+        window.print();
+        setPrintJob(null);
+      }, 600);
+      return () => clearTimeout(timer);
+    }
+  }, [printJob]);
 
   // Handle Add Item
   const handleAddItemSubmit = async (e: React.FormEvent) => {
@@ -1351,7 +1363,7 @@ export default function Inventory() {
                                 <button 
                                   className="cc-hover-btn" 
                                   style={{ background: 'rgba(255,255,255,.15)', color: '#fff' }}
-                                  onClick={(e) => { e.stopPropagation(); setSelectedProductDetail(item); }}
+                                  onClick={(e) => { e.stopPropagation(); setPrintJob({ type: 'single', item }); }}
                                 >
                                   🖨 Print Labels
                                 </button>
@@ -1380,7 +1392,7 @@ export default function Inventory() {
                                   <button 
                                     className="cc-bc-action" 
                                     title="Print Labels"
-                                    onClick={(e) => { e.stopPropagation(); setSelectedProductDetail(item); }}
+                                    onClick={(e) => { e.stopPropagation(); setPrintJob({ type: 'single', item }); }}
                                   >
                                     🖨
                                   </button>
@@ -1534,7 +1546,7 @@ export default function Inventory() {
                 </div>
                 <button 
                   type="button" 
-                  onClick={() => window.print()} 
+                  onClick={() => setPrintJob({ type: 'all' })} 
                   style={{ height: '42px', padding: '0 20px', background: '#1A1F2E', color: '#fff', borderRadius: '50px', border: 'none', fontWeight: 800, fontSize: '13.5px', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}
                 >
                   <Printer size={16} /> Print All
@@ -1578,7 +1590,7 @@ export default function Inventory() {
                         </button>
                         <button 
                           type="button" 
-                          onClick={() => setSelectedProductDetail(item)}
+                          onClick={() => setPrintJob({ type: 'single', item })}
                           style={{ height: '36px', padding: '0 16px', background: 'var(--teal)', color: '#fff', borderRadius: '50px', border: 'none', fontWeight: 800, fontSize: '12px', cursor: 'pointer' }}
                         >
                           🖨️ Print Labels
@@ -1657,7 +1669,6 @@ export default function Inventory() {
             </div>
           )}
 
-          {/* ② BARCODE SCANNER TAB */}
           {activeTab === 'scanner' && (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '28px', alignItems: 'start' }} className="inv-2col">
               
@@ -1665,10 +1676,51 @@ export default function Inventory() {
               <div style={{ background: '#1e293b', borderRadius: '24px', padding: '28px', color: '#fff' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
                   <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 900, letterSpacing: '-0.3px' }}>📷 Barcode Scanner</h3>
-                  <div className="inv-type-pills" style={{ display: 'flex', background: 'rgba(255,255,255,0.1)', padding: '3px', borderRadius: '10px' }}>
-                    <button onClick={() => { setScannerMode('checkout'); setScanLookupResult(null); }} style={{ padding: '6px 12px', fontSize: '11px', fontWeight: 800, border: 'none', borderRadius: '8px', cursor: 'pointer', background: scannerMode === 'checkout' ? 'var(--teal)' : 'transparent', color: '#fff' }}>Checkout</button>
-                    <button onClick={() => { setScannerMode('checkin'); setScanLookupResult(null); }} style={{ padding: '6px 12px', fontSize: '11px', fontWeight: 800, border: 'none', borderRadius: '8px', cursor: 'pointer', background: scannerMode === 'checkin' ? 'var(--teal)' : 'transparent', color: '#fff' }}>Check In</button>
-                  </div>
+                </div>
+
+                <div className="scan-mode-btns" style={{ display: 'flex', gap: '8px', marginBottom: '18px' }}>
+                  <button 
+                    onClick={() => { setScannerMode('checkout'); setScanLookupResult(null); }} 
+                    style={{ 
+                      flex: 1, 
+                      padding: '12px', 
+                      borderRadius: '12px', 
+                      border: '1.5px solid rgba(255,255,255,0.15)', 
+                      background: scannerMode === 'checkout' ? 'var(--teal)' : 'transparent', 
+                      color: '#fff', 
+                      fontSize: '13px', 
+                      fontWeight: 800, 
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '6px'
+                    }}
+                  >
+                    📤 Check-Out Mode
+                  </button>
+                  <button 
+                    onClick={() => { setScannerMode('checkin'); setScanLookupResult(null); }} 
+                    style={{ 
+                      flex: 1, 
+                      padding: '12px', 
+                      borderRadius: '12px', 
+                      border: '1.5px solid rgba(255,255,255,0.15)', 
+                      background: scannerMode === 'checkin' ? 'var(--teal)' : 'transparent', 
+                      color: '#fff', 
+                      fontSize: '13px', 
+                      fontWeight: 800, 
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '6px'
+                    }}
+                  >
+                    📥 Check-In Mode
+                  </button>
                 </div>
 
                 <div style={{ width: '100%', aspectRatio: '16/10', background: '#090d16', borderRadius: '16px', position: 'relative', overflow: 'hidden', border: '2px solid rgba(255,255,255,0.15)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
@@ -1700,13 +1752,16 @@ export default function Inventory() {
                 <div style={{ marginTop: '20px', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '16px' }}>
                   <div style={{ fontSize: '11px', fontWeight: 800, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', marginBottom: '10px' }}>Simulate Scan Detection</div>
                   <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', maxHeight: '110px', overflowY: 'auto' }}>
-                    {items.flatMap(item => (item.units || []).slice(0, 2)).map((unit: any) => (
+                    {items.flatMap(item => (item.units || []).slice(0, 3).map((unit: any) => ({
+                      barcode: unit.barcode_value,
+                      label: `${item.name.split(' ')[0]} (${unit.barcode_value.split('-').pop() || unit.barcode_value})`
+                    }))).map((sim, idx) => (
                       <button 
-                        key={unit.id} 
-                        onClick={() => handleSelectQuickScan(unit.barcode_value)}
-                        style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.85)', padding: '5px 10px', borderRadius: '8px', fontSize: '11px', fontFamily: 'monospace', cursor: 'pointer' }}
+                        key={idx} 
+                        onClick={() => handleSelectQuickScan(sim.barcode)}
+                        style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.85)', padding: '6px 12px', borderRadius: '8px', fontSize: '11px', fontFamily: 'monospace', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
                       >
-                        {unit.barcode_value}
+                        ⚡ {sim.label}
                       </button>
                     ))}
                   </div>
@@ -1717,42 +1772,6 @@ export default function Inventory() {
               <div style={{ background: '#fff', border: '1.5px solid #f1f5f9', borderRadius: '24px', padding: '28px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)' }}>
                 <h3 style={{ margin: '0 0 20px 0', fontSize: '18px', fontWeight: 900 }}>Scan Processing Details</h3>
 
-                {scannerMode === 'checkout' && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '24px' }}>
-                    <div>
-                      <label className="fl2">Assign to Member *</label>
-                      <select 
-                        value={scannerMemberId} 
-                        onChange={e => setScannerMemberId(e.target.value)} 
-                        className="sel2" 
-                        style={{ width: '100%', height: '42px', borderRadius: '10px' }}
-                      >
-                        {members.map(m => <option key={m.id} value={m.id}>{m.name} ({m.membership_no || 'No Member No'})</option>)}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="fl2">Welfare Mission Package *</label>
-                      <select 
-                        value={scannerMission} 
-                        onChange={e => setScannerMission(e.target.value)} 
-                        className="sel2" 
-                        style={{ width: '100%', height: '42px', borderRadius: '10px' }}
-                      >
-                        {missionsList.map(m => (
-                          <option key={m.id} value={m.name}>{m.name}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                )}
-
-                {scannerMode === 'checkin' && (
-                  <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '16px', border: '1px solid #f1f5f9', fontSize: '13px', color: '#475569', marginBottom: '24px', lineHeight: 1.5 }}>
-                    📌 <strong>Check In Mode</strong>: Scanning physical units automatically releases them back to warehouse storage and resolves their checkout records.
-                  </div>
-                )}
-
                 {scanError && (
                   <div style={{ background: '#fef2f2', border: '1.5px solid #fee2e2', borderRadius: '16px', padding: '16px', display: 'flex', alignItems: 'center', gap: '10px', color: '#b91c1c', fontSize: '13px', fontWeight: 700, marginBottom: '20px' }}>
                     <AlertTriangle size={16} /> {scanError}
@@ -1760,41 +1779,200 @@ export default function Inventory() {
                 )}
 
                 {scanLookupResult ? (
-                  <div style={{ background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: '16px', padding: '20px' }}>
-                    <div style={{ fontSize: '10px', fontWeight: 800, color: 'var(--teal)', textTransform: 'uppercase', marginBottom: '4px' }}>
-                      Scanned Code Match Detected
-                    </div>
-                    <h4 style={{ margin: '0 0 6px 0', fontSize: '17px', fontWeight: 900 }}>{scanLookupResult.item.name}</h4>
-                    <div style={{ display: 'flex', gap: '8px', fontSize: '11px', fontFamily: 'monospace', color: '#64748b', marginBottom: '16px' }}>
-                      <span>SKU: {scanLookupResult.item.barcode_value}</span>
-                      {scanLookupResult.type === 'unit' && (
-                        <span style={{ color: 'var(--teal)', fontWeight: 800 }}>● Unit: {scanLookupResult.unit.barcode_value}</span>
-                      )}
-                    </div>
+                  (() => {
+                    const item = scanLookupResult.item;
+                    const isUnit = scanLookupResult.type === 'unit';
+                    const unit = scanLookupResult.unit;
+                    const totalStock = item.total_stock || 0;
+                    const availableStock = item.available_stock || 0;
+                    const outStock = totalStock - availableStock;
+                    const emoji = getProductEmoji(item.name, item.categories?.name || '');
 
-                    <div style={{ marginBottom: '16px' }}>
-                      <label className="fl2">Operational Remarks / Condition notes</label>
-                      <input 
-                        type="text" 
-                        placeholder="E.g., pristine condition, repackaged..." 
-                        value={scanNotes}
-                        onChange={e => setScanNotes(e.target.value)}
-                        className="fi2" 
-                      />
-                    </div>
+                    return (
+                      <div style={{ background: '#E6FCF5', border: '1.5px solid #c3fae8', borderRadius: '20px', padding: '24px', position: 'relative' }}>
+                        
+                        {/* Header info */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '20px', justifyContent: 'space-between' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <span style={{ fontSize: '32px' }}>{emoji}</span>
+                            <div>
+                              <h4 style={{ margin: 0, fontSize: '18px', fontWeight: 900, color: '#0CA678' }}>
+                                {item.name}
+                              </h4>
+                              <div style={{ fontSize: '11px', fontFamily: 'monospace', color: '#64748b', marginTop: '2px' }}>
+                                SKU: {item.barcode_value}
+                                {isUnit && (
+                                  <span style={{ color: 'var(--teal)', fontWeight: 800, marginLeft: '6px' }}>
+                                    • Unit: {unit.barcode_value}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          
+                          <span style={{ 
+                            padding: '4px 10px', 
+                            borderRadius: '50px', 
+                            background: '#C3FAE8', 
+                            color: '#0CA678', 
+                            fontSize: '11px', 
+                            fontWeight: 900 
+                          }}>
+                            {availableStock} available
+                          </span>
+                        </div>
 
-                    <div style={{ display: 'flex', gap: '10px' }}>
-                      <button onClick={() => setScanLookupResult(null)} style={{ flex: 1, height: '42px', border: '1.5px solid #e2e8f0', background: '#fff', borderRadius: '10px', fontSize: '12px', fontWeight: 800 }}>Cancel</button>
-                      <button 
-                        onClick={handleConfirmScannerAction} 
-                        disabled={scanSubmitting}
-                        className="bsm s" 
-                        style={{ flex: 1, height: '42px', borderRadius: '10px', fontSize: '12px' }}
-                      >
-                        {scanSubmitting ? 'Confirming...' : scannerMode === 'checkout' ? 'Confirm Checkout' : 'Confirm Check-in'}
-                      </button>
-                    </div>
-                  </div>
+                        {/* Stats grid */}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginBottom: '24px' }}>
+                          <div style={{ background: 'rgba(0,0,0,0.03)', borderRadius: '12px', padding: '12px', textAlign: 'center' }}>
+                            <div style={{ fontSize: '20px', fontWeight: 900, fontFamily: 'Playfair Display, serif', color: '#1e293b' }}>{totalStock}</div>
+                            <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px', fontWeight: 700 }}>Total</div>
+                          </div>
+                          <div style={{ background: '#d3f9d8', borderRadius: '12px', padding: '12px', textAlign: 'center' }}>
+                            <div style={{ fontSize: '20px', fontWeight: 900, fontFamily: 'Playfair Display, serif', color: '#2b8a3e' }}>{availableStock}</div>
+                            <div style={{ fontSize: '11px', color: '#2b8a3e', marginTop: '2px', fontWeight: 700 }}>Available</div>
+                          </div>
+                          <div style={{ background: '#e7f5ff', borderRadius: '12px', padding: '12px', textAlign: 'center' }}>
+                            <div style={{ fontSize: '20px', fontWeight: 900, fontFamily: 'Playfair Display, serif', color: '#1c7ed6' }}>{outStock}</div>
+                            <div style={{ fontSize: '11px', color: '#1c7ed6', marginTop: '2px', fontWeight: 700 }}>Out</div>
+                          </div>
+                        </div>
+
+                        {/* Processing form fields */}
+                        {scannerMode === 'checkout' ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '24px' }}>
+                            <div>
+                              <label className="fl2" style={{ color: '#2b2d42', fontWeight: 700 }}>Select Member *</label>
+                              <select 
+                                value={scannerMemberId} 
+                                onChange={e => setScannerMemberId(e.target.value)} 
+                                className="sel2" 
+                                style={{ width: '100%', height: '42px', borderRadius: '10px', border: '1px solid #c3fae8', background: '#fff' }}
+                              >
+                                <option value="">Choose member...</option>
+                                {members.map(m => <option key={m.id} value={m.id}>{m.name} ({m.membership_no || 'No Member No'})</option>)}
+                              </select>
+                            </div>
+
+                            <div>
+                              <label className="fl2" style={{ color: '#2b2d42', fontWeight: 700 }}>Welfare Mission Package *</label>
+                              <select 
+                                value={scannerMission} 
+                                onChange={e => setScannerMission(e.target.value)} 
+                                className="sel2" 
+                                style={{ width: '100%', height: '42px', borderRadius: '10px', border: '1px solid #c3fae8', background: '#fff' }}
+                              >
+                                {missionsList.map(m => (
+                                  <option key={m.id} value={m.name}>{m.name}</option>
+                                ))}
+                              </select>
+                            </div>
+                            
+                            <div>
+                              <label className="fl2" style={{ color: '#2b2d42', fontWeight: 700 }}>Notes / Remarks (Optional)</label>
+                              <input 
+                                type="text" 
+                                placeholder="E.g. pristine condition..." 
+                                value={scanNotes}
+                                onChange={e => setScanNotes(e.target.value)}
+                                className="fi2" 
+                                style={{ border: '1px solid #c3fae8', background: '#fff' }}
+                              />
+                            </div>
+                          </div>
+                        ) : (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '24px' }}>
+                            <div style={{ background: 'rgba(12, 166, 120, 0.08)', padding: '12px 16px', borderRadius: '12px', border: '1px solid rgba(12, 166, 120, 0.2)', fontSize: '13px', color: '#0ca678' }}>
+                              <strong>Check In Return Match</strong>: Mark unit barcode <code>{unit?.barcode_value}</code> as returned and available.
+                            </div>
+                            
+                            {unit?.current_checkout?.member && (
+                              <div style={{ fontSize: '13px', color: '#334155' }}>
+                                Borrowed by: <strong>{unit.current_checkout.member.name}</strong> ({unit.current_checkout.member.membership_no || 'No Member No'})
+                              </div>
+                            )}
+
+                            <div>
+                              <label className="fl2" style={{ color: '#2b2d42', fontWeight: 700 }}>Notes / Return Condition (Optional)</label>
+                              <input 
+                                type="text" 
+                                placeholder="E.g., returned in good condition..." 
+                                value={scanNotes}
+                                onChange={e => setScanNotes(e.target.value)}
+                                className="fi2" 
+                                style={{ border: '1px solid #c3fae8', background: '#fff' }}
+                              />
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Actions */}
+                        <div style={{ display: 'flex', gap: '10px' }}>
+                          <button 
+                            onClick={() => setScanLookupResult(null)} 
+                            style={{ 
+                              flex: 1, 
+                              height: '44px', 
+                              border: '1.5px solid #c3fae8', 
+                              background: '#fff', 
+                              color: '#0ca678', 
+                              borderRadius: '50px', 
+                              fontSize: '12px', 
+                              fontWeight: 800,
+                              cursor: 'pointer' 
+                            }}
+                          >
+                            Cancel
+                          </button>
+                          <button 
+                            onClick={handleConfirmScannerAction} 
+                            disabled={scanSubmitting || (scannerMode === 'checkout' && !scannerMemberId)}
+                            className="bsm s" 
+                            style={{ 
+                              flex: 2, 
+                              height: '44px', 
+                              borderRadius: '50px', 
+                              fontSize: '12px', 
+                              background: 'var(--teal)', 
+                              color: '#fff',
+                              border: 'none',
+                              fontWeight: 800,
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: '6px'
+                            }}
+                          >
+                            {scanSubmitting ? (
+                              'Confirming...'
+                            ) : scannerMode === 'checkout' ? (
+                              <>📤 Confirm Check Out</>
+                            ) : (
+                              <>📥 Confirm Check In</>
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedProductDetail(item)}
+                            style={{
+                              height: '44px',
+                              padding: '0 16px',
+                              border: '1.5px solid #c3fae8',
+                              background: '#fff',
+                              color: '#0ca678',
+                              borderRadius: '50px',
+                              fontSize: '12px',
+                              fontWeight: 800,
+                              cursor: 'pointer'
+                            }}
+                          >
+                            View Details
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })()
                 ) : (
                   <div style={{ padding: '40px', border: '2px dashed #e2e8f0', borderRadius: '16px', textAlign: 'center', color: '#94a3b8' }}>
                     <BarcodeIcon size={36} style={{ margin: '0 auto 10px', opacity: 0.3 }} />
@@ -1848,67 +2026,102 @@ export default function Inventory() {
                   <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
                     <thead>
                       <tr style={{ borderBottom: '1.5px solid #f1f5f9', background: '#f8fafc' }}>
-                        <th style={{ padding: '14px', fontWeight: 800, color: '#475569' }}>Borrower</th>
-                        <th style={{ padding: '14px', fontWeight: 800, color: '#475569' }}>Item Details</th>
-                        <th style={{ padding: '14px', fontWeight: 800, color: '#475569' }}>Qty</th>
+                        <th style={{ padding: '14px', fontWeight: 800, color: '#475569' }}>Unit / Product</th>
+                        <th style={{ padding: '14px', fontWeight: 800, color: '#475569' }}>Member</th>
+                        <th style={{ padding: '14px', fontWeight: 800, color: '#475569' }}>Mission</th>
                         <th style={{ padding: '14px', fontWeight: 800, color: '#475569' }}>Checkout Date</th>
-                        <th style={{ padding: '14px', fontWeight: 800, color: '#475569' }}>Expected Return</th>
                         <th style={{ padding: '14px', fontWeight: 800, color: '#475569' }}>Days Out</th>
-                        <th style={{ padding: '14px', fontWeight: 800, color: '#475569', textAlign: 'center' }}>Status</th>
+                        <th style={{ padding: '14px', fontWeight: 800, color: '#475569' }}>Admin</th>
                         <th style={{ padding: '14px', fontWeight: 800, color: '#475569', textAlign: 'right' }}>Actions</th>
                       </tr>
                     </thead>
                     <tbody>
                       {filteredCheckouts.map(c => {
-                        const isOverdue = c.status === 'active' && c.due_return_date && new Date(c.due_return_date) < new Date();
                         const daysOut = c.status === 'active' ? getDaysOut(c.checkout_date) : 0;
-                        const daysColor = daysOut > 30 ? '#dc2626' : daysOut > 14 ? '#d97706' : '#2563eb';
+                        const daysColor = daysOut > 30 ? '#dc2626' : daysOut > 14 ? '#d97706' : '#2b8a3e';
+                        const daysBg = daysOut > 30 ? '#fff5f5' : daysOut > 14 ? '#fffbeb' : '#e6fcf5';
+                        const emoji = getProductEmoji(c.items?.name || '', c.items?.categories?.name || '');
+                        
+                        const getMissionName = (notes: string | null) => {
+                          if (!notes) return 'General Distribution';
+                          if (notes.startsWith('Scanned checkout for ')) {
+                            return notes.replace('Scanned checkout for ', '');
+                          }
+                          return 'General Distribution';
+                        };
 
                         return (
                           <tr key={c.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                            {/* Column 1: Unit / Product */}
+                            <td style={{ padding: '16px 14px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <span style={{ fontSize: '18px' }}>{emoji}</span>
+                                <div style={{ fontWeight: 800, color: '#0f172a' }}>{c.items?.name || 'Loading Item...'}</div>
+                              </div>
+                              {c.unit?.barcode_value && (
+                                <div style={{ 
+                                  display: 'inline-block',
+                                  background: '#1A1F2E', 
+                                  color: '#fff', 
+                                  padding: '3px 8px', 
+                                  borderRadius: '6px', 
+                                  fontFamily: 'monospace', 
+                                  fontSize: '11px', 
+                                  fontWeight: 800, 
+                                  marginTop: '4px' 
+                                }}>
+                                  {c.unit.barcode_value}
+                                </div>
+                              )}
+                            </td>
+                            
+                            {/* Column 2: Member */}
                             <td style={{ padding: '16px 14px' }}>
                               <div style={{ fontWeight: 800, color: '#0f172a' }}>{c.member?.name || 'Borrower'}</div>
                               <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>{c.member?.membership_no || 'No Membership No'}</div>
                             </td>
+
+                            {/* Column 3: Mission */}
+                            <td style={{ padding: '16px 14px', fontSize: '13px', color: '#334155', fontWeight: 600 }}>
+                              {getMissionName(c.notes)}
+                            </td>
+
+                            {/* Column 4: Checkout Date */}
+                            <td style={{ padding: '16px 14px', fontSize: '13px', color: '#64748b' }}>
+                              {c.checkout_date ? new Date(c.checkout_date).toISOString().split('T')[0] : 'N/A'}
+                            </td>
+
+                            {/* Column 5: Days Out */}
                             <td style={{ padding: '16px 14px' }}>
-                              <div style={{ fontWeight: 800, color: '#0f172a' }}>{c.items?.name || 'Loading Item...'}</div>
-                              {c.unit?.barcode_value && (
-                                <div style={{ fontSize: '11.5px', color: 'var(--teal)', fontWeight: 800, fontFamily: 'monospace', marginTop: '4px' }}>
-                                  Unit: {c.unit.barcode_value}
-                                </div>
+                              {c.status === 'active' ? (
+                                <span style={{ 
+                                  padding: '4px 10px', 
+                                  borderRadius: '50px', 
+                                  background: daysBg, 
+                                  color: daysColor, 
+                                  fontSize: '11.5px', 
+                                  fontWeight: 900 
+                                }}>
+                                  {daysOut}d
+                                </span>
+                              ) : (
+                                <span style={{ color: '#94a3b8' }}>Returned</span>
                               )}
-                              {c.notes && <div style={{ fontSize: '11.5px', color: '#64748b', marginTop: '2px' }}>📝 "{c.notes}"</div>}
                             </td>
-                            <td style={{ padding: '16px 14px', fontWeight: 800, color: '#334155' }}>{c.quantity}</td>
-                            <td style={{ padding: '16px 14px', fontSize: '13px', color: '#64748b' }}>
-                              {c.checkout_date ? new Date(c.checkout_date).toLocaleDateString() : 'N/A'}
+
+                            {/* Column 6: Admin */}
+                            <td style={{ padding: '16px 14px', fontSize: '13px', color: '#64748b', fontWeight: 600 }}>
+                              {c.manually_returned_by || 'Mohammed Ashraf'}
                             </td>
-                            <td style={{ padding: '16px 14px', fontSize: '13px', color: '#64748b' }}>
-                              {c.due_return_date ? new Date(c.due_return_date).toLocaleDateString() : 'Permanent'}
-                            </td>
-                            <td style={{ padding: '16px 14px', fontWeight: 800, color: daysColor }}>
-                              {c.status === 'active' ? `${daysOut} Days` : '—'}
-                            </td>
-                            <td style={{ padding: '16px 14px', textAlign: 'center' }}>
-                              <span style={{ 
-                                padding: '4px 10px', 
-                                borderRadius: '6px', 
-                                fontSize: '10px', 
-                                fontWeight: 900,
-                                textTransform: 'uppercase',
-                                background: c.status === 'returned' ? '#ecfdf5' : isOverdue ? '#fee2e2' : '#eff6ff',
-                                color: c.status === 'returned' ? '#059669' : isOverdue ? '#ef4444' : '#2563eb'
-                              }}>
-                                {c.status === 'returned' ? `Returned (${c.return_condition})` : isOverdue ? 'Overdue' : 'Active'}
-                              </span>
-                            </td>
+
+                            {/* Column 7: Actions */}
                             <td style={{ padding: '16px 14px', textAlign: 'right' }}>
                               <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', alignItems: 'center' }}>
                                 {c.status === 'active' && (
                                   <button
                                     onClick={() => handleQuickReturn(c.id, 'good')}
                                     className="bsm s"
-                                    style={{ padding: '5px 12px', borderRadius: '8px', fontSize: '11px' }}
+                                    style={{ padding: '6px 14px', borderRadius: '50px', fontSize: '11.5px', background: 'var(--teal)', color: '#fff', border: 'none', fontWeight: 800, cursor: 'pointer' }}
                                   >
                                     📥 Check In
                                   </button>
@@ -1922,7 +2135,7 @@ export default function Inventory() {
                                   }}
                                   style={{ 
                                     display: 'flex', alignItems: 'center', gap: '5px',
-                                    padding: '6px 10px', fontSize: '11px', fontWeight: 700, borderRadius: '8px', 
+                                    padding: '6px 12px', fontSize: '11.5px', fontWeight: 800, borderRadius: '50px', 
                                     border: '1.5px solid #e2e8f0', background: '#fff', color: '#475569', cursor: 'pointer'
                                   }}
                                   title="Edit override / mark returned"
@@ -1964,30 +2177,98 @@ export default function Inventory() {
               </div>
 
               {/* Grid of Mission Cards */}
-              <div className="card" style={{ background: '#fff', border: '1.5px solid #E2DED6', borderRadius: '24px', padding: '28px', boxShadow: '0 2px 12px rgba(13,115,119,.02)' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '18px' }}>
-                  {missionsList.map((mission, idx) => {
-                    const dispatchedCount = allCheckouts.filter(c => {
-                      if (mission.name === 'Ramadan Welfare 2025' && (c.notes?.includes('Ramadan Welfare') || c.notes?.includes('Ramadan'))) return true;
-                      if (mission.name === 'Student Support Drive 2025' && (c.notes?.includes('Student Support') || c.notes?.includes('Student'))) return true;
-                      if (mission.name === 'Medical Relief Camp' && (c.notes?.includes('Medical Relief') || c.notes?.includes('Medical'))) return true;
-                      if (mission.name === 'General Distribution' && (!c.notes?.includes('Ramadan') && !c.notes?.includes('Student') && !c.notes?.includes('Medical'))) return true;
-                      return c.notes?.includes(mission.name) || c.notes === mission.name;
-                    }).length;
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '20px' }}>
+                {missionsList.map((mission) => {
+                  const dispatchedCount = allCheckouts.filter(c => {
+                    if (mission.name === 'Ramadan Welfare 2025' && (c.notes?.includes('Ramadan Welfare') || c.notes?.includes('Ramadan'))) return true;
+                    if (mission.name === 'Student Support Drive 2025' && (c.notes?.includes('Student Support') || c.notes?.includes('Student'))) return true;
+                    if (mission.name === 'Medical Relief Camp' && (c.notes?.includes('Medical Relief') || c.notes?.includes('Medical'))) return true;
+                    if (mission.name === 'General Distribution' && (!c.notes?.includes('Ramadan') && !c.notes?.includes('Student') && !c.notes?.includes('Medical'))) return true;
+                    return c.notes?.includes(mission.name) || c.notes === mission.name;
+                  }).length;
 
-                    return (
-                      <div key={mission.id} style={{ background: '#F9F8F6', border: '1.5px solid #E2DED6', borderRadius: '16px', padding: '20px', display: 'flex', flexDirection: 'column' }}>
-                        <div style={{ fontSize: '28px', marginBottom: '8px' }}>{mission.emoji || '🤝'}</div>
-                        <h4 style={{ fontSize: '15px', fontWeight: 800, color: '#1A1F2E', marginBottom: '6px' }}>{mission.name}</h4>
-                        <p style={{ fontSize: '12.5px', color: '#6B7280', lineHeight: 1.45, flex: 1, marginBottom: '16px' }}>{mission.desc}</p>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #E2DED6', paddingTop: '12px' }}>
-                          <span style={{ fontSize: '11px', color: '#9CA3AF', fontWeight: 800, textTransform: 'uppercase' }}>Items Dispatched</span>
-                          <strong style={{ fontSize: '16px', color: 'var(--teal)', fontWeight: 900 }}>{dispatchedCount} Units</strong>
+                  return (
+                    <div 
+                      key={mission.id} 
+                      onClick={() => setSelectedMissionDetail(mission)}
+                      style={{ 
+                        background: '#fff', 
+                        border: '1.5px solid #E2DED6', 
+                        borderRadius: '18px', 
+                        padding: '24px', 
+                        display: 'flex', 
+                        flexDirection: 'column',
+                        cursor: 'pointer',
+                        transition: 'transform 0.2s, box-shadow 0.2s',
+                        boxShadow: '0 2px 8px rgba(13,115,119,.03)'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.transform = 'translateY(-2px)';
+                        e.currentTarget.style.boxShadow = '0 8px 24px rgba(13,115,119,.08)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.transform = 'translateY(0)';
+                        e.currentTarget.style.boxShadow = '0 2px 8px rgba(13,115,119,.03)';
+                      }}
+                    >
+                      {/* Top Header of Card */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '14px' }}>
+                        <div style={{ width: '42px', height: '42px', background: 'var(--teal-pale, rgba(13, 115, 119, 0.08))', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '24px' }}>
+                          {mission.emoji || '🤝'}
                         </div>
+                        <span style={{ 
+                          padding: '3px 9px', 
+                          borderRadius: '50px', 
+                          fontSize: '11px', 
+                          fontWeight: 900, 
+                          background: '#E6FCF5', 
+                          color: '#0CA678'
+                        }}>
+                          Active
+                        </span>
                       </div>
-                    );
-                  })}
-                </div>
+
+                      <h4 style={{ fontSize: '17px', fontWeight: 900, color: '#1A1F2E', marginBottom: '6px' }}>{mission.name}</h4>
+                      <p style={{ fontSize: '13px', color: '#6B7280', lineHeight: 1.5, flex: 1, marginBottom: '20px' }}>{mission.desc}</p>
+                      
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #F3F4F6', paddingTop: '16px', marginBottom: '16px' }}>
+                        <span style={{ fontSize: '11.5px', color: '#9CA3AF', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Items Distributed</span>
+                        <strong style={{ fontSize: '15px', color: 'var(--teal)', fontWeight: 900 }}>{dispatchedCount} Units</strong>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setScannerMode('checkout');
+                          setScannerMission(mission.name);
+                          setActiveTab('scanner');
+                          setScanLookupResult(null);
+                        }}
+                        style={{
+                          width: '100%',
+                          height: '38px',
+                          background: 'var(--teal)',
+                          color: '#fff',
+                          border: 'none',
+                          borderRadius: '50px',
+                          fontWeight: 800,
+                          fontSize: '12.5px',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '6px',
+                          transition: 'background 0.2s'
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.background = '#0B5F62'}
+                        onMouseLeave={(e) => e.currentTarget.style.background = 'var(--teal)'}
+                      >
+                        📷 Scan & Distribute
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
 
               {/* Detailed Mission Distribution log */}
@@ -2339,7 +2620,7 @@ export default function Inventory() {
                   <div style={{ display: 'flex', gap: '10px' }}>
                     <button 
                       type="button" 
-                      onClick={() => {}} 
+                      onClick={() => setPrintJob({ type: 'single', item: selectedProductDetail })} 
                       style={{ height: '38px', padding: '0 16px', background: 'var(--teal)', color: '#fff', borderRadius: '50px', border: 'none', fontWeight: 800, fontSize: '12.5px', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}
                     >
                       🖨️ Print Labels
@@ -2930,6 +3211,123 @@ export default function Inventory() {
         </div>
       )}
 
+      {/* Welfare Mission Details Modal */}
+      {selectedMissionDetail && (
+        <div className="ov" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, background: 'rgba(15, 23, 42, 0.4)' }}>
+          <div className="modal inv-modal" style={{ maxWidth: '800px', width: '90%', borderRadius: '24px', padding: '28px', background: '#fff', animation: 'slideUp 0.25s ease' }}>
+            {/* Header */}
+            <div className="modal-head" style={{ border: 'none', padding: '0 0 16px 0', marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <span className="modal-title" style={{ fontSize: '22px', fontWeight: 900, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span>{selectedMissionDetail.emoji || '🎯'}</span> {selectedMissionDetail.name}
+                </span>
+                <div style={{ fontSize: '13px', color: '#6B7280', marginTop: '4px' }}>
+                  {allCheckouts.filter(c => {
+                    if (selectedMissionDetail.name === 'Ramadan Welfare 2025' && (c.notes?.includes('Ramadan Welfare') || c.notes?.includes('Ramadan'))) return true;
+                    if (selectedMissionDetail.name === 'Student Support Drive 2025' && (c.notes?.includes('Student Support') || c.notes?.includes('Student'))) return true;
+                    if (selectedMissionDetail.name === 'Medical Relief Camp' && (c.notes?.includes('Medical Relief') || c.notes?.includes('Medical'))) return true;
+                    if (selectedMissionDetail.name === 'General Distribution' && (!c.notes?.includes('Ramadan') && !c.notes?.includes('Student') && !c.notes?.includes('Medical'))) return true;
+                    return c.notes?.includes(selectedMissionDetail.name) || c.notes === selectedMissionDetail.name;
+                  }).length} items distributed under this mission
+                </div>
+              </div>
+              <button onClick={() => setSelectedMissionDetail(null)} className="modal-close" style={{ border: '1px solid #e2e8f0', background: 'transparent', width: '32px', height: '32px', borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={16} /></button>
+            </div>
+            
+            {/* Table of items */}
+            <div style={{ maxHeight: '400px', overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: '16px', margin: '20px 0' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
+                <thead>
+                  <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                    <th style={{ padding: '12px 14px', fontWeight: 800, color: '#475569' }}>Product</th>
+                    <th style={{ padding: '12px 14px', fontWeight: 800, color: '#475569' }}>Unit</th>
+                    <th style={{ padding: '12px 14px', fontWeight: 800, color: '#475569' }}>Member</th>
+                    <th style={{ padding: '12px 14px', fontWeight: 800, color: '#475569' }}>Date</th>
+                    <th style={{ padding: '12px 14px', fontWeight: 800, color: '#475569' }}>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(() => {
+                    const missionCheckouts = allCheckouts.filter(c => {
+                      if (selectedMissionDetail.name === 'Ramadan Welfare 2025' && (c.notes?.includes('Ramadan Welfare') || c.notes?.includes('Ramadan'))) return true;
+                      if (selectedMissionDetail.name === 'Student Support Drive 2025' && (c.notes?.includes('Student Support') || c.notes?.includes('Student'))) return true;
+                      if (selectedMissionDetail.name === 'Medical Relief Camp' && (c.notes?.includes('Medical Relief') || c.notes?.includes('Medical'))) return true;
+                      if (selectedMissionDetail.name === 'General Distribution' && (!c.notes?.includes('Ramadan') && !c.notes?.includes('Student') && !c.notes?.includes('Medical'))) return true;
+                      return c.notes?.includes(selectedMissionDetail.name) || c.notes === selectedMissionDetail.name;
+                    });
+                    
+                    if (missionCheckouts.length === 0) {
+                      return (
+                        <tr>
+                          <td colSpan={5} style={{ padding: '24px', textAlign: 'center', color: '#94a3b8' }}>
+                            No items distributed under this mission yet.
+                          </td>
+                        </tr>
+                      );
+                    }
+
+                    return missionCheckouts.map(c => (
+                      <tr key={c.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                        <td style={{ padding: '12px 14px', fontWeight: 700, color: '#1e293b' }}>
+                          {c.items?.name}
+                        </td>
+                        <td style={{ padding: '12px 14px' }}>
+                          {c.unit?.barcode_value ? (
+                            <span style={{ background: '#1e293b', color: '#fff', padding: '3px 8px', borderRadius: '6px', fontFamily: 'monospace', fontSize: '11px', fontWeight: 700 }}>
+                              {c.unit.barcode_value}
+                            </span>
+                          ) : '—'}
+                        </td>
+                        <td style={{ padding: '12px 14px', fontWeight: 600, color: '#475569' }}>
+                          {c.member?.name || 'Unknown Borrower'}
+                        </td>
+                        <td style={{ padding: '12px 14px', color: '#64748b' }}>
+                          {c.checkout_date ? new Date(c.checkout_date).toISOString().split('T')[0] : '—'}
+                        </td>
+                        <td style={{ padding: '12px 14px' }}>
+                          <span style={{ 
+                            padding: '4px 10px', 
+                            borderRadius: '50px', 
+                            fontSize: '11px', 
+                            fontWeight: 900,
+                            background: c.status === 'returned' ? '#E6FCF5' : '#E7F5FF',
+                            color: c.status === 'returned' ? '#0CA678' : '#1C7ED6'
+                          }}>
+                            {c.status === 'returned' ? 'Returned' : 'With Member'}
+                          </span>
+                        </td>
+                      </tr>
+                    ));
+                  })()}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Footer actions */}
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button 
+                onClick={() => setSelectedMissionDetail(null)} 
+                style={{ height: '42px', padding: '0 20px', border: '1.5px solid #e2e8f0', background: '#fff', borderRadius: '50px', fontWeight: 800, fontSize: '13px', cursor: 'pointer' }}
+              >
+                Close
+              </button>
+              <button 
+                onClick={() => {
+                  setScannerMode('checkout');
+                  setScannerMission(selectedMissionDetail.name);
+                  setActiveTab('scanner');
+                  setScanLookupResult(null);
+                  setSelectedMissionDetail(null);
+                }}
+                style={{ height: '42px', padding: '0 20px', background: 'var(--teal)', color: '#fff', borderRadius: '50px', border: 'none', fontWeight: 800, fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
+              >
+                📷 Scan & Distribute
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Create Mission Modal */}
       {showCreateMissionModal && (
         <div className="ov" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, background: 'rgba(15, 23, 42, 0.4)' }}>
@@ -2991,6 +3389,80 @@ export default function Inventory() {
           </div>
         </div>
       )}
+      {/* Dynamic printable area for barcode labels */}
+      <div id="print-section-root">
+        {printJob && (() => {
+          let labels: { barcode: string; name: string; category?: string }[] = [];
+          if (printJob.type === 'single' && printJob.item) {
+            const item = printJob.item;
+            if (item.barcode_value) {
+              labels.push({ barcode: item.barcode_value, name: item.name, category: item.categories?.name });
+            }
+            if (item.units) {
+              item.units.forEach((u: any) => {
+                if (u.barcode_value) {
+                  labels.push({ barcode: u.barcode_value, name: `${item.name} (Unit)`, category: item.categories?.name });
+                }
+              });
+            }
+          } else if (printJob.type === 'all') {
+            items.forEach((item) => {
+              if (item.barcode_value) {
+                labels.push({ barcode: item.barcode_value, name: item.name, category: item.categories?.name });
+              }
+              if (item.units) {
+                item.units.forEach((u: any) => {
+                  if (u.barcode_value) {
+                    labels.push({ barcode: u.barcode_value, name: `${item.name} (Unit)`, category: item.categories?.name });
+                  }
+                });
+              }
+            });
+          }
+
+          return (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '15px', background: '#fff', padding: '10px' }}>
+              {labels.map((lbl, idx) => (
+                <div key={idx} className="bc-label-print" style={{ border: '1px solid #ddd', padding: '12px', textAlign: 'center', background: '#fff', borderRadius: '8px' }}>
+                  <div style={{ fontSize: '9px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: '4px' }}>
+                    SKSSF eGov • {lbl.category || 'General'}
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'center', margin: '4px 0' }}>
+                    <BarcodeSVG value={lbl.barcode} />
+                  </div>
+                  <div style={{ fontFamily: 'monospace', fontSize: '9px', color: '#0f172a', fontWeight: 'bold' }}>{lbl.barcode}</div>
+                  <div style={{ fontSize: '10px', fontWeight: 600, color: '#334155', marginTop: '2px' }}>{lbl.name}</div>
+                </div>
+              ))}
+            </div>
+          );
+        })()}
+      </div>
+
+      <style dangerouslySetInnerHTML={{ __html: `
+        @media print {
+          #root, .ov, .modal {
+            display: none !important;
+          }
+          #print-section-root {
+            display: block !important;
+            background: white !important;
+            color: black !important;
+            width: 100% !important;
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+          }
+          .bc-label-print {
+            page-break-inside: avoid !important;
+          }
+        }
+        @media screen {
+          #print-section-root {
+            display: none !important;
+          }
+        }
+      `}} />
 
     </div>
   );
