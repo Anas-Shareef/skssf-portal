@@ -897,6 +897,21 @@ export default function Inventory() {
     return diff > 0 ? diff : 0;
   };
 
+  const getDaysOutValue = (c: CheckoutRecord) => {
+    if (c.item_type_at_checkout === 'permanent') return '—';
+    if (c.status === 'returned') return '—';
+    if (!c.due_return_date) return '—';
+    const due = new Date(c.due_return_date);
+    const now = new Date();
+    due.setHours(0, 0, 0, 0);
+    now.setHours(0, 0, 0, 0);
+    if (now > due) {
+      const diff = Math.floor((now.getTime() - due.getTime()) / (1000 * 60 * 60 * 24));
+      return `${diff}d`;
+    }
+    return '0d';
+  };
+
   return (
     <div className="inv-wrap" style={{ animation: 'fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1)', padding: '30px', maxWidth: '1400px', margin: '0 auto' }}>
       
@@ -975,7 +990,7 @@ export default function Inventory() {
       </div>
 
       {/* Tabs list matching Claude Prototype */}
-      <div className="inv-tabs" style={{ display: 'flex', gap: '8px', marginBottom: '32px', borderBottom: '2.5px solid #f1f5f9', paddingBottom: '2px', overflowX: 'auto' }}>
+      <div className="inv-tabs" style={{ display: 'flex', gap: '8px', marginBottom: '32px', borderBottom: '2.5px solid #f1f5f9', paddingBottom: '2px', flexWrap: 'wrap' }}>
         <button
           type="button"
           onClick={() => setActiveTab('catalogue')}
@@ -1116,9 +1131,6 @@ export default function Inventory() {
                   </button>
                   <button onClick={() => setViewMode('table')} style={{ padding: '8px 14px', fontSize: '12px', fontWeight: 800, border: 'none', borderRadius: '10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', background: viewMode === 'table' ? '#fff' : 'transparent', color: viewMode === 'table' ? '#0f172a' : '#64748b' }}>
                     <List size={13} /> Table
-                  </button>
-                  <button onClick={() => setViewMode('barcodes')} style={{ padding: '8px 14px', fontSize: '12px', fontWeight: 800, border: 'none', borderRadius: '10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', background: viewMode === 'barcodes' ? '#fff' : 'transparent', color: viewMode === 'barcodes' ? '#0f172a' : '#64748b' }}>
-                    <BarcodeIcon size={13} /> Barcodes
                   </button>
                 </div>
 
@@ -1360,13 +1372,6 @@ export default function Inventory() {
                                     📤 Check Out
                                   </button>
                                 )}
-                                <button 
-                                  className="cc-hover-btn" 
-                                  style={{ background: 'rgba(255,255,255,.15)', color: '#fff' }}
-                                  onClick={(e) => { e.stopPropagation(); setPrintJob({ type: 'single', item }); }}
-                                >
-                                  🖨 Print Labels
-                                </button>
                               </div>
                             </div>
 
@@ -1374,46 +1379,12 @@ export default function Inventory() {
                             <div className="cc-body">
                               <div className="cc-cat">{item.categories?.name || 'Uncategorized'}</div>
                               <div className="cc-name">{item.name}</div>
-                              <div className="cc-sku">{item.barcode_value || 'SKU PENDING'}</div>
                               
                               <div className="cc-stats">
-                                <span style={{ fontSize: '13px', fontWeight: 600, color: stockColor }}>
-                                  {availableUnits} / {item.total_stock} available
+                                <span style={{ fontSize: '13px', fontWeight: 600, color: '#64748b' }}>
+                                  Stock: {item.total_stock}
                                 </span>
                                 <span className={`bdg ${stockBdg}`}>{stockLabel}</span>
-                              </div>
-
-                              {/* Barcode and actions */}
-                              <div className="cc-bc-row">
-                                <div className="cc-bc-svg-wrap">
-                                  {item.barcode_value ? <BarcodeSVG value={item.barcode_value} /> : '—'}
-                                </div>
-                                <div className="cc-bc-actions">
-                                  <button 
-                                    className="cc-bc-action" 
-                                    title="Print Labels"
-                                    onClick={(e) => { e.stopPropagation(); setPrintJob({ type: 'single', item }); }}
-                                  >
-                                    🖨
-                                  </button>
-                                  <button 
-                                    className="cc-bc-action" 
-                                    title="View Barcode"
-                                    onClick={(e) => { e.stopPropagation(); setSelectedProductDetail(item); }}
-                                  >
-                                    🔍
-                                  </button>
-                                </div>
-                              </div>
-
-                              {/* Reviews count line */}
-                              <div style={{ marginTop: '8px', fontSize: '11.5px', color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                                <span style={{ color: 'gold' }}>
-                                  {'★'.repeat(avgRating)}{'☆'.repeat(5 - avgRating)}
-                                </span>
-                                <span>
-                                  {reviewsList.length > 0 ? `${reviewsList.length} review${reviewsList.length > 1 ? 's' : ''}` : '1 review'}
-                                </span>
                               </div>
 
                               {/* Admin Extra Actions Row */}
@@ -1448,16 +1419,13 @@ export default function Inventory() {
                             <tr style={{ background: '#f8fafc', borderBottom: '1.5px solid #e2e8f0' }}>
                               <th style={{ padding: '16px 20px', fontWeight: 800, color: '#475569' }}>Product Info</th>
                               <th style={{ padding: '16px 20px', fontWeight: 800, color: '#475569' }}>Category</th>
-                              <th style={{ padding: '16px 20px', fontWeight: 800, color: '#475569' }}>Barcode SKU</th>
                               <th style={{ padding: '16px 20px', fontWeight: 800, color: '#475569' }}>Type</th>
-                              <th style={{ padding: '16px 20px', fontWeight: 800, color: '#475569' }}>Available Stock</th>
+                              <th style={{ padding: '16px 20px', fontWeight: 800, color: '#475569' }}>Total Stock</th>
                               <th style={{ padding: '16px 20px', fontWeight: 800, color: '#475569', textAlign: 'right' }}>Actions</th>
                             </tr>
                           </thead>
                           <tbody>
                             {filteredCatalogue.map(item => {
-                              const unitsList = item.units || [];
-                              const availableUnits = unitsList.filter((u: any) => u.status === 'available').length;
                               return (
                                 <tr key={item.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                                   <td style={{ padding: '16px 20px' }}>
@@ -1467,22 +1435,18 @@ export default function Inventory() {
                                       </div>
                                       <div>
                                         <div style={{ fontWeight: 800, color: '#1e293b' }}>{item.name}</div>
-                                        <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>Total stock: {item.total_stock}</div>
                                       </div>
                                     </div>
                                   </td>
                                   <td style={{ padding: '16px 20px', fontWeight: 700, color: '#475569' }}>{item.categories?.name || 'Uncategorized'}</td>
-                                  <td style={{ padding: '16px 20px', minWidth: '150px' }}>
-                                    {item.barcode_value ? <BarcodeSVG value={item.barcode_value} /> : '—'}
-                                  </td>
                                   <td style={{ padding: '16px 20px' }}>
                                     <span className={`bdg ${item.item_type === 'lease' ? 'bdg-b' : 'bdg-g'}`} style={{ fontSize: '10px', textTransform: 'uppercase' }}>
                                       {item.item_type}
                                     </span>
                                   </td>
                                   <td style={{ padding: '16px 20px' }}>
-                                    <div style={{ fontWeight: 800, color: availableUnits > 0 ? '#059669' : '#ef4444' }}>
-                                      {availableUnits} / {item.total_stock} Units
+                                    <div style={{ fontWeight: 800, color: '#1e293b' }}>
+                                      {item.total_stock}
                                     </div>
                                   </td>
                                   <td style={{ padding: '16px 20px', textAlign: 'right' }}>
@@ -2037,9 +2001,10 @@ export default function Inventory() {
                     </thead>
                     <tbody>
                       {filteredCheckouts.map(c => {
-                        const daysOut = c.status === 'active' ? getDaysOut(c.checkout_date) : 0;
-                        const daysColor = daysOut > 30 ? '#dc2626' : daysOut > 14 ? '#d97706' : '#2b8a3e';
-                        const daysBg = daysOut > 30 ? '#fff5f5' : daysOut > 14 ? '#fffbeb' : '#e6fcf5';
+                        const daysOutVal = getDaysOutValue(c);
+                        const isOverdue = daysOutVal !== '—' && daysOutVal !== '0d';
+                        const daysColor = isOverdue ? '#dc2626' : '#2b8a3e';
+                        const daysBg = isOverdue ? '#fff5f5' : '#e6fcf5';
                         const emoji = getProductEmoji(c.items?.name || '', c.items?.categories?.name || '');
                         
                         const getMissionName = (notes: string | null) => {
@@ -2102,7 +2067,7 @@ export default function Inventory() {
                                   fontSize: '11.5px', 
                                   fontWeight: 900 
                                 }}>
-                                  {daysOut}d
+                                  {daysOutVal}
                                 </span>
                               ) : (
                                 <span style={{ color: '#94a3b8' }}>Returned</span>
@@ -2606,25 +2571,8 @@ export default function Inventory() {
                     </div>
                   </div>
 
-                  {/* Product barcode card */}
-                  {selectedProductDetail.barcode_value && (
-                    <div style={{ background: '#F9F8F6', border: '1.5px solid #E2DED6', borderRadius: '12px', padding: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                      <BarcodeSVG value={selectedProductDetail.barcode_value} />
-                      <div style={{ fontSize: '10px', fontFamily: 'monospace', color: '#6B7280', marginTop: '6px', letterSpacing: '0.5px' }}>
-                        {selectedProductDetail.barcode_value}
-                      </div>
-                    </div>
-                  )}
-
                   {/* Actions buttons */}
                   <div style={{ display: 'flex', gap: '10px' }}>
-                    <button 
-                      type="button" 
-                      onClick={() => setPrintJob({ type: 'single', item: selectedProductDetail })} 
-                      style={{ height: '38px', padding: '0 16px', background: 'var(--teal)', color: '#fff', borderRadius: '50px', border: 'none', fontWeight: 800, fontSize: '12.5px', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}
-                    >
-                      🖨️ Print Labels
-                    </button>
                     {selectedProductDetail.item_type === 'lease' && (
                       <button 
                         type="button" 
@@ -2674,17 +2622,6 @@ export default function Inventory() {
                   }}
                 >
                   📋 Distribution ({itemCheckouts.length})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSelectedDetailTab('reviews')}
-                  style={{
-                    padding: '8px 16px', fontWeight: 800, fontSize: '13.5px', border: 'none', background: 'none',
-                    borderBottom: selectedDetailTab === 'reviews' ? '3px solid var(--teal)' : '3px solid transparent',
-                    color: selectedDetailTab === 'reviews' ? 'var(--teal)' : '#6B7280', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
-                  }}
-                >
-                  ⭐ Reviews ({reviewsList.length})
                 </button>
               </div>
 
@@ -2783,27 +2720,6 @@ export default function Inventory() {
                         })}
                       </tbody>
                     </table>
-                  )}
-                </div>
-              )}
-
-              {selectedDetailTab === 'reviews' && (
-                <div style={{ maxHeight: '250px', overflowY: 'auto', border: '1.5px solid #E2DED6', borderRadius: '12px', padding: '12px' }}>
-                  {reviewsList.length === 0 ? (
-                    <div style={{ padding: '20px', textAlign: 'center', color: '#9B9B9B' }}>No feedback reviews submitted yet.</div>
-                  ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                      {reviewsList.map((r: any) => (
-                        <div key={r.id} style={{ borderBottom: '1px solid #F3F4F6', paddingBottom: '10px' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                            <span style={{ fontWeight: 800 }}>{r.memberName || 'Anonymous'}</span>
-                            <span style={{ color: 'gold' }}>{'★'.repeat(r.rating)}{'☆'.repeat(5 - r.rating)}</span>
-                          </div>
-                          <p style={{ fontSize: '12.5px', color: '#4B5563', margin: 0 }}>{r.text}</p>
-                          <span style={{ fontSize: '10px', color: '#9CA3AF' }}>{r.date}</span>
-                        </div>
-                      ))}
-                    </div>
                   )}
                 </div>
               )}

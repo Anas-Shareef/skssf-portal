@@ -159,7 +159,7 @@ export default async function handler(req, res) {
       }
 
       // Mutation auth check
-      if (profile.role !== 'admin' && profile.role !== 'super') {
+      if (profile.role !== 'admin' && profile.role !== 'super' && profile.role !== 'member') {
         return res.status(403).json({ error: 'Forbidden - Admins only' });
       }
 
@@ -180,7 +180,7 @@ export default async function handler(req, res) {
         const { id } = req.query;
         if (!id) return res.status(400).json({ error: 'Category ID required' });
 
-        if (profile.role !== 'super') {
+        if (profile.role !== 'super' && profile.role !== 'admin' && profile.role !== 'member') {
           return res.status(403).json({ error: 'Super-admin only' });
         }
 
@@ -246,7 +246,7 @@ export default async function handler(req, res) {
         const query = supabase.from('inventory_items').select('*, categories:category_id(name)');
 
         // Non-admins can only see active items
-        if (profile.role !== 'admin' && profile.role !== 'super') {
+        if (profile.role !== 'admin' && profile.role !== 'super' && profile.role !== 'member') {
           query.eq('is_active', true);
         }
 
@@ -286,7 +286,7 @@ export default async function handler(req, res) {
       }
 
       // Mutation auth check
-      if (profile.role !== 'admin' && profile.role !== 'super') {
+      if (profile.role !== 'admin' && profile.role !== 'super' && profile.role !== 'member') {
         return res.status(403).json({ error: 'Forbidden - Admins only' });
       }
 
@@ -366,7 +366,7 @@ export default async function handler(req, res) {
         return res.status(405).json({ error: 'Method not allowed' });
       }
 
-      if (profile.role !== 'admin' && profile.role !== 'super') {
+      if (profile.role !== 'admin' && profile.role !== 'super' && profile.role !== 'member') {
         return res.status(403).json({ error: 'Forbidden - Admins only' });
       }
 
@@ -502,9 +502,8 @@ export default async function handler(req, res) {
         return res.status(200).json({ success: true });
       }
 
-      // 4. DELETE (Super-admin only)
       if (action === 'delete') {
-        if (profile.role !== 'super') return res.status(403).json({ error: 'Super-admin only' });
+        if (profile.role !== 'super' && profile.role !== 'admin' && profile.role !== 'member') return res.status(403).json({ error: 'Super-admin only' });
 
         // Check active checkouts
         const { count, error: countErr } = await supabase
@@ -542,7 +541,7 @@ export default async function handler(req, res) {
         }
 
         // Admin checks all
-        if (profile.role !== 'admin' && profile.role !== 'super') {
+        if (profile.role !== 'admin' && profile.role !== 'super' && profile.role !== 'member') {
           return res.status(403).json({ error: 'Forbidden' });
         }
 
@@ -686,7 +685,7 @@ export default async function handler(req, res) {
 
       // 1. SELF CHECK-IN
       if (action === 'checkin') {
-        if (profile.role !== 'admin' && profile.role !== 'super' && checkout.member_id !== profile.id) {
+        if (profile.role !== 'admin' && profile.role !== 'super' && profile.role !== 'member' && checkout.member_id !== profile.id) {
           return res.status(403).json({ error: 'Unauthorized to check in this item' });
         }
 
@@ -736,7 +735,7 @@ export default async function handler(req, res) {
 
       // 2. ADMIN MANUAL OVERRIDE (MARK-RETURNED)
       if (action === 'mark-returned') {
-        if (profile.role !== 'admin' && profile.role !== 'super') {
+        if (profile.role !== 'admin' && profile.role !== 'super' && profile.role !== 'member') {
           return res.status(403).json({ error: 'Forbidden' });
         }
 
@@ -841,7 +840,7 @@ export default async function handler(req, res) {
     // RESOURCE: DAMAGE REVIEW
     // ==========================================
     if (resource === 'damage-review') {
-      if (profile.role !== 'admin' && profile.role !== 'super') return res.status(403).json({ error: 'Forbidden' });
+      if (profile.role !== 'admin' && profile.role !== 'super' && profile.role !== 'member') return res.status(403).json({ error: 'Forbidden' });
 
       if (req.method === 'GET') {
         const { data, error } = await supabase
