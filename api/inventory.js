@@ -73,9 +73,30 @@ export default async function handler(req, res) {
       if (search) query = query.ilike('name', `%${search}%`);
       if (category_id) query = query.eq('category_id', category_id);
 
-      const { data, error } = await query;
+      const { data: items, error } = await query;
       if (error) return res.status(500).json({ error: error.message });
-      return res.status(200).json({ items: data || [] });
+
+      const itemsWithUnitsAndReviews = [];
+      for (const item of (items || [])) {
+        const { data: units } = await supabase
+          .from('inventory_units')
+          .select('id, unit_number, barcode_value, status')
+          .eq('item_id', item.id)
+          .order('unit_number');
+
+        let reviews = [];
+        try {
+          const { data: revs } = await supabase
+            .from('inventory_reviews')
+            .select('rating')
+            .eq('item_id', item.id);
+          reviews = revs || [];
+        } catch (e) {
+          // fallback
+        }
+        itemsWithUnitsAndReviews.push({ ...item, units: units || [], reviews });
+      }
+      return res.status(200).json({ items: itemsWithUnitsAndReviews });
     } catch (err) {
       console.error('Public catalog error:', err);
       return res.status(500).json({ error: err.message });
@@ -238,7 +259,7 @@ export default async function handler(req, res) {
         const { data: items, error } = await query.order('name');
         if (error) throw error;
 
-        // Fetch physical units count/status for admins
+        // Fetch physical units count/status and reviews for admins
         const itemsWithUnits = [];
         for (const item of (items || [])) {
           const { data: units } = await supabase
@@ -246,7 +267,19 @@ export default async function handler(req, res) {
             .select('id, unit_number, barcode_value, status')
             .eq('item_id', item.id)
             .order('unit_number');
-          itemsWithUnits.push({ ...item, units: units || [] });
+          
+          let reviews = [];
+          try {
+            const { data: revs } = await supabase
+              .from('inventory_reviews')
+              .select('rating')
+              .eq('item_id', item.id);
+            reviews = revs || [];
+          } catch (e) {
+            // fallback if reviews table doesn't exist yet
+          }
+          
+          itemsWithUnits.push({ ...item, units: units || [], reviews });
         }
 
         return res.status(200).json({ items: itemsWithUnits });

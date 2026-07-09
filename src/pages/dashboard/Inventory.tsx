@@ -89,6 +89,25 @@ function BarcodeSVG({ value }: { value: string }) {
   return <svg ref={svgRef} style={{ maxWidth: '100%' }}></svg>;
 }
 
+const getCategoryBgClass = (catName: string) => {
+  const name = catName.toLowerCase();
+  if (name.includes('edu')) return 'bg-edu';
+  if (name.includes('rel')) return 'bg-rel';
+  if (name.includes('hlt') || name.includes('heal') || name.includes('med')) return 'bg-hlt';
+  if (name.includes('wel')) return 'bg-wel';
+  return 'bg-def';
+};
+
+const getProductEmoji = (name: string, catName: string) => {
+  const n = name.toLowerCase();
+  const c = catName.toLowerCase();
+  if (c.includes('edu') || n.includes('kit') || n.includes('study')) return '📚';
+  if (c.includes('rel') || n.includes('mat') || n.includes('quran') || n.includes('prayer')) return '🕌';
+  if (c.includes('hlt') || n.includes('first') || n.includes('medical') || n.includes('aid')) return '🏥';
+  if (c.includes('wel') || n.includes('grocer') || n.includes('pack')) return '🤝';
+  return '📦';
+};
+
 export default function Inventory() {
   const { profile } = useAuth();
   const isAdmin = profile?.role === 'admin' || profile?.role === 'super';
@@ -1016,129 +1035,295 @@ export default function Inventory() {
                 <>
                   {/* ① GALLERY VIEW */}
                   {viewMode === 'gallery' && (
-                    <div className="inv-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '24px' }}>
+                    <div className="cat-grid fu">
+                      {/* Embedded custom styling overrides to match prototype exactly */}
+                      <style>{`
+                        .cat-grid {
+                          display: grid;
+                          grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+                          gap: 18px;
+                        }
+                        .cat-card {
+                          background: #ffffff;
+                          border-radius: 18px;
+                          border: 1.5px solid #E2DED6;
+                          overflow: hidden;
+                          transition: all .28s cubic-bezier(.34,1.56,.64,1);
+                          cursor: pointer;
+                          position: relative;
+                          box-shadow: 0 2px 12px rgba(13,115,119,.07);
+                          display: flex;
+                          flex-direction: column;
+                          height: 100%;
+                        }
+                        .cat-card:hover {
+                          transform: translateY(-5px) scale(1.01);
+                          box-shadow: 0 8px 32px rgba(13,115,119,.12);
+                          border-color: rgba(13,115,119,.18);
+                        }
+                        .cc-img {
+                          width: 100%;
+                          height: 160px;
+                          display: flex;
+                          align-items: center;
+                          justify-content: center;
+                          font-size: 60px;
+                          position: relative;
+                          overflow: hidden;
+                        }
+                        .cc-img img {
+                          width: 100%;
+                          height: 100%;
+                          object-fit: cover;
+                          position: absolute;
+                          inset: 0;
+                        }
+                        .cc-img.bg-edu { background: linear-gradient(135deg,#EFF6FF,#DBEAFE); }
+                        .cc-img.bg-rel { background: linear-gradient(135deg,#F0FDF4,#DCFCE7); }
+                        .cc-img.bg-hlt { background: linear-gradient(135deg,#FFF7ED,#FFEDD5); }
+                        .cc-img.bg-wel { background: linear-gradient(135deg,#FDF4FF,#F3E8FF); }
+                        .cc-img.bg-def { background: linear-gradient(135deg,#E6E2DA,#DEDAD0); }
+                        .cc-stock-bar {
+                          position: absolute;
+                          bottom: 0;
+                          left: 0;
+                          right: 0;
+                          height: 3px;
+                          background: #E2DED6;
+                        }
+                        .cc-stock-fill {
+                          height: 100%;
+                          transition: width 0.6s ease;
+                        }
+                        .cc-hover-overlay {
+                          position: absolute;
+                          inset: 0;
+                          background: rgba(13,115,119,0.85);
+                          display: flex;
+                          flex-direction: column;
+                          align-items: center;
+                          justify-content: center;
+                          gap: 9px;
+                          opacity: 0;
+                          transition: opacity 0.25s;
+                          z-index: 10;
+                        }
+                        .cat-card:hover .cc-hover-overlay {
+                          opacity: 1;
+                        }
+                        .cc-hover-btn {
+                          padding: 8px 18px;
+                          border-radius: 50px;
+                          font-size: 12.5px;
+                          font-weight: 600;
+                          cursor: pointer;
+                          border: none;
+                          transition: all 0.2s;
+                          display: flex;
+                          align-items: center;
+                          gap: 6px;
+                        }
+                        .cc-body {
+                          padding: 14px 16px;
+                          text-align: left;
+                          display: flex;
+                          flex-direction: column;
+                          flex: 1;
+                        }
+                        .cc-cat {
+                          font-size: 11px;
+                          font-weight: 700;
+                          text-transform: uppercase;
+                          letter-spacing: .5px;
+                          color: #6B7280;
+                          margin-bottom: 5px;
+                        }
+                        .cc-name {
+                          font-family: 'Playfair Display', serif;
+                          font-size: 16px;
+                          font-weight: 700;
+                          margin-bottom: 6px;
+                          line-height: 1.3;
+                          color: #1A1F2E;
+                        }
+                        .cc-sku {
+                          font-family: 'JetBrains Mono', monospace;
+                          font-size: 10.5px;
+                          color: #9CA3AF;
+                          margin-bottom: 8px;
+                          letter-spacing: .3px;
+                        }
+                        .cc-stats {
+                          display: flex;
+                          align-items: center;
+                          justify-content: space-between;
+                          margin-bottom: 10px;
+                        }
+                        .cc-bc-row {
+                          border-top: 1px solid #E2DED6;
+                          padding-top: 10px;
+                          display: flex;
+                          align-items: center;
+                          justify-content: space-between;
+                          margin-top: auto;
+                        }
+                        .cc-bc-svg-wrap {
+                          flex: 1;
+                          overflow: hidden;
+                          display: flex;
+                          justify-content: center;
+                        }
+                        .cc-bc-actions {
+                          display: flex;
+                          gap: 5px;
+                          margin-left: 8px;
+                        }
+                        .cc-bc-action {
+                          width: 28px;
+                          height: 28px;
+                          border-radius: 7px;
+                          border: 1.5px solid #E2DED6;
+                          background: #fff;
+                          cursor: pointer;
+                          display: flex;
+                          align-items: center;
+                          justify-content: center;
+                          font-size: 13px;
+                          transition: all 0.2s;
+                        }
+                        .cc-bc-action:hover {
+                          border-color: #0D7377;
+                          background: rgba(13,115,119,0.08);
+                        }
+                      `}</style>
+
                       {filteredCatalogue.map(item => {
                         const unitsList = item.units || [];
                         const availableUnits = unitsList.filter((u: any) => u.status === 'available').length;
                         const outUnits = unitsList.filter((u: any) => u.status === 'checked_out').length;
-                        const damagedUnits = unitsList.filter((u: any) => u.status === 'damaged').length;
-                        const lostUnits = unitsList.filter((u: any) => u.status === 'lost').length;
                         const pctAvailable = item.total_stock > 0 ? Math.round((availableUnits / item.total_stock) * 100) : 0;
-                        const stockColor = availableUnits > item.total_stock * 0.5 ? '#059669' : availableUnits > 0 ? '#d97706' : '#dc2626';
+                        
+                        const stockColor = availableUnits > item.total_stock * 0.5 ? '#16A34A' : availableUnits > 0 ? '#F0A500' : '#EF4444';
+                        const stockLabel = availableUnits > item.total_stock * 0.5 ? '✓ In Stock' : availableUnits > 0 ? '⚠ Low Stock' : '✕ Out of Stock';
+                        const stockBdg = availableUnits > item.total_stock * 0.5 ? 'bdg-g' : availableUnits > 0 ? 'bdg-a' : 'bdg-r';
+
+                        const reviewsList = (item as any).reviews || [];
+                        const avgRating = reviewsList.length > 0 
+                          ? Math.round(reviewsList.reduce((acc: number, r: any) => acc + r.rating, 0) / reviewsList.length) 
+                          : 5; // default mock rating
 
                         return (
-                          <div key={item.id} className="card pc-card" style={{ background: '#fff', borderRadius: '24px', border: item.is_active ? '1.5px solid #f1f5f9' : '2px dashed #cbd5e1', opacity: item.is_active ? 1 : 0.65, overflow: 'hidden', display: 'flex', flexDirection: 'column', height: '100%', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)', position: 'relative' }}>
+                          <div key={item.id} className="cat-card" onClick={() => setSelectedProductDetail(item)}>
                             
-                            {/* Photo Section */}
-                            <div style={{ height: '160px', background: '#f8fafc', borderBottom: '1.5px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyItems: 'center', justifyContent: 'center', fontSize: '56px', position: 'relative', overflow: 'hidden' }}>
+                            {/* Photo / Emoji Section */}
+                            <div className={`cc-img ${getCategoryBgClass(item.categories?.name || '')}`}>
                               {item.photo_url ? (
-                                <img src={item.photo_url} alt={item.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                <img src={item.photo_url} alt={item.name} />
                               ) : (
-                                item.item_type === 'lease' ? '🛠️' : '📦'
-                              )}
-                              <span className={`bdg ${item.item_type === 'lease' ? 'bdg-b' : 'bdg-g'}`} style={{ position: 'absolute', top: '16px', right: '16px', fontSize: '10px', fontWeight: 900, textTransform: 'uppercase', padding: '5px 10px', borderRadius: '8px' }}>
-                                {item.item_type === 'lease' ? 'Lease' : 'Permanent'}
-                              </span>
-                              {!item.is_active && (
-                                <span style={{ position: 'absolute', top: '16px', left: '16px', fontSize: '9px', fontWeight: 900, color: '#fff', background: '#64748b', padding: '5px 10px', borderRadius: '8px' }}>
-                                  DRAFT
-                                </span>
-                              )}
-                              {item.public_visible && (
-                                <span style={{ position: 'absolute', bottom: '10px', left: '16px', fontSize: '9px', fontWeight: 900, color: '#fff', background: 'var(--teal)', padding: '4px 8px', borderRadius: '6px' }}>
-                                  📢 PUBLIC
+                                <span style={{ fontSize: '64px' }}>
+                                  {getProductEmoji(item.name, item.categories?.name || '')}
                                 </span>
                               )}
 
-                              {/* Stock Fill Progress Bar */}
-                              <div style={{ position: 'absolute', bottom: 0, left: 0, width: '100%', height: '4px', background: '#e2e8f0' }}>
-                                <div style={{ height: '100%', width: `${pctAvailable}%`, background: stockColor, transition: 'width 0.4s ease' }} />
+                              {/* Green Stock Progress bar border */}
+                              <div className="cc-stock-bar">
+                                <div className="cc-stock-fill" style={{ width: `${pctAvailable}%`, background: stockColor }} />
+                              </div>
+
+                              {/* Hover overlay actions */}
+                              <div className="cc-hover-overlay">
+                                <button 
+                                  className="cc-hover-btn" 
+                                  style={{ background: '#fff', color: 'var(--teal)' }}
+                                  onClick={(e) => { e.stopPropagation(); setSelectedProductDetail(item); }}
+                                >
+                                  📋 View Details
+                                </button>
+                                {item.item_type === 'lease' && (
+                                  <button 
+                                    className="cc-hover-btn" 
+                                    style={{ background: 'var(--teal)', color: '#fff' }}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setScannerMode('checkout');
+                                      setManualBarcode(item.units?.[0]?.barcode_value || item.barcode_value || '');
+                                      setActiveTab('scanner');
+                                      handleSelectQuickScan(item.units?.[0]?.barcode_value || item.barcode_value || '');
+                                    }}
+                                  >
+                                    📤 Check Out
+                                  </button>
+                                )}
+                                <button 
+                                  className="cc-hover-btn" 
+                                  style={{ background: 'rgba(255,255,255,.15)', color: '#fff' }}
+                                  onClick={(e) => { e.stopPropagation(); setSelectedProductDetail(item); }}
+                                >
+                                  🖨 Print Labels
+                                </button>
                               </div>
                             </div>
 
-                            {/* Details */}
-                            <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', flex: 1 }}>
-                              <div style={{ fontSize: '10px', fontWeight: 800, color: 'var(--teal)', textTransform: 'uppercase', marginBottom: '6px', letterSpacing: '0.5px' }}>
-                                {item.categories?.name || 'Uncategorized'}
-                              </div>
-                              <h3 onClick={() => setSelectedProductDetail(item)} style={{ margin: '0 0 10px 0', fontSize: '18px', fontWeight: 900, color: '#0f172a', letterSpacing: '-0.3px', cursor: 'pointer', transition: 'color 0.2s' }} onMouseEnter={e => e.currentTarget.style.color = 'var(--teal)'} onMouseLeave={e => e.currentTarget.style.color = '#0f172a'}>{item.name}</h3>
-                              <p style={{ margin: '0 0 16px 0', fontSize: '13px', color: '#64748b', lineHeight: 1.45, flex: 1, minHeight: '38px', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{item.description || 'No description provided.'}</p>
+                            {/* Details body */}
+                            <div className="cc-body">
+                              <div className="cc-cat">{item.categories?.name || 'Uncategorized'}</div>
+                              <div className="cc-name">{item.name}</div>
+                              <div className="cc-sku">{item.barcode_value || 'SKU PENDING'}</div>
                               
-                              {/* Live Barcode Rendering */}
-                              {item.barcode_value && (
-                                <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '14px', marginBottom: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center', border: '1px solid #f1f5f9' }}>
-                                  <BarcodeSVG value={item.barcode_value} />
-                                  <div style={{ fontSize: '9.5px', color: 'var(--muted)', fontWeight: 800, marginTop: '4px', display: 'flex', gap: '6px', flexWrap: 'wrap', justifyContent: 'center' }}>
-                                    <span style={{ color: '#059669' }}>● {availableUnits} Avail</span>
-                                    <span style={{ color: '#1c7ed6' }}>● {outUnits} Out</span>
-                                    {damagedUnits > 0 && <span style={{ color: '#f76707' }}>● {damagedUnits} Dmg</span>}
-                                    {lostUnits > 0 && <span style={{ color: '#fa5252' }}>● {lostUnits} Lost</span>}
-                                  </div>
-                                </div>
-                              )}
-
-                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1.5px solid #f8fafc', paddingTop: '16px', marginBottom: '20px' }}>
-                                <div>
-                                  <div style={{ fontSize: '10px', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase' }}>Available Stock</div>
-                                  <div style={{ fontSize: '17px', fontWeight: 950, color: 'var(--teal)' }}>
-                                    {item.available_stock} / {item.total_stock} Units
-                                  </div>
-                                </div>
-                                {item.item_type === 'lease' && (
-                                  <div style={{ textAlign: 'right' }}>
-                                    <div style={{ fontSize: '10px', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase' }}>Limit</div>
-                                    <div style={{ fontSize: '14px', fontWeight: 800, color: '#475569' }}>{item.lease_duration_days || 30} Days</div>
-                                  </div>
-                                )}
+                              <div className="cc-stats">
+                                <span style={{ fontSize: '13px', fontWeight: 600, color: stockColor }}>
+                                  {availableUnits} / {item.total_stock} available
+                                </span>
+                                <span className={`bdg ${stockBdg}`}>{stockLabel}</span>
                               </div>
 
-                              {/* Actions Grid */}
-                              <div className="inv-action-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                                <button
-                                  onClick={() => setEditingItem(item)}
-                                  style={{ height: '38px', borderRadius: '10px', border: '1.5px solid #e2e8f0', background: '#fff', color: '#334155', fontWeight: 800, fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
-                                >
-                                  <Edit2 size={12} /> Edit Catalog
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    setAdjustingItem(item);
-                                    setAdjustNewStock(item.available_stock);
-                                  }}
-                                  style={{ height: '38px', borderRadius: '10px', border: '1.5px solid #e2e8f0', background: '#fff', color: '#334155', fontWeight: 800, fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
-                                >
-                                  <Sliders size={12} /> Adjust Stock
-                                </button>
+                              {/* Barcode and actions */}
+                              <div className="cc-bc-row">
+                                <div className="cc-bc-svg-wrap">
+                                  {item.barcode_value ? <BarcodeSVG value={item.barcode_value} /> : '—'}
+                                </div>
+                                <div className="cc-bc-actions">
+                                  <button 
+                                    className="cc-bc-action" 
+                                    title="Print Labels"
+                                    onClick={(e) => { e.stopPropagation(); setSelectedProductDetail(item); }}
+                                  >
+                                    🖨
+                                  </button>
+                                  <button 
+                                    className="cc-bc-action" 
+                                    title="View Barcode"
+                                    onClick={(e) => { e.stopPropagation(); setSelectedProductDetail(item); }}
+                                  >
+                                    🔍
+                                  </button>
+                                </div>
                               </div>
 
-                              <button
-                                onClick={() => setSelectedProductDetail(item)}
-                                style={{ marginTop: '8px', width: '100%', height: '38px', borderRadius: '10px', border: '1.5px solid var(--teal)', background: '#fff', color: 'var(--teal)', fontWeight: 800, fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
-                              >
-                                📋 View Unit Tracking &amp; Print
-                              </button>
+                              {/* Reviews count line */}
+                              <div style={{ marginTop: '8px', fontSize: '11.5px', color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                <span style={{ color: 'gold' }}>
+                                  {'★'.repeat(avgRating)}{'☆'.repeat(5 - avgRating)}
+                                </span>
+                                <span>
+                                  {reviewsList.length > 0 ? `${reviewsList.length} review${reviewsList.length > 1 ? 's' : ''}` : '1 review'}
+                                </span>
+                              </div>
 
-                              <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
-                                {item.is_active ? (
-                                  <button
-                                    onClick={() => handleDeactivate(item.id)}
-                                    style={{ flex: 1, height: '38px', borderRadius: '10px', border: 'none', background: '#f1f5f9', color: '#475569', fontWeight: 800, fontSize: '12px', cursor: 'pointer' }}
-                                  >
-                                    Deactivate / Hide
-                                  </button>
-                                ) : (
-                                  <span style={{ flex: 1, height: '38px', borderRadius: '10px', background: '#f8fafc', color: '#94a3b8', border: '1px solid #e2e8f0', fontWeight: 800, fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>Inactive</span>
-                                )}
-
-                                {isSuper && (
-                                  <button
-                                    onClick={() => handleDeleteItem(item.id)}
-                                    style={{ width: '38px', height: '38px', borderRadius: '10px', border: 'none', background: '#fee2e2', color: '#ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
-                                    title="Permanent Delete"
-                                  >
-                                    <Trash2 size={14} />
-                                  </button>
-                                )}
+                              {/* Admin Extra Actions Row */}
+                              <div style={{ display: 'flex', gap: '6px', marginTop: '12px', borderTop: '1px solid #f1f5f9', paddingTop: '10px' }}>
+                                <button 
+                                  onClick={(e) => { e.stopPropagation(); setEditingItem(item); }} 
+                                  style={{ flex: 1, padding: '5px 0', fontSize: '11px', fontWeight: 800, border: '1px solid #e2e8f0', borderRadius: '8px', background: '#fff', cursor: 'pointer' }}
+                                >
+                                  ✏️ Edit
+                                </button>
+                                <button 
+                                  onClick={(e) => { e.stopPropagation(); setAdjustingItem(item); setAdjustNewStock(item.available_stock); }} 
+                                  style={{ flex: 1, padding: '5px 0', fontSize: '11px', fontWeight: 800, border: '1px solid #e2e8f0', borderRadius: '8px', background: '#fff', cursor: 'pointer' }}
+                                >
+                                  ⚙️ Adjust
+                                </button>
                               </div>
                             </div>
 
