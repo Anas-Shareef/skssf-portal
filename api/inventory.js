@@ -5,6 +5,20 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY || ''
 );
 
+async function logInventoryAudit(actorId, action, entityType, entityId, payload = null) {
+  try {
+    await supabase.from('inventory_audit_log').insert({
+      actor_id: actorId,
+      action,
+      entity_type: entityType,
+      entity_id: entityId,
+      payload
+    });
+  } catch (err) {
+    console.error('Audit log insertion failed:', err.message);
+  }
+}
+
 export default async function handler(req, res) {
   // CORS Headers
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -354,6 +368,8 @@ export default async function handler(req, res) {
           await supabase.from('inventory_units').insert(unitsToInsert);
         }
 
+        await logInventoryAudit(profile.id, 'item-create', 'item', item.id, item);
+
         return res.status(201).json({ item });
       }
     }
@@ -448,9 +464,18 @@ export default async function handler(req, res) {
                 .from('inventory_items')
                 .update({ available_stock: Math.max(0, currentItem.available_stock - unitsToDelete.length) })
                 .eq('id', id);
-            }
           }
         }
+        await logInventoryAudit(profile.id, 'item-edit', 'item', id, {
+          name,
+          category_id,
+          total_stock: total_stock !== undefined ? total_stock : currentItem.total_stock,
+          lease_duration_days: currentItem.item_type === 'lease' ? lease_duration_days : null,
+          description,
+          photo_url,
+          public_visible: public_visible !== undefined ? public_visible : false,
+          public_description
+        });
 
         return res.status(200).json({ success: true });
       }
@@ -462,6 +487,7 @@ export default async function handler(req, res) {
           .update({ is_active: false, updated_by: profile.id, updated_at: new Date().toISOString() })
           .eq('id', id);
         if (error) throw error;
+        await logInventoryAudit(profile.id, 'item-deactivate', 'item', id);
         return res.status(200).json({ success: true });
       }
 
@@ -499,6 +525,8 @@ export default async function handler(req, res) {
           .eq('id', id);
         if (updateErr) throw updateErr;
 
+        await logInventoryAudit(profile.id, 'adjust-stock', 'item', id, { old_available_stock: item.available_stock, new_available_stock, reason });
+
         return res.status(200).json({ success: true });
       }
 
@@ -516,6 +544,9 @@ export default async function handler(req, res) {
 
         const { error } = await supabase.from('inventory_items').delete().eq('id', id);
         if (error) throw error;
+
+        await logInventoryAudit(profile.id, 'item-delete', 'item', id);
+
         return res.status(200).json({ success: true });
       }
 
@@ -559,7 +590,7 @@ export default async function handler(req, res) {
       }
 
       if (req.method === 'POST') {
-        const { item_id, quantity, notes, unit_id, member_id } = req.body;
+        const { item_id, quantity, notes, unit_id, member_id, mission_id } = req.body;
         if (!item_id) return res.status(400).json({ error: 'Item ID required' });
         const qty = quantity || 1;
 
@@ -635,7 +666,8 @@ export default async function handler(req, res) {
             checkout_date: checkoutDateStr,
             due_return_date: dueReturnDateStr,
             status: 'active',
-            notes
+            notes,
+            mission_id: mission_id || null
           })
           .select()
           .single();
@@ -656,6 +688,8 @@ export default async function handler(req, res) {
             .update({ status: 'checked_out', current_checkout_id: checkout.id })
             .eq('id', targetUnitId);
         }
+
+        await logInventoryAudit(profile.id, 'checkout', 'checkout', checkout.id, checkout);
 
         return res.status(201).json({ checkout });
       }
@@ -698,7 +732,7 @@ export default async function handler(req, res) {
           .from('inventory_checkouts')
           .update({
             status: 'returned',
-            actual_return_date: new Date().toISOString().split('T')[0],
+            actual_return_date: new Date().toISOString(),
             return_condition,
             condition_flag: conditionFlag,
             condition_notes,
@@ -730,6 +764,8 @@ export default async function handler(req, res) {
           }
         }
 
+        await logInventoryAudit(profile.id, 'checkin', 'checkout', id, { return_condition, condition_notes });
+
         return res.status(200).json({ success: true });
       }
 
@@ -741,7 +777,7 @@ export default async function handler(req, res) {
 
         const { return_condition, return_date, condition_notes } = req.body;
         const condition = return_condition || 'good';
-        const rDate = return_date || new Date().toISOString().split('T')[0];
+        const rDate = return_date ? new Date(return_date).toISOString() : new Date().toISOString();
 
         const conditionFlag = condition === 'damaged' || condition === 'lost';
 
@@ -780,6 +816,8 @@ export default async function handler(req, res) {
               .eq('id', checkout.item_id);
           }
         }
+
+        await logInventoryAudit(profile.id, 'mark-returned', 'checkout', id, { return_condition: condition, return_date: rDate, condition_notes });
 
         return res.status(200).json({ success: true });
       }
@@ -895,6 +933,106 @@ export default async function handler(req, res) {
         // Clear flag
         const { error } = await supabase.from('inventory_checkouts').update({ condition_flag: false }).eq('id', id);
         if (error) throw error;
+        return res.status(200).json({ success: true });
+      }
+    }
+
+    // ==========================================
+    // RESOURCE: MISSIONS
+    // ==========================================
+    if (resource === 'missions') {
+      if (req.method === 'GET') {
+        const { data: missions, error } = await supabase
+          .from('welfare_missions')
+          .select('*')
+          .order('created_at', { ascending: false });
+        if (error) throw error;
+
+        // Fetch counts of active checkouts dynamically for each mission
+        const missionsWithCounts = [];
+        for (const mission of (missions || [])) {
+          const { count } = await supabase
+            .from('inventory_checkouts')
+            .select('id', { count: 'exact', head: true })
+            .eq('mission_id', mission.id)
+            .eq('status', 'active');
+          missionsWithCounts.push({ ...mission, active_checkouts_count: count || 0 });
+        }
+        return res.status(200).json({ missions: missionsWithCounts });
+      }
+
+      // Admin/super check for mutations
+      if (profile.role !== 'admin' && profile.role !== 'super') {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+
+      if (req.method === 'POST') {
+        const { name, emoji, description } = req.body;
+        if (!name) return res.status(400).json({ error: 'Mission name required' });
+
+        const { data, error } = await supabase
+          .from('welfare_missions')
+          .insert({
+            name,
+            emoji: emoji || '🤝',
+            description,
+            created_by: profile.id
+          })
+          .select()
+          .single();
+        if (error) throw error;
+
+        await logInventoryAudit(profile.id, 'mission-create', 'mission', data.id, data);
+
+        return res.status(201).json({ mission: data });
+      }
+
+      if (req.method === 'PATCH') {
+        const { id, status, name, emoji, description } = req.body;
+        if (!id) return res.status(400).json({ error: 'Mission ID required' });
+
+        const updateData = {};
+        if (status) {
+          updateData.status = status;
+          if (status === 'completed') {
+            updateData.completed_at = new Date().toISOString();
+          }
+        }
+        if (name) updateData.name = name;
+        if (emoji) updateData.emoji = emoji;
+        if (description !== undefined) updateData.description = description;
+
+        const { data, error } = await supabase
+          .from('welfare_missions')
+          .update(updateData)
+          .eq('id', id)
+          .select()
+          .single();
+        if (error) throw error;
+
+        await logInventoryAudit(profile.id, 'mission-update', 'mission', id, data);
+
+        return res.status(200).json({ mission: data });
+      }
+
+      if (req.method === 'DELETE') {
+        const { id } = req.query;
+        if (!id) return res.status(400).json({ error: 'Mission ID required' });
+
+        const { count } = await supabase
+          .from('inventory_checkouts')
+          .select('id', { count: 'exact', head: true })
+          .eq('mission_id', id);
+
+        if (count > 0) {
+          return res.status(400).json({ error: 'Cannot delete mission with linked checkouts' });
+        }
+
+        const { error } = await supabase.from('welfare_missions').delete().eq('id', id);
+        if (error) throw error;
+
+        await logInventoryAudit(profile.id, 'mission-delete', 'mission', id);
+
         return res.status(200).json({ success: true });
       }
     }

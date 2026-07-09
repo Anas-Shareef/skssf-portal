@@ -160,21 +160,31 @@ export default function MemberInventory() {
   const [newMissionEmoji, setNewMissionEmoji] = useState('🤝');
   const [newMissionBundles, setNewMissionBundles] = useState<{ item_id: string; quantity: number }[]>([]);
 
-  const defaultMissions = [
-    { id: 'm1', name: 'Ramadan Welfare 2025', desc: 'Welfare food packs and prayer mats distributed for the holy month.', emoji: '🌙' },
-    { id: 'm2', name: 'Student Support Drive 2025', desc: 'Stationery kits and study sets allocated for Poyanad Branch students.', emoji: '📚' },
-    { id: 'm3', name: 'Medical Relief Camp', desc: 'First Aid boxes and healthcare supplies allocated to medical teams.', emoji: '🚑' },
-    { id: 'm4', name: 'General Distribution', desc: 'Standard item distributions for local families and members.', emoji: '🤝' }
-  ];
+  const [missionsList, setMissionsList] = useState<any[]>([]);
 
-  const [missionsList, setMissionsList] = useState<any[]>(() => {
-    const local = localStorage.getItem('skssf_missions');
-    return local ? JSON.parse(local) : defaultMissions;
-  });
-
-  const saveMissions = (newList: any[]) => {
-    setMissionsList(newList);
-    localStorage.setItem('skssf_missions', JSON.stringify(newList));
+  const loadMissions = async (silent = true) => {
+    try {
+      if (!silent) setRefreshing(true);
+      const res = await fetch('/api/inventory?resource=missions', { headers: getHeaders() });
+      if (!res.ok) throw new Error('Failed to load welfare missions');
+      const data = await res.json();
+      const loadedMissions = data.missions || [];
+      setMissionsList(loadedMissions);
+      
+      // Auto-select General Distribution or the first mission if none is selected yet
+      if (loadedMissions.length > 0 && (!scannerMission || scannerMission === 'General Distribution')) {
+        const general = loadedMissions.find((m: any) => m.name === 'General Distribution');
+        if (general) {
+          setScannerMission(general.id);
+        } else {
+          setScannerMission(loadedMissions[0].id);
+        }
+      }
+    } catch (e: any) {
+      console.warn("Failed to load welfare missions:", e);
+    } finally {
+      if (!silent) setRefreshing(false);
+    }
   };
 
   // Scanner State
@@ -183,7 +193,7 @@ export default function MemberInventory() {
   const [scanLookupResult, setScanLookupResult] = useState<any | null>(null);
   const [scanNotes, setScanNotes] = useState('');
   const [scannerMemberId, setScannerMemberId] = useState('');
-  const [scannerMission, setScannerMission] = useState('General Distribution');
+  const [scannerMission, setScannerMission] = useState('');
   const [scanError, setScanError] = useState('');
   const [scanSubmitting, setScanSubmitting] = useState(false);
 
@@ -328,7 +338,7 @@ export default function MemberInventory() {
   useEffect(() => {
     const init = async () => {
       setInitialLoading(true);
-      await Promise.all([loadCatalogue(false), loadCheckouts(false), loadDamageReview(false), loadMembers()]);
+      await Promise.all([loadCatalogue(false), loadCheckouts(false), loadDamageReview(false), loadMembers(), loadMissions(true)]);
       setInitialLoading(false);
     };
     init();
@@ -343,6 +353,8 @@ export default function MemberInventory() {
       loadCheckouts(false);
     } else if (activeTab === 'damage_review') {
       loadDamageReview(false);
+    } else if (activeTab === 'missions') {
+      loadMissions(false);
     }
   }, [activeTab]);
 
@@ -416,30 +428,42 @@ export default function MemberInventory() {
     }
   };
 
-  const handleCreateMissionSubmit = (e: React.FormEvent) => {
+  const handleCreateMissionSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newMissionName.trim() || !newMissionDesc.trim()) {
       popToast('e', 'Please provide a mission name and description');
       return;
     }
 
-    const newMission = {
-      id: 'm_' + Date.now(),
-      name: newMissionName.trim(),
-      desc: newMissionDesc.trim(),
-      emoji: newMissionEmoji,
-      items: newMissionBundles
-    };
+    try {
+      setFormSubmitting(true);
+      const res = await fetch('/api/inventory?resource=missions', {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({
+          name: newMissionName.trim(),
+          description: newMissionDesc.trim(),
+          emoji: newMissionEmoji
+        })
+      });
 
-    saveMissions([...missionsList, newMission]);
-    popToast('s', `Mission "${newMissionName}" created successfully!`);
-    
-    // Reset form
-    setNewMissionName('');
-    setNewMissionDesc('');
-    setNewMissionEmoji('🤝');
-    setNewMissionBundles([]);
-    setShowCreateMissionModal(false);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to create mission');
+
+      popToast('s', `Mission "${newMissionName}" created successfully!`);
+      await loadMissions(true);
+
+      // Reset form
+      setNewMissionName('');
+      setNewMissionDesc('');
+      setNewMissionEmoji('🤝');
+      setNewMissionBundles([]);
+      setShowCreateMissionModal(false);
+    } catch (err: any) {
+      popToast('e', err.message || 'Error creating mission');
+    } finally {
+      setFormSubmitting(false);
+    }
   };
 
   // Handle Edit Item
@@ -761,6 +785,10 @@ export default function MemberInventory() {
       
       if (scannerMode === 'checkout') {
         const unitId = isUnit ? scanLookupResult.unit.id : null;
+        const selectedMissionObj = missionsList.find(m => m.id === scannerMission);
+        const missionName = selectedMissionObj ? selectedMissionObj.name : 'General Distribution';
+        const missionId = selectedMissionObj ? selectedMissionObj.id : null;
+
         const res = await fetch('/api/inventory', {
           method: 'POST',
           headers: getHeaders(),
@@ -770,7 +798,8 @@ export default function MemberInventory() {
             unit_id: unitId,
             member_id: scannerMemberId,
             quantity: 1,
-            notes: scanNotes || `Scanned checkout for ${scannerMission}`
+            notes: scanNotes || `Scanned checkout for ${missionName}`,
+            mission_id: missionId
           })
         });
         if (!res.ok) {
@@ -1831,7 +1860,7 @@ export default function MemberInventory() {
                                 style={{ width: '100%', height: '42px', borderRadius: '10px', border: '1px solid #c3fae8', background: '#fff' }}
                               >
                                 {missionsList.map(m => (
-                                  <option key={m.id} value={m.name}>{m.name}</option>
+                                  <option key={m.id} value={m.id}>{m.name}</option>
                                 ))}
                               </select>
                             </div>
@@ -2176,13 +2205,14 @@ export default function MemberInventory() {
               {/* Grid of Mission Cards */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '20px' }}>
                 {missionsList.map((mission) => {
-                  const dispatchedCount = allCheckouts.filter(c => {
-                    if (mission.name === 'Ramadan Welfare 2025' && (c.notes?.includes('Ramadan Welfare') || c.notes?.includes('Ramadan'))) return true;
-                    if (mission.name === 'Student Support Drive 2025' && (c.notes?.includes('Student Support') || c.notes?.includes('Student'))) return true;
-                    if (mission.name === 'Medical Relief Camp' && (c.notes?.includes('Medical Relief') || c.notes?.includes('Medical'))) return true;
-                    if (mission.name === 'General Distribution' && (!c.notes?.includes('Ramadan') && !c.notes?.includes('Student') && !c.notes?.includes('Medical'))) return true;
-                    return c.notes?.includes(mission.name) || c.notes === mission.name;
-                  }).length;
+                   const dispatchedCount = allCheckouts.filter(c => {
+                     if (c.mission_id) return c.mission_id === mission.id;
+                     if (mission.name === 'Ramadan Welfare 2025' && (c.notes?.includes('Ramadan Welfare') || c.notes?.includes('Ramadan'))) return true;
+                     if (mission.name === 'Student Support Drive 2025' && (c.notes?.includes('Student Support') || c.notes?.includes('Student'))) return true;
+                     if (mission.name === 'Medical Relief Camp' && (c.notes?.includes('Medical Relief') || c.notes?.includes('Medical'))) return true;
+                     if (mission.name === 'General Distribution' && (!c.notes?.includes('Ramadan') && !c.notes?.includes('Student') && !c.notes?.includes('Medical'))) return true;
+                     return c.notes?.includes(mission.name) || c.notes === mission.name;
+                   }).length;
 
                   return (
                     <div 
@@ -2285,17 +2315,20 @@ export default function MemberInventory() {
                       {allCheckouts.map(c => {
                         const isOverdue = c.status === 'active' && c.due_return_date && new Date(c.due_return_date) < new Date();
                         
-                        let matchedMissionName = 'General Distribution';
-                        if (c.notes) {
-                          const found = missionsList.find(m => c.notes?.includes(m.name) || c.notes === m.name);
-                          if (found) {
-                            matchedMissionName = found.name;
-                          } else {
-                            if (c.notes.includes('Ramadan')) matchedMissionName = 'Ramadan Welfare 2025';
-                            else if (c.notes.includes('Student')) matchedMissionName = 'Student Support Drive 2025';
-                            else if (c.notes.includes('Medical')) matchedMissionName = 'Medical Relief Camp';
-                          }
-                        }
+                         let matchedMissionName = 'General Distribution';
+                         if (c.mission_id) {
+                           const found = missionsList.find(m => m.id === c.mission_id);
+                           if (found) matchedMissionName = found.name;
+                         } else if (c.notes) {
+                           const found = missionsList.find(m => c.notes?.includes(m.name) || c.notes === m.name);
+                           if (found) {
+                             matchedMissionName = found.name;
+                           } else {
+                             if (c.notes.includes('Ramadan')) matchedMissionName = 'Ramadan Welfare 2025';
+                             else if (c.notes.includes('Student')) matchedMissionName = 'Student Support Drive 2025';
+                             else if (c.notes.includes('Medical')) matchedMissionName = 'Medical Relief Camp';
+                           }
+                         }
 
                         return (
                           <tr key={c.id} style={{ borderBottom: '1px solid #F3F4F6' }}>
