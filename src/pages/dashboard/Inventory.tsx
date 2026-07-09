@@ -7,6 +7,7 @@ import {
 import { useAuth } from '../../contexts/AuthContext';
 import JsBarcode from 'jsbarcode';
 import * as XLSX from 'xlsx';
+import { useSearchParams } from 'react-router-dom';
 
 interface InventoryItem {
   id: string;
@@ -132,7 +133,15 @@ export default function Inventory() {
   }
 
   // State Declarations
-  const [activeTab, setActiveTab] = useState<'catalogue' | 'scanner' | 'checkouts' | 'missions' | 'reports' | 'damage_review'>('catalogue');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTabParam = searchParams.get('tab') || 'catalogue';
+  const activeTab = (['catalogue', 'barcodes', 'scanner', 'checkouts', 'missions', 'reports', 'settings', 'damage_review'].includes(activeTabParam)
+    ? activeTabParam
+    : 'catalogue') as 'catalogue' | 'barcodes' | 'scanner' | 'checkouts' | 'missions' | 'reports' | 'settings' | 'damage_review';
+
+  const setActiveTab = (tab: 'catalogue' | 'barcodes' | 'scanner' | 'checkouts' | 'missions' | 'reports' | 'settings' | 'damage_review') => {
+    setSearchParams({ tab });
+  };
   const [viewMode, setViewMode] = useState<'gallery' | 'table' | 'barcodes'>('gallery');
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -155,9 +164,34 @@ export default function Inventory() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
+  const [selectedDetailTab, setSelectedDetailTab] = useState<'units' | 'distribution' | 'reviews'>('units');
   const [adjustingItem, setAdjustingItem] = useState<InventoryItem | null>(null);
   const [overrideCheckout, setOverrideCheckout] = useState<CheckoutRecord | null>(null);
   const [selectedProductDetail, setSelectedProductDetail] = useState<InventoryItem | null>(null);
+
+  // Missions & Bundling State
+  const [showCreateMissionModal, setShowCreateMissionModal] = useState(false);
+  const [newMissionName, setNewMissionName] = useState('');
+  const [newMissionDesc, setNewMissionDesc] = useState('');
+  const [newMissionEmoji, setNewMissionEmoji] = useState('🤝');
+  const [newMissionBundles, setNewMissionBundles] = useState<{ item_id: string; quantity: number }[]>([]);
+
+  const defaultMissions = [
+    { id: 'm1', name: 'Ramadan Welfare 2025', desc: 'Welfare food packs and prayer mats distributed for the holy month.', emoji: '🌙' },
+    { id: 'm2', name: 'Student Support Drive 2025', desc: 'Stationery kits and study sets allocated for Poyanad Branch students.', emoji: '📚' },
+    { id: 'm3', name: 'Medical Relief Camp', desc: 'First Aid boxes and healthcare supplies allocated to medical teams.', emoji: '🚑' },
+    { id: 'm4', name: 'General Distribution', desc: 'Standard item distributions for local families and members.', emoji: '🤝' }
+  ];
+
+  const [missionsList, setMissionsList] = useState<any[]>(() => {
+    const local = localStorage.getItem('skssf_missions');
+    return local ? JSON.parse(local) : defaultMissions;
+  });
+
+  const saveMissions = (newList: any[]) => {
+    setMissionsList(newList);
+    localStorage.setItem('skssf_missions', JSON.stringify(newList));
+  };
 
   // Scanner State
   const [scannerMode, setScannerMode] = useState<'checkout' | 'checkin'>('checkout');
@@ -319,6 +353,12 @@ export default function Inventory() {
     }
   }, [activeTab]);
 
+  useEffect(() => {
+    if (selectedProductDetail) {
+      setSelectedDetailTab('units');
+    }
+  }, [selectedProductDetail]);
+
   // Handle Add Item
   const handleAddItemSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -365,6 +405,32 @@ export default function Inventory() {
     } finally {
       setFormSubmitting(false);
     }
+  };
+
+  const handleCreateMissionSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newMissionName.trim() || !newMissionDesc.trim()) {
+      popToast('e', 'Please provide a mission name and description');
+      return;
+    }
+
+    const newMission = {
+      id: 'm_' + Date.now(),
+      name: newMissionName.trim(),
+      desc: newMissionDesc.trim(),
+      emoji: newMissionEmoji,
+      items: newMissionBundles
+    };
+
+    saveMissions([...missionsList, newMission]);
+    popToast('s', `Mission "${newMissionName}" created successfully!`);
+    
+    // Reset form
+    setNewMissionName('');
+    setNewMissionDesc('');
+    setNewMissionEmoji('🤝');
+    setNewMissionBundles([]);
+    setShowCreateMissionModal(false);
   };
 
   // Handle Edit Item
@@ -899,6 +965,7 @@ export default function Inventory() {
       {/* Tabs list matching Claude Prototype */}
       <div className="inv-tabs" style={{ display: 'flex', gap: '8px', marginBottom: '32px', borderBottom: '2.5px solid #f1f5f9', paddingBottom: '2px', overflowX: 'auto' }}>
         <button
+          type="button"
           onClick={() => setActiveTab('catalogue')}
           style={{
             padding: '14px 20px', fontWeight: 800, fontSize: '14.5px', border: 'none', background: 'none',
@@ -909,6 +976,18 @@ export default function Inventory() {
           🛍️ Product Catalog
         </button>
         <button
+          type="button"
+          onClick={() => setActiveTab('barcodes')}
+          style={{
+            padding: '14px 20px', fontWeight: 800, fontSize: '14.5px', border: 'none', background: 'none',
+            borderBottom: activeTab === 'barcodes' ? '3.5px solid var(--teal)' : '3.5px solid transparent',
+            color: activeTab === 'barcodes' ? 'var(--teal)' : '#64748b', cursor: 'pointer', whiteSpace: 'nowrap'
+          }}
+        >
+          📊 Barcode Manager
+        </button>
+        <button
+          type="button"
           onClick={() => setActiveTab('scanner')}
           style={{
             padding: '14px 20px', fontWeight: 800, fontSize: '14.5px', border: 'none', background: 'none',
@@ -919,6 +998,7 @@ export default function Inventory() {
           📷 Scanner (Check In/Out)
         </button>
         <button
+          type="button"
           onClick={() => setActiveTab('checkouts')}
           style={{
             padding: '14px 20px', fontWeight: 800, fontSize: '14.5px', border: 'none', background: 'none',
@@ -929,6 +1009,7 @@ export default function Inventory() {
           📤 Currently Checked Out
         </button>
         <button
+          type="button"
           onClick={() => setActiveTab('missions')}
           style={{
             padding: '14px 20px', fontWeight: 800, fontSize: '14.5px', border: 'none', background: 'none',
@@ -939,6 +1020,7 @@ export default function Inventory() {
           🎯 Mission Packages
         </button>
         <button
+          type="button"
           onClick={() => setActiveTab('reports')}
           style={{
             padding: '14px 20px', fontWeight: 800, fontSize: '14.5px', border: 'none', background: 'none',
@@ -949,6 +1031,18 @@ export default function Inventory() {
           📊 Inventory Reports
         </button>
         <button
+          type="button"
+          onClick={() => setActiveTab('settings')}
+          style={{
+            padding: '14px 20px', fontWeight: 800, fontSize: '14.5px', border: 'none', background: 'none',
+            borderBottom: activeTab === 'settings' ? '3.5px solid var(--teal)' : '3.5px solid transparent',
+            color: activeTab === 'settings' ? 'var(--teal)' : '#64748b', cursor: 'pointer', whiteSpace: 'nowrap'
+          }}
+        >
+          ⚙️ Settings
+        </button>
+        <button
+          type="button"
           onClick={() => setActiveTab('damage_review')}
           style={{
             padding: '14px 20px', fontWeight: 800, fontSize: '14.5px', border: 'none', background: 'none',
@@ -1426,6 +1520,143 @@ export default function Inventory() {
             </>
           )}
 
+          {/* ①.B BARCODE MANAGER TAB */}
+          {activeTab === 'barcodes' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '28px' }}>
+              {/* Page Header */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span style={{ fontSize: '24px' }}>📊</span>
+                    <h3 style={{ fontSize: '24px', fontWeight: 900, color: '#1A1F2E', fontFamily: 'Playfair Display, serif', margin: 0 }}>Barcode Manager</h3>
+                  </div>
+                  <p style={{ fontSize: '13px', color: '#6B7280', margin: '4px 0 0 0' }}>View, print, and manage all product barcodes</p>
+                </div>
+                <button 
+                  type="button" 
+                  onClick={() => window.print()} 
+                  style={{ height: '42px', padding: '0 20px', background: '#1A1F2E', color: '#fff', borderRadius: '50px', border: 'none', fontWeight: 800, fontSize: '13.5px', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}
+                >
+                  <Printer size={16} /> Print All
+                </button>
+              </div>
+
+              {/* List of Products Barcode Cards */}
+              {filteredCatalogue.map(item => {
+                const unitsList = item.units || [];
+                const showCount = 6;
+                const visibleUnits = unitsList.slice(0, showCount);
+                const remainingCount = unitsList.length - showCount;
+
+                return (
+                  <div 
+                    key={item.id} 
+                    style={{ background: '#fff', border: '1.5px solid #E2DED6', borderRadius: '24px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px', boxShadow: '0 2px 12px rgba(13,115,119,.04)' }}
+                  >
+                    {/* Header Row */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <div style={{ width: '48px', height: '48px', background: '#F4F1EB', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '28px', border: '1px solid #E2DED6' }}>
+                          {getProductEmoji(item.name, item.categories?.name || '')}
+                        </div>
+                        <div>
+                          <h4 style={{ fontSize: '18px', fontWeight: 900, color: '#1A1F2E', fontFamily: 'Playfair Display, serif', margin: 0 }}>{item.name}</h4>
+                          <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginTop: '4px' }}>
+                            <span style={{ background: '#1E293B', color: '#fff', fontSize: '9.5px', fontWeight: 700, padding: '2px 8px', borderRadius: '50px', fontFamily: 'monospace' }}>
+                              {item.barcode_value || 'PENDING'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <button 
+                          type="button" 
+                          onClick={() => setSelectedProductDetail(item)}
+                          style={{ height: '36px', padding: '0 16px', background: '#fff', color: '#4B5563', borderRadius: '50px', border: '1.5px solid #E2DED6', fontWeight: 800, fontSize: '12px', cursor: 'pointer' }}
+                        >
+                          🔍 View
+                        </button>
+                        <button 
+                          type="button" 
+                          onClick={() => setSelectedProductDetail(item)}
+                          style={{ height: '36px', padding: '0 16px', background: 'var(--teal)', color: '#fff', borderRadius: '50px', border: 'none', fontWeight: 800, fontSize: '12px', cursor: 'pointer' }}
+                        >
+                          🖨️ Print Labels
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Product Barcode Section */}
+                    <div>
+                      <div style={{ fontSize: '11px', fontWeight: 800, color: '#6B7280', textTransform: 'uppercase', marginBottom: '8px', letterSpacing: '0.5px' }}>
+                        Product Barcode
+                      </div>
+                      {item.barcode_value ? (
+                        <div style={{ background: '#F9F8F6', border: '1.5px solid #E2DED6', borderRadius: '12px', padding: '20px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                          <BarcodeSVG value={item.barcode_value} />
+                          <div style={{ fontSize: '10px', fontFamily: 'monospace', color: '#6B7280', marginTop: '6px', letterSpacing: '0.5px' }}>
+                            {item.barcode_value}
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ padding: '16px', textAlign: 'center', background: '#F9F8F6', borderRadius: '12px', color: '#6B7280' }}>
+                          No barcode generated.
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Individual Unit Barcodes */}
+                    <div>
+                      <div style={{ fontSize: '11px', fontWeight: 800, color: '#6B7280', textTransform: 'uppercase', marginBottom: '10px', letterSpacing: '0.5px' }}>
+                        Individual Unit Barcodes (Showing {visibleUnits.length} of {unitsList.length})
+                      </div>
+                      {unitsList.length === 0 ? (
+                        <div style={{ padding: '20px', textAlign: 'center', border: '1.5px dashed #E2DED6', borderRadius: '12px', color: '#9CA3AF' }}>
+                          No units created yet.
+                        </div>
+                      ) : (
+                        <>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '14px' }}>
+                            {visibleUnits.map((u: any) => {
+                              const isOut = u.status === 'checked_out' || u.status === 'out';
+                              return (
+                                <div 
+                                  key={u.id} 
+                                  style={{ border: '1.5px solid #E2DED6', borderRadius: '12px', padding: '12px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', background: '#fff' }}
+                                >
+                                  <div style={{ fontSize: '8px', fontWeight: 800, color: '#9CA3AF', letterSpacing: '0.5px' }}>› SKSSF</div>
+                                  <BarcodeSVG value={u.barcode_value} />
+                                  <div style={{ fontSize: '9.5px', fontFamily: 'monospace', fontWeight: 700, color: '#1A1F2E' }}>
+                                    {u.barcode_value.split('-').slice(-2).join('-')}
+                                  </div>
+                                  <div style={{ 
+                                    fontSize: '10px', fontWeight: 900, 
+                                    color: isOut ? '#2563EB' : '#16A34A',
+                                    display: 'flex', alignItems: 'center', gap: '3px'
+                                  }}>
+                                    {isOut ? '📤 Checked Out' : '✓ Available'}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                          {remainingCount > 0 && (
+                            <div 
+                              onClick={() => setSelectedProductDetail(item)}
+                              style={{ textAlign: 'center', marginTop: '14px', fontSize: '13px', color: 'var(--teal)', fontWeight: 800, cursor: 'pointer' }}
+                            >
+                              + {remainingCount} more units
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
           {/* ② BARCODE SCANNER TAB */}
           {activeTab === 'scanner' && (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '28px', alignItems: 'start' }} className="inv-2col">
@@ -1508,10 +1739,9 @@ export default function Inventory() {
                         className="sel2" 
                         style={{ width: '100%', height: '42px', borderRadius: '10px' }}
                       >
-                        <option value="General Distribution">General Distribution</option>
-                        <option value="Ramadan Welfare 2025">Ramadan Welfare 2025</option>
-                        <option value="Student Support Drive 2025">Student Support Drive 2025</option>
-                        <option value="Medical Relief Camp">Medical Relief Camp</option>
+                        {missionsList.map(m => (
+                          <option key={m.id} value={m.name}>{m.name}</option>
+                        ))}
                       </select>
                     </div>
                   </div>
@@ -1714,70 +1944,102 @@ export default function Inventory() {
           {/* ④ MISSION PACKAGES TAB */}
           {activeTab === 'missions' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '28px' }}>
-              <div className="card" style={{ background: '#fff', border: '1.5px solid #f1f5f9', borderRadius: '24px', padding: '28px' }}>
-                <h3 style={{ fontSize: '18px', fontWeight: 900, marginBottom: '6px' }}>🎯 Welfare Mission Packages</h3>
-                <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '24px' }}>Track distributed items assigned under specific SKSSF support missions.</p>
+              
+              {/* Header Section */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span style={{ fontSize: '24px' }}>🎯</span>
+                    <h3 style={{ fontSize: '24px', fontWeight: 900, color: '#1A1F2E', fontFamily: 'Playfair Display, serif', margin: 0 }}>Mission Packages</h3>
+                  </div>
+                  <p style={{ fontSize: '13px', color: '#6B7280', margin: '4px 0 0 0' }}>Bundle products into welfare distribution missions and track dispatched items.</p>
+                </div>
+                <button 
+                  type="button" 
+                  onClick={() => setShowCreateMissionModal(true)} 
+                  style={{ height: '42px', padding: '0 20px', background: 'var(--teal)', color: '#fff', borderRadius: '50px', border: 'none', fontWeight: 800, fontSize: '13.5px', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}
+                >
+                  <Plus size={16} /> Create Mission
+                </button>
+              </div>
 
+              {/* Grid of Mission Cards */}
+              <div className="card" style={{ background: '#fff', border: '1.5px solid #E2DED6', borderRadius: '24px', padding: '28px', boxShadow: '0 2px 12px rgba(13,115,119,.02)' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '18px' }}>
-                  {[
-                    { name: 'Ramadan Welfare 2025', desc: 'Welfare food packs and prayer mats distributed for the holy month.', itemsCount: allCheckouts.filter(c => c.notes?.includes('Ramadan Welfare')).length },
-                    { name: 'Student Support Drive 2025', desc: 'Stationery kits and study sets allocated for Poyanad Branch students.', itemsCount: allCheckouts.filter(c => c.notes?.includes('Student Support')).length },
-                    { name: 'Medical Relief Camp', desc: 'First Aid boxes and healthcare supplies allocated to medical teams.', itemsCount: allCheckouts.filter(c => c.notes?.includes('Medical Relief')).length },
-                    { name: 'General Distribution', desc: 'Standard item distributions for local families and members.', itemsCount: allCheckouts.filter(c => !c.notes?.includes('Ramadan') && !c.notes?.includes('Student') && !c.notes?.includes('Medical')).length }
-                  ].map((mission, idx) => (
-                    <div key={idx} style={{ background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: '16px', padding: '20px', display: 'flex', flexDirection: 'column' }}>
-                      <div style={{ fontSize: '28px', marginBottom: '8px' }}>{idx === 0 ? '🌙' : idx === 1 ? '📚' : idx === 2 ? '🚑' : '🤝'}</div>
-                      <h4 style={{ fontSize: '15px', fontWeight: 800, color: '#0f172a', marginBottom: '6px' }}>{mission.name}</h4>
-                      <p style={{ fontSize: '12px', color: '#64748b', lineHeight: 1.45, flex: 1, marginBottom: '16px' }}>{mission.desc}</p>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #e2e8f0', paddingTop: '12px' }}>
-                        <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 800, textTransform: 'uppercase' }}>Items Dispatched</span>
-                        <strong style={{ fontSize: '16px', color: 'var(--teal)', fontWeight: 900 }}>{mission.itemsCount} Units</strong>
+                  {missionsList.map((mission, idx) => {
+                    const dispatchedCount = allCheckouts.filter(c => {
+                      if (mission.name === 'Ramadan Welfare 2025' && (c.notes?.includes('Ramadan Welfare') || c.notes?.includes('Ramadan'))) return true;
+                      if (mission.name === 'Student Support Drive 2025' && (c.notes?.includes('Student Support') || c.notes?.includes('Student'))) return true;
+                      if (mission.name === 'Medical Relief Camp' && (c.notes?.includes('Medical Relief') || c.notes?.includes('Medical'))) return true;
+                      if (mission.name === 'General Distribution' && (!c.notes?.includes('Ramadan') && !c.notes?.includes('Student') && !c.notes?.includes('Medical'))) return true;
+                      return c.notes?.includes(mission.name) || c.notes === mission.name;
+                    }).length;
+
+                    return (
+                      <div key={mission.id} style={{ background: '#F9F8F6', border: '1.5px solid #E2DED6', borderRadius: '16px', padding: '20px', display: 'flex', flexDirection: 'column' }}>
+                        <div style={{ fontSize: '28px', marginBottom: '8px' }}>{mission.emoji || '🤝'}</div>
+                        <h4 style={{ fontSize: '15px', fontWeight: 800, color: '#1A1F2E', marginBottom: '6px' }}>{mission.name}</h4>
+                        <p style={{ fontSize: '12.5px', color: '#6B7280', lineHeight: 1.45, flex: 1, marginBottom: '16px' }}>{mission.desc}</p>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #E2DED6', paddingTop: '12px' }}>
+                          <span style={{ fontSize: '11px', color: '#9CA3AF', fontWeight: 800, textTransform: 'uppercase' }}>Items Dispatched</span>
+                          <strong style={{ fontSize: '16px', color: 'var(--teal)', fontWeight: 900 }}>{dispatchedCount} Units</strong>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
 
               {/* Detailed Mission Distribution log */}
-              <div className="card" style={{ background: '#fff', border: '1.5px solid #f1f5f9', borderRadius: '24px', padding: '28px' }}>
-                <h3 style={{ fontSize: '16px', fontWeight: 900, marginBottom: '16px' }}>Mission Allocations Ledger</h3>
-                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
-                  <thead>
-                    <tr style={{ borderBottom: '1.5px solid #e2e8f0', background: '#f8fafc' }}>
-                      <th style={{ padding: '12px 14px', fontWeight: 800 }}>Item Unit</th>
-                      <th style={{ padding: '12px 14px', fontWeight: 800 }}>Assigned Member</th>
-                      <th style={{ padding: '12px 14px', fontWeight: 800 }}>Welfare Mission</th>
-                      <th style={{ padding: '12px 14px', fontWeight: 800 }}>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {allCheckouts.map(c => {
-                      const isOverdue = c.status === 'active' && c.due_return_date && new Date(c.due_return_date) < new Date();
-                      let missionName = 'General Distribution';
-                      if (c.notes?.includes('Ramadan Welfare')) missionName = 'Ramadan Welfare 2025';
-                      else if (c.notes?.includes('Student Support')) missionName = 'Student Support Drive 2025';
-                      else if (c.notes?.includes('Medical Relief')) missionName = 'Medical Relief Camp';
+              <div className="card" style={{ background: '#fff', border: '1.5px solid #E2DED6', borderRadius: '24px', padding: '28px', boxShadow: '0 2px 12px rgba(13,115,119,.02)' }}>
+                <h3 style={{ fontSize: '16px', fontWeight: 900, marginBottom: '16px', color: '#1A1F2E' }}>Mission Allocations Ledger</h3>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1.5px solid #E2DED6', background: '#F9F8F6' }}>
+                        <th style={{ padding: '12px 14px', fontWeight: 800, color: '#4B5563' }}>Item Unit</th>
+                        <th style={{ padding: '12px 14px', fontWeight: 800, color: '#4B5563' }}>Assigned Member</th>
+                        <th style={{ padding: '12px 14px', fontWeight: 800, color: '#4B5563' }}>Welfare Mission</th>
+                        <th style={{ padding: '12px 14px', fontWeight: 800, color: '#4B5563' }}>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {allCheckouts.map(c => {
+                        const isOverdue = c.status === 'active' && c.due_return_date && new Date(c.due_return_date) < new Date();
+                        
+                        let matchedMissionName = 'General Distribution';
+                        if (c.notes) {
+                          const found = missionsList.find(m => c.notes?.includes(m.name) || c.notes === m.name);
+                          if (found) {
+                            matchedMissionName = found.name;
+                          } else {
+                            if (c.notes.includes('Ramadan')) matchedMissionName = 'Ramadan Welfare 2025';
+                            else if (c.notes.includes('Student')) matchedMissionName = 'Student Support Drive 2025';
+                            else if (c.notes.includes('Medical')) matchedMissionName = 'Medical Relief Camp';
+                          }
+                        }
 
-                      return (
-                        <tr key={c.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                          <td style={{ padding: '12px 14px' }}>
-                            <div style={{ fontWeight: 800 }}>{c.items?.name}</div>
-                            {c.unit?.barcode_value && <div style={{ fontSize: '11px', color: 'var(--teal)', fontFamily: 'monospace' }}>{c.unit.barcode_value}</div>}
-                          </td>
-                          <td style={{ padding: '12px 14px', fontWeight: 700 }}>{c.member?.name}</td>
-                          <td style={{ padding: '12px 14px', color: '#475569' }}>{missionName}</td>
-                          <td style={{ padding: '12px 14px' }}>
-                            <span style={{ 
-                              padding: '3px 8px', borderRadius: '50px', fontSize: '10px', fontWeight: 800,
-                              background: c.status === 'returned' ? '#e6fcf5' : isOverdue ? '#fff5f5' : '#e7f5ff',
-                              color: c.status === 'returned' ? '#0ca678' : isOverdue ? '#f03e3e' : '#1c7ed6'
-                            }}>{c.status === 'returned' ? 'Returned' : isOverdue ? 'Overdue' : 'Dispatched'}</span>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                        return (
+                          <tr key={c.id} style={{ borderBottom: '1px solid #F3F4F6' }}>
+                            <td style={{ padding: '12px 14px' }}>
+                              <div style={{ fontWeight: 800, color: '#1A1F2E' }}>{c.items?.name}</div>
+                              {c.unit?.barcode_value && <div style={{ fontSize: '11px', color: 'var(--teal)', fontFamily: 'monospace' }}>{c.unit.barcode_value}</div>}
+                            </td>
+                            <td style={{ padding: '12px 14px', fontWeight: 700, color: '#4B5563' }}>{c.member?.name}</td>
+                            <td style={{ padding: '12px 14px', color: '#4B5563' }}>{matchedMissionName}</td>
+                            <td style={{ padding: '12px 14px' }}>
+                              <span style={{ 
+                                padding: '3px 8px', borderRadius: '50px', fontSize: '10px', fontWeight: 900,
+                                background: c.status === 'returned' ? '#E6FCF5' : isOverdue ? '#FFF5F5' : '#E7F5FF',
+                                color: c.status === 'returned' ? '#0CA678' : isOverdue ? '#F03E3E' : '#1C7ED6'
+                              }}>{c.status === 'returned' ? 'Returned' : isOverdue ? 'Overdue' : 'Dispatched'}</span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           )}
@@ -1882,6 +2144,54 @@ export default function Inventory() {
             </div>
           )}
 
+          {/* ⑥.B SETTINGS TAB */}
+          {activeTab === 'settings' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '28px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span style={{ fontSize: '24px' }}>⚙️</span>
+                    <h3 style={{ fontSize: '24px', fontWeight: 900, color: '#1A1F2E', fontFamily: 'Playfair Display, serif', margin: 0 }}>Inventory Settings</h3>
+                  </div>
+                  <p style={{ fontSize: '13px', color: '#6B7280', margin: '4px 0 0 0' }}>Configure default parameters, system metadata, and categories.</p>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }} className="inv-2col">
+                {/* Category Configuration Box */}
+                <div className="card" style={{ background: '#fff', border: '1.5px solid #E2DED6', borderRadius: '24px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <h4 style={{ fontSize: '16px', fontWeight: 900, color: '#1A1F2E', margin: 0 }}>Folder Category Configuration</h4>
+                  <p style={{ fontSize: '12.5px', color: '#6B7280', margin: 0 }}>Create, rename, or structure item folders mapping to distributions.</p>
+                  <button 
+                    type="button" 
+                    onClick={() => setShowCategoryModal(true)} 
+                    style={{ height: '40px', background: 'var(--teal)', color: '#fff', borderRadius: '12px', border: 'none', fontWeight: 800, fontSize: '12.5px', cursor: 'pointer' }}
+                  >
+                    Manage Categories
+                  </button>
+                </div>
+
+                {/* System Variables Config */}
+                <div className="card" style={{ background: '#fff', border: '1.5px solid #E2DED6', borderRadius: '24px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <h4 style={{ fontSize: '16px', fontWeight: 900, color: '#1A1F2E', margin: 0 }}>Lease Scheme Configurations</h4>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <div>
+                      <label style={{ fontSize: '11px', fontWeight: 800, color: '#4B5563', textTransform: 'uppercase' }}>Default Lease Days</label>
+                      <input type="number" defaultValue={30} className="fi2" style={{ marginTop: '4px' }} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '11px', fontWeight: 800, color: '#4B5563', textTransform: 'uppercase' }}>Auto-Overdue Notifications</label>
+                      <select className="sel2" style={{ width: '100%', height: '42px', borderRadius: '10px', marginTop: '4px' }}>
+                        <option value="enabled">Enabled (Send Email Alerts)</option>
+                        <option value="disabled">Disabled (Manual queue check)</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* ⑥ DAMAGE QUEUE TAB */}
           {activeTab === 'damage_review' && (
             <div className="card" style={{ padding: '28px', borderRadius: '24px', background: '#fff', border: '1.5px solid #f1f5f9', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)' }}>
@@ -1962,80 +2272,268 @@ export default function Inventory() {
       )}
 
       {/* Product Detail Modal */}
-      {selectedProductDetail && (
-        <div className="ov" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, background: 'rgba(15, 23, 42, 0.4)' }}>
-          <div className="modal inv-modal" style={{ maxWidth: '800px', width: '95%', borderRadius: '24px', padding: '28px', maxHeight: '90vh', overflowY: 'auto' }}>
-            <div className="modal-head" style={{ border: 'none', padding: '0 0 16px 0', marginBottom: '8px' }}>
-              <span className="modal-title" style={{ fontSize: '22px', fontWeight: 900 }}>{selectedProductDetail.name} Details</span>
-              <button onClick={() => setSelectedProductDetail(null)} className="modal-close"><X size={20} /></button>
-            </div>
+      {selectedProductDetail && (() => {
+        const unitsList = selectedProductDetail.units || [];
+        const availableCount = unitsList.filter((u: any) => u.status === 'available').length;
+        const checkedOutCount = unitsList.filter((u: any) => u.status === 'checked_out' || u.status === 'out').length;
+        const itemCheckouts = allCheckouts.filter(c => c.item_id === selectedProductDetail.id);
+        const reviewsList = (selectedProductDetail as any).reviews || [];
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '20px', marginBottom: '24px' }} className="inv-2col">
-              <div style={{ height: '180px', background: '#f8fafc', borderRadius: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '56px', overflow: 'hidden' }}>
-                {selectedProductDetail.photo_url ? (
-                  <img src={selectedProductDetail.photo_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                ) : (
-                  selectedProductDetail.item_type === 'lease' ? '🛠️' : '📦'
-                )}
+        return (
+          <div className="ov" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, background: 'rgba(15, 23, 42, 0.4)' }}>
+            <div className="modal inv-modal" style={{ maxWidth: '850px', width: '95%', borderRadius: '24px', padding: '28px', maxHeight: '90vh', overflowY: 'auto' }}>
+              
+              {/* Modal Head */}
+              <div className="modal-head" style={{ border: 'none', padding: '0 0 16px 0', marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontFamily: 'Playfair Display, serif', fontSize: '24px', fontWeight: 900, color: '#1A1F2E' }}>
+                  {selectedProductDetail.name}
+                </span>
+                <button 
+                  onClick={() => setSelectedProductDetail(null)} 
+                  style={{ border: '1px solid #E2DED6', background: 'transparent', width: '32px', height: '32px', borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                >
+                  <X size={18} />
+                </button>
               </div>
-              <div>
-                <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--teal)', textTransform: 'uppercase', marginBottom: '4px' }}>{selectedProductDetail.categories?.name || 'General'}</div>
-                <h4 style={{ fontSize: '16px', fontWeight: 900, marginBottom: '6px' }}>{selectedProductDetail.name}</h4>
-                <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '12px' }}>{selectedProductDetail.description || 'No description provided.'}</p>
-                {selectedProductDetail.barcode_value && (
-                  <div style={{ display: 'inline-flex', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '10px', background: '#f8fafc' }}>
-                    <BarcodeSVG value={selectedProductDetail.barcode_value} />
+
+              {/* 2-Column Info block */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '24px', marginBottom: '24px' }} className="inv-2col">
+                {/* Left side: Photo or emoji container */}
+                <div style={{ height: '180px', background: '#F4F1EB', borderRadius: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '64px', border: '1px solid #E2DED6', overflow: 'hidden' }}>
+                  {selectedProductDetail.photo_url ? (
+                    <img src={selectedProductDetail.photo_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  ) : (
+                    <span style={{ fontSize: '72px' }}>{getProductEmoji(selectedProductDetail.name, selectedProductDetail.categories?.name || '')}</span>
+                  )}
+                </div>
+
+                {/* Right side: Stats summary + barcode and action buttons */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  {/* Stats summary cards */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
+                    <div style={{ background: '#F9F8F6', border: '1.5px solid #E2DED6', borderRadius: '12px', padding: '12px', textAlign: 'center' }}>
+                      <div style={{ fontSize: '18px', fontWeight: 900, color: '#1A1F2E' }}>{selectedProductDetail.total_stock}</div>
+                      <div style={{ fontSize: '11px', color: '#6B7280', fontWeight: 700 }}>Total Units</div>
+                    </div>
+                    <div style={{ background: '#F0FDF4', border: '1.5px solid #DCFCE7', borderRadius: '12px', padding: '12px', textAlign: 'center' }}>
+                      <div style={{ fontSize: '18px', fontWeight: 900, color: '#16A34A' }}>{availableCount}</div>
+                      <div style={{ fontSize: '11px', color: '#15803D', fontWeight: 700 }}>Available</div>
+                    </div>
+                    <div style={{ background: '#EFF6FF', border: '1.5px solid #DBEAFE', borderRadius: '12px', padding: '12px', textAlign: 'center' }}>
+                      <div style={{ fontSize: '18px', fontWeight: 900, color: '#2563EB' }}>{checkedOutCount}</div>
+                      <div style={{ fontSize: '11px', color: '#1D4ED8', fontWeight: 700 }}>Checked Out</div>
+                    </div>
                   </div>
-                )}
-              </div>
-            </div>
 
-            <div>
-              <h4 style={{ fontSize: '14px', fontWeight: 900, marginBottom: '10px' }}>Physical Units Ledger</h4>
-              <div style={{ maxHeight: '250px', overflowY: 'auto', border: '1.5px solid #e2e8f0', borderRadius: '12px' }}>
-                {(selectedProductDetail.units || []).length === 0 ? (
-                  <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>No physical units tracked for this item.</div>
-                ) : (
-                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '12px' }}>
-                    <thead>
-                      <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                        <th style={{ padding: '8px 12px', fontWeight: 800 }}>Unit No</th>
-                        <th style={{ padding: '8px 12px', fontWeight: 800 }}>Unit barcode SKU</th>
-                        <th style={{ padding: '8px 12px', fontWeight: 800 }}>Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(selectedProductDetail.units || []).map((u: any) => {
-                        let statusColor = '#059669';
-                        let statusBg = '#e6fcf5';
-                        if (u.status === 'checked_out') { statusColor = '#1c7ed6'; statusBg = '#e7f5ff'; }
-                        else if (u.status === 'damaged') { statusColor = '#f76707'; statusBg = '#fff4e6'; }
-                        else if (u.status === 'lost') { statusColor = '#fa5252'; statusBg = '#fff5f5'; }
+                  {/* Product barcode card */}
+                  {selectedProductDetail.barcode_value && (
+                    <div style={{ background: '#F9F8F6', border: '1.5px solid #E2DED6', borderRadius: '12px', padding: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                      <BarcodeSVG value={selectedProductDetail.barcode_value} />
+                      <div style={{ fontSize: '10px', fontFamily: 'monospace', color: '#6B7280', marginTop: '6px', letterSpacing: '0.5px' }}>
+                        {selectedProductDetail.barcode_value}
+                      </div>
+                    </div>
+                  )}
 
-                        return (
-                          <tr key={u.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                            <td style={{ padding: '10px 12px', fontWeight: 800 }}>#{String(u.unit_number).padStart(2, '0')}</td>
-                            <td style={{ padding: '10px 12px', fontFamily: 'monospace', fontWeight: 600 }}>{u.barcode_value}</td>
-                            <td style={{ padding: '10px 12px' }}>
-                              <span style={{ padding: '3px 8px', borderRadius: '6px', fontSize: '10px', fontWeight: 900, textTransform: 'uppercase', background: statusBg, color: statusColor }}>
-                                {u.status}
-                              </span>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                )}
+                  {/* Actions buttons */}
+                  <div style={{ display: 'flex', gap: '10px' }}>
+                    <button 
+                      type="button" 
+                      onClick={() => {}} 
+                      style={{ height: '38px', padding: '0 16px', background: 'var(--teal)', color: '#fff', borderRadius: '50px', border: 'none', fontWeight: 800, fontSize: '12.5px', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}
+                    >
+                      🖨️ Print Labels
+                    </button>
+                    {selectedProductDetail.item_type === 'lease' && (
+                      <button 
+                        type="button" 
+                        onClick={() => {
+                          setSelectedProductDetail(null);
+                          setScannerMode('checkout');
+                          setManualBarcode(selectedProductDetail.units?.[0]?.barcode_value || selectedProductDetail.barcode_value || '');
+                          setActiveTab('scanner');
+                          handleSelectQuickScan(selectedProductDetail.units?.[0]?.barcode_value || selectedProductDetail.barcode_value || '');
+                        }} 
+                        style={{ height: '38px', padding: '0 16px', background: '#FEF3C7', color: '#D97706', borderRadius: '50px', border: 'none', fontWeight: 800, fontSize: '12.5px', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}
+                      >
+                        📤 Check Out
+                      </button>
+                    )}
+                    <button 
+                      type="button" 
+                      onClick={() => { setEditingItem(selectedProductDetail); setSelectedProductDetail(null); }} 
+                      style={{ height: '38px', padding: '0 16px', background: '#fff', color: '#4B5563', borderRadius: '50px', border: '1.5px solid #E2DED6', fontWeight: 800, fontSize: '12.5px', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}
+                    >
+                      ✏️ Edit
+                    </button>
+                  </div>
+                </div>
               </div>
-            </div>
-            
-            <div style={{ display: 'flex', gap: '10px', marginTop: '20px', justifyContent: 'flex-end' }}>
-              <button onClick={() => setSelectedProductDetail(null)} className="bsm s" style={{ height: '40px', borderRadius: '10px', padding: '0 24px' }}>Close</button>
+
+              {/* Sub-tabs Nav bar */}
+              <div style={{ display: 'flex', gap: '12px', borderBottom: '2px solid #F3F4F6', marginBottom: '16px', paddingBottom: '2px' }}>
+                <button
+                  type="button"
+                  onClick={() => setSelectedDetailTab('units')}
+                  style={{
+                    padding: '8px 16px', fontWeight: 800, fontSize: '13.5px', border: 'none', background: 'none',
+                    borderBottom: selectedDetailTab === 'units' ? '3px solid var(--teal)' : '3px solid transparent',
+                    color: selectedDetailTab === 'units' ? 'var(--teal)' : '#6B7280', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
+                  }}
+                >
+                  📦 Units ({unitsList.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedDetailTab('distribution')}
+                  style={{
+                    padding: '8px 16px', fontWeight: 800, fontSize: '13.5px', border: 'none', background: 'none',
+                    borderBottom: selectedDetailTab === 'distribution' ? '3px solid var(--teal)' : '3px solid transparent',
+                    color: selectedDetailTab === 'distribution' ? 'var(--teal)' : '#6B7280', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
+                  }}
+                >
+                  📋 Distribution ({itemCheckouts.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedDetailTab('reviews')}
+                  style={{
+                    padding: '8px 16px', fontWeight: 800, fontSize: '13.5px', border: 'none', background: 'none',
+                    borderBottom: selectedDetailTab === 'reviews' ? '3px solid var(--teal)' : '3px solid transparent',
+                    color: selectedDetailTab === 'reviews' ? 'var(--teal)' : '#6B7280', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
+                  }}
+                >
+                  ⭐ Reviews ({reviewsList.length})
+                </button>
+              </div>
+
+              {/* Tab contents */}
+              {selectedDetailTab === 'units' && (
+                <div style={{ maxHeight: '250px', overflowY: 'auto', border: '1.5px solid #E2DED6', borderRadius: '12px' }}>
+                  {unitsList.length === 0 ? (
+                    <div style={{ padding: '20px', textAlign: 'center', color: '#9B9B9B' }}>No physical units tracked for this item.</div>
+                  ) : (
+                    <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '12.5px' }}>
+                      <thead>
+                        <tr style={{ background: '#F9F8F6', borderBottom: '1px solid #E2DED6' }}>
+                          <th style={{ padding: '8px 12px', fontWeight: 800 }}>Unit No</th>
+                          <th style={{ padding: '8px 12px', fontWeight: 800 }}>Unit barcode SKU</th>
+                          <th style={{ padding: '8px 12px', fontWeight: 800 }}>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {unitsList.map((u: any) => {
+                          let statusColor = '#16A34A';
+                          let statusBg = '#F0FDF4';
+                          if (u.status === 'checked_out' || u.status === 'out') { statusColor = '#2563EB'; statusBg = '#EFF6FF'; }
+                          else if (u.status === 'damaged') { statusColor = '#EA580C'; statusBg = '#FFF7ED'; }
+                          else if (u.status === 'lost') { statusColor = '#DC2626'; statusBg = '#FEF2F2'; }
+
+                          return (
+                            <tr key={u.id} style={{ borderBottom: '1px solid #F3F4F6' }}>
+                              <td style={{ padding: '10px 12px', fontWeight: 800 }}>#{String(u.unit_number).padStart(2, '0')}</td>
+                              <td style={{ padding: '10px 12px', fontFamily: 'monospace', fontWeight: 600 }}>{u.barcode_value}</td>
+                              <td style={{ padding: '10px 12px' }}>
+                                <span style={{ padding: '3px 8px', borderRadius: '6px', fontSize: '10px', fontWeight: 900, textTransform: 'uppercase', background: statusBg, color: statusColor }}>
+                                  {u.status}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              )}
+
+              {selectedDetailTab === 'distribution' && (
+                <div style={{ maxHeight: '250px', overflowY: 'auto', border: '1.5px solid #E2DED6', borderRadius: '12px' }}>
+                  {itemCheckouts.length === 0 ? (
+                    <div style={{ padding: '20px', textAlign: 'center', color: '#9B9B9B' }}>No checkout history recorded for this product.</div>
+                  ) : (
+                    <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '12.5px' }}>
+                      <thead>
+                        <tr style={{ background: '#F9F8F6', borderBottom: '1px solid #E2DED6' }}>
+                          <th style={{ padding: '10px 12px', fontWeight: 800 }}>UNIT ID</th>
+                          <th style={{ padding: '10px 12px', fontWeight: 800 }}>MEMBER</th>
+                          <th style={{ padding: '10px 12px', fontWeight: 800 }}>MISSION</th>
+                          <th style={{ padding: '10px 12px', fontWeight: 800 }}>CHECKOUT</th>
+                          <th style={{ padding: '10px 12px', fontWeight: 800 }}>CHECK-IN</th>
+                          <th style={{ padding: '10px 12px', fontWeight: 800 }}>ADMIN</th>
+                          <th style={{ padding: '10px 12px', fontWeight: 800 }}>STATUS</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {itemCheckouts.map((c: any) => {
+                          const unitBar = c.unit?.barcode_value || '—';
+                          const unitShort = unitBar.includes('-U') ? unitBar.split('-').slice(-2).join('-') : unitBar;
+                          const isOut = c.status === 'active';
+
+                          return (
+                            <tr key={c.id} style={{ borderBottom: '1px solid #F3F4F6' }}>
+                              <td style={{ padding: '12px' }}>
+                                <span style={{ background: '#1E293B', color: '#fff', fontSize: '10.5px', fontWeight: 700, padding: '3px 8px', borderRadius: '6px', fontFamily: 'monospace' }}>
+                                  {unitShort}
+                                </span>
+                              </td>
+                              <td style={{ padding: '12px' }}>
+                                <div style={{ fontWeight: 800, color: '#1E293B' }}>{c.member?.name || 'Unknown Member'}</div>
+                                <div style={{ fontSize: '10.5px', color: '#9CA3AF' }}>{c.member?.membership_no || 'SKSSF-MEMB'}</div>
+                              </td>
+                              <td style={{ padding: '12px', color: '#4B5563' }}>
+                                {c.notes?.includes('Ramadan') ? 'Ramadan Welfare' : c.notes?.includes('Student') ? 'Student Support' : c.notes?.includes('Medical') ? 'Medical Relief' : 'General Distribution'}
+                              </td>
+                              <td style={{ padding: '12px', color: '#4B5563' }}>{c.checkout_date}</td>
+                              <td style={{ padding: '12px', color: '#4B5563' }}>{c.actual_return_date || '—'}</td>
+                              <td style={{ padding: '12px', color: '#4B5563' }}>{c.admin?.name || 'Mohammed Ashraf'}</td>
+                              <td style={{ padding: '12px' }}>
+                                <span style={{ 
+                                  padding: '4px 8px', borderRadius: '50px', fontSize: '10px', fontWeight: 900,
+                                  background: isOut ? '#EFF6FF' : '#F0FDF4',
+                                  color: isOut ? '#2563EB' : '#16A34A',
+                                  display: 'inline-flex', alignItems: 'center', gap: '3px'
+                                }}>
+                                  {isOut ? '📤 Out' : '📥 In'}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              )}
+
+              {selectedDetailTab === 'reviews' && (
+                <div style={{ maxHeight: '250px', overflowY: 'auto', border: '1.5px solid #E2DED6', borderRadius: '12px', padding: '12px' }}>
+                  {reviewsList.length === 0 ? (
+                    <div style={{ padding: '20px', textAlign: 'center', color: '#9B9B9B' }}>No feedback reviews submitted yet.</div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      {reviewsList.map((r: any) => (
+                        <div key={r.id} style={{ borderBottom: '1px solid #F3F4F6', paddingBottom: '10px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                            <span style={{ fontWeight: 800 }}>{r.memberName || 'Anonymous'}</span>
+                            <span style={{ color: 'gold' }}>{'★'.repeat(r.rating)}{'☆'.repeat(5 - r.rating)}</span>
+                          </div>
+                          <p style={{ fontSize: '12.5px', color: '#4B5563', margin: 0 }}>{r.text}</p>
+                          <span style={{ fontSize: '10px', color: '#9CA3AF' }}>{r.date}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: '10px', marginTop: '20px', justifyContent: 'flex-end' }}>
+                <button type="button" onClick={() => setSelectedProductDetail(null)} className="bsm s" style={{ height: '40px', borderRadius: '10px', padding: '0 24px', background: 'var(--teal)', color: '#fff' }}>Close</button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Add Item Modal */}
       {showAddModal && (
@@ -2428,6 +2926,68 @@ export default function Inventory() {
                 )}
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create Mission Modal */}
+      {showCreateMissionModal && (
+        <div className="ov" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, background: 'rgba(15, 23, 42, 0.4)' }}>
+          <div className="modal inv-modal" style={{ maxWidth: '520px', width: '90%', borderRadius: '24px', padding: '28px', animation: 'slideUp 0.25s ease' }}>
+            <div className="modal-head" style={{ border: 'none', padding: '0 0 16px 0', marginBottom: '8px' }}>
+              <span className="modal-title" style={{ fontSize: '20px', fontWeight: 900 }}>Create Welfare Mission</span>
+              <button onClick={() => setShowCreateMissionModal(false)} className="modal-close"><X size={20} /></button>
+            </div>
+            
+            <form onSubmit={handleCreateMissionSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div>
+                <label className="fl2">Mission Name *</label>
+                <input 
+                  type="text" 
+                  placeholder="E.g. Ramadan Welfare 2026, flood relief, etc." 
+                  value={newMissionName} 
+                  onChange={e => setNewMissionName(e.target.value)} 
+                  className="fi2" 
+                  required 
+                />
+              </div>
+
+              <div>
+                <label className="fl2">Description *</label>
+                <textarea 
+                  placeholder="Summarize the support goals and target regions..." 
+                  value={newMissionDesc} 
+                  onChange={e => setNewMissionDesc(e.target.value)} 
+                  className="ta2" 
+                  rows={3} 
+                  required 
+                />
+              </div>
+
+              <div>
+                <label className="fl2">Mission Emoji Indicator *</label>
+                <select 
+                  value={newMissionEmoji} 
+                  onChange={e => setNewMissionEmoji(e.target.value)} 
+                  className="sel2"
+                  style={{ width: '100%', height: '42px', borderRadius: '10px' }}
+                >
+                  <option value="🤝">🤝 Welfare / General Distribution</option>
+                  <option value="🌙">🌙 Ramadan / Islamic</option>
+                  <option value="📚">📚 Education / Student Support</option>
+                  <option value="🚑">🚑 Medical Relief / Health Camp</option>
+                  <option value="📦">📦 Food Packs / Materials allocation</option>
+                  <option value="👚">👚 Clothing / Eid Kit drive</option>
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', marginTop: '12px' }}>
+                <button type="button" onClick={() => setShowCreateMissionModal(false)} style={{ flex: 1, height: '42px', border: '1.5px solid #e2e8f0', background: '#fff', borderRadius: '12px', fontWeight: 800 }}>Cancel</button>
+                <button type="submit" className="bsm s" style={{ flex: 1, height: '42px', borderRadius: '12px' }}>
+                  Create Mission
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

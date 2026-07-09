@@ -149,6 +149,37 @@ export default function DashboardLayout() {
 
   const isActive = (path: string) => path === '' ? location.pathname === prefix : location.pathname.startsWith(`${prefix}${path}`);
   
+  const [activeCheckoutsCount, setActiveCheckoutsCount] = useState(0);
+  const [isInventoryOpen, setIsInventoryOpen] = useState(location.pathname.includes('/inventory'));
+
+  const fetchActiveCheckoutsCount = async () => {
+    if (!profile || (profile.role !== 'admin' && profile.role !== 'super')) return;
+    try {
+      const { count, error } = await supabase
+        .from('inventory_checkouts')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'active');
+      if (!error && count !== null) {
+        setActiveCheckoutsCount(count);
+      }
+    } catch (e) {
+      console.warn('Failed to load active checkouts count:', e);
+    }
+  };
+
+  useEffect(() => {
+    fetchActiveCheckoutsCount();
+    const handleUpdate = () => fetchActiveCheckoutsCount();
+    window.addEventListener('appDataUpdated', handleUpdate);
+    return () => window.removeEventListener('appDataUpdated', handleUpdate);
+  }, [profile]);
+
+  useEffect(() => {
+    if (location.pathname.includes('/inventory')) {
+      setIsInventoryOpen(true);
+    }
+  }, [location.pathname]);
+  
   const getPageTitle = () => {
     if (location.pathname === prefix) return 'Dashboard';
     const seg = location.pathname.split('/').pop() || '';
@@ -224,6 +255,110 @@ export default function DashboardLayout() {
                 {g.items.map((item: any, ii: number) => {
                   const Icon = item.ic;
                   const active = isActive(item.path);
+                  
+                  if (item.path === '/inventory') {
+                    const inventorySubItems = [
+                      { lbl: '🛍️ Product Catalog', tab: 'catalogue' },
+                      { lbl: '📊 Barcode Manager', tab: 'barcodes' },
+                      { lbl: '📷 Scanner (Check-in/out)', tab: 'scanner' },
+                      { lbl: '📤 Currently Checked Out', tab: 'checkouts', badge: activeCheckoutsCount },
+                      { lbl: '🎯 Mission Packages', tab: 'missions' },
+                      { lbl: '📊 Inventory Report', tab: 'reports' },
+                      { lbl: '⚙️ Settings', tab: 'settings' }
+                    ];
+
+                    return (
+                      <div key={ii} style={{ display: 'flex', flexDirection: 'column' }}>
+                        <button
+                          type="button"
+                          onClick={() => setIsInventoryOpen(!isInventoryOpen)}
+                          style={{
+                            width: '100%',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: isTablet ? 'center' : 'space-between',
+                            gap: '12px',
+                            padding: '10px 12px',
+                            borderRadius: '12px',
+                            color: location.pathname.includes('/inventory') ? '#fff' : '#94a3b8',
+                            background: location.pathname.includes('/inventory') && !isInventoryOpen ? 'var(--teal)' : 'transparent',
+                            border: 'none',
+                            cursor: 'pointer',
+                            fontWeight: 800,
+                            fontSize: '13.5px',
+                            transition: 'all 0.2s',
+                            textAlign: 'left'
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <Icon size={18} />
+                            {!isTablet && <span>Inventory &amp; Catalog</span>}
+                          </div>
+                          {!isTablet && (
+                            <ChevronRight 
+                              size={16} 
+                              style={{ 
+                                transform: isInventoryOpen ? 'rotate(90deg)' : 'none', 
+                                transition: 'transform 0.2s',
+                                color: '#94a3b8'
+                              }} 
+                            />
+                          )}
+                        </button>
+
+                        {isInventoryOpen && !isTablet && (
+                          <div style={{ 
+                            display: 'flex', 
+                            flexDirection: 'column', 
+                            gap: '4px', 
+                            paddingLeft: '16px', 
+                            marginTop: '6px',
+                            borderLeft: '1.5px solid #1e293b',
+                            marginLeft: '20px'
+                          }}>
+                            {inventorySubItems.map((sub, sIdx) => {
+                              const subPath = `/inventory?tab=${sub.tab}`;
+                              const isSubActive = location.pathname.startsWith(`${prefix}/inventory`) && (location.search === `?tab=${sub.tab}` || (sub.tab === 'catalogue' && !location.search));
+                              return (
+                                <Link
+                                  key={sIdx}
+                                  to={`${prefix}${subPath}`}
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    padding: '8px 12px',
+                                    borderRadius: '8px',
+                                    color: isSubActive ? '#fff' : '#94a3b8',
+                                    background: isSubActive ? 'rgba(13, 115, 119, 0.2)' : 'transparent',
+                                    textDecoration: 'none',
+                                    fontWeight: 700,
+                                    fontSize: '12.5px',
+                                    transition: 'all 0.2s'
+                                  }}
+                                >
+                                  <span>{sub.lbl}</span>
+                                  {sub.badge !== undefined && sub.badge > 0 && (
+                                    <span style={{ 
+                                      background: '#ef4444', 
+                                      color: '#fff', 
+                                      fontSize: '9.5px', 
+                                      fontWeight: 900, 
+                                      padding: '1px 6px', 
+                                      borderRadius: '50px' 
+                                    }}>
+                                      {sub.badge}
+                                    </span>
+                                  )}
+                                </Link>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  }
+
                   return (
                     <Link
                       to={`${prefix}${item.path}`}
