@@ -283,23 +283,7 @@ export default function PublicCatalogDetail() {
           <span style={{ color: '#475569' }}>{item?.name || '...'}</span>
         </div>
 
-        {/* Tab switchers */}
-        {!loading && item && (
-          <div className="pcd-tabs">
-            <button className={`pcd-tab-btn ${activeTab === 'details' ? 'active' : ''}`} onClick={() => setActiveTab('details')}>
-              <Layers size={15} /> Item Details
-            </button>
-            <button className={`pcd-tab-btn ${activeTab === 'units' ? 'active' : ''}`} onClick={() => setActiveTab('units')}>
-              <Tag size={15} /> Physical Units ({units.length})
-            </button>
-            <button className={`pcd-tab-btn ${activeTab === 'reviews' ? 'active' : ''}`} onClick={() => setActiveTab('reviews')}>
-              <span style={{ fontSize: '14px' }}>⭐</span> Reviews ({reviews.length})
-            </button>
-            <button className={`pcd-tab-btn ${activeTab === 'print' ? 'active' : ''}`} onClick={() => setActiveTab('print')}>
-              <Printer size={15} /> Print Labels
-            </button>
-          </div>
-        )}
+
 
         {loading ? (
           <div className="pcd-layout">
@@ -317,7 +301,7 @@ export default function PublicCatalogDetail() {
           </div>
         ) : item ? (
           <>
-            {/* ① DETAILS TAB */}
+            {/* DETAILS */}
             {activeTab === 'details' && (
               <div className="pcd-layout">
                 {/* Image */}
@@ -380,11 +364,6 @@ export default function PublicCatalogDetail() {
                       </div>
                     </div>
 
-                    {/* Reference code */}
-                    {item.barcode_value && (
-                      <div className="pcd-ref">SKU: {item.barcode_value}</div>
-                    )}
-
                     {/* CTA */}
                     <button
                       className="pcd-request-btn"
@@ -400,154 +379,6 @@ export default function PublicCatalogDetail() {
                       Clicking will open WhatsApp with a pre-filled message to our team.
                     </p>
                   </div>
-                </div>
-              </div>
-            )}
-
-            {/* ② UNITS TAB */}
-            {activeTab === 'units' && (
-              <div className="pcd-units-wrap">
-                {units.length === 0 ? (
-                  <div style={{ padding: '40px', textAlign: 'center', color: 'var(--muted)', fontWeight: 700 }}>
-                    No physical unit tracking data available for this item.
-                  </div>
-                ) : (
-                  <table className="pcd-units-table">
-                    <thead>
-                      <tr>
-                        <th>Unit Number</th>
-                        <th>Unit SKU</th>
-                        <th>Status</th>
-                        <th>Barcode Preview</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {units.map(unit => {
-                        const statusBadge = getUnitStatusBadge(unit.status);
-                        return (
-                          <tr key={unit.id}>
-                            <td style={{ fontWeight: 800, color: '#1e293b' }}>
-                              Unit #{String(unit.unit_number).padStart(2, '0')}
-                            </td>
-                            <td style={{ fontFamily: 'monospace', fontWeight: 600, color: '#475569' }}>
-                              {unit.barcode_value}
-                            </td>
-                            <td>
-                              <span className="pcd-unit-status" style={{ background: statusBadge.bg, color: statusBadge.color }}>
-                                <span style={{ width: 6, height: 6, borderRadius: '50%', background: statusBadge.color }} />
-                                {statusBadge.label}
-                              </span>
-                            </td>
-                            <td>
-                              <BarcodeSVG value={unit.barcode_value} />
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-            )}
-
-            {/* ③ REVIEWS TAB */}
-            {activeTab === 'reviews' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
-                {/* List Reviews */}
-                <div style={{ background: '#fff', border: '1.5px solid var(--card-border)', borderRadius: '20px', padding: '24px' }}>
-                  <h3 style={{ fontWeight: 800, fontSize: '16px', marginBottom: '16px' }}>Member Reviews ({reviews.length})</h3>
-                  {reviews.length === 0 ? (
-                    <div style={{ padding: '20px 0', color: 'var(--muted)', textAlign: 'center', fontWeight: 500 }}>
-                      No reviews submitted yet for this item.
-                    </div>
-                  ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                      {reviews.map((r, idx) => (
-                        <div key={r.id || idx} style={{ borderBottom: idx < reviews.length - 1 ? '1px solid var(--card-border)' : 'none', paddingBottom: '16px' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                            <strong style={{ fontSize: '13.5px', color: '#1e293b' }}>{r.memberName}</strong>
-                            <div style={{ color: '#f59e0b', fontSize: '14px' }}>{'★'.repeat(r.rating)}{'☆'.repeat(5 - r.rating)}</div>
-                          </div>
-                          <p style={{ fontSize: '13px', color: '#475569', lineHeight: 1.5 }}>"{r.text || 'No comments'}"</p>
-                          <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '6px' }}>{r.date}</div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* Submit Form */}
-                <div style={{ background: '#fff', border: '1.5px solid var(--card-border)', borderRadius: '20px', padding: '24px' }}>
-                  <h3 style={{ fontWeight: 800, fontSize: '16px', marginBottom: '16px' }}>Write a Review</h3>
-                  <form onSubmit={handleReviewSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                    <div>
-                      <label style={{ fontSize: '12px', fontWeight: 800, color: '#64748b', display: 'block', marginBottom: '6px' }}>Rating</label>
-                      <div style={{ display: 'flex', gap: '6px' }}>
-                        {[1, 2, 3, 4, 5].map(n => (
-                          <button
-                            key={n}
-                            type="button"
-                            onClick={() => setRating(n)}
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '24px', color: n <= rating ? '#f59e0b' : '#cbd5e1', padding: '0' }}
-                          >
-                            ★
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div>
-                      <label style={{ fontSize: '12px', fontWeight: 800, color: '#64748b', display: 'block', marginBottom: '6px' }}>Comments</label>
-                      <textarea
-                        value={reviewText}
-                        onChange={e => setReviewText(e.target.value)}
-                        placeholder="Share your experience using this community supply..."
-                        style={{ width: '100%', padding: '12px', borderRadius: '12px', border: '1.5px solid var(--card-border)', outline: 'none', minHeight: '80px', fontSize: '13px', fontFamily: 'inherit' }}
-                        required
-                      />
-                    </div>
-                    <button
-                      type="submit"
-                      disabled={reviewSubmitting}
-                      className="pcd-back"
-                      style={{ background: 'var(--teal)', color: '#fff', border: 'none', fontWeight: 800, alignSelf: 'flex-start', padding: '10px 24px' }}
-                    >
-                      {reviewSubmitting ? 'Submitting...' : 'Submit Review'}
-                    </button>
-                  </form>
-                </div>
-              </div>
-            )}
-
-            {/* ④ PRINT LABELS TAB */}
-            {activeTab === 'print' && (
-              <div>
-                <div className="pcd-print-actions" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fff', border: '1.5px solid var(--card-border)', borderRadius: '16px', padding: '16px 24px', marginBottom: '24px' }}>
-                  <div>
-                    <h3 style={{ fontWeight: 800, fontSize: '15px' }}>Print Label Sheets</h3>
-                    <p style={{ fontSize: '12px', color: 'var(--muted)', marginTop: '2px' }}>Print labels for all physical units on an A4 sheet.</p>
-                  </div>
-                  <button onClick={handlePrint} className="pcd-back" style={{ borderColor: 'var(--teal)', color: 'var(--teal)', fontWeight: 800 }}>
-                    <Printer size={14} /> Print Now (A4 Grid)
-                  </button>
-                </div>
-
-                <div className="pcd-print-grid">
-                  {units.map(unit => (
-                    <div key={unit.id} className="pcd-print-tile">
-                      <div style={{ fontSize: '8px', fontWeight: 900, color: 'var(--teal)', letterSpacing: '0.5px', textTransform: 'uppercase', marginBottom: '4px' }}>
-                        SKSSF COMMUNITY AID
-                      </div>
-                      <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--dark)', height: '18px', overflow: 'hidden', width: '100%' }}>
-                        {item.name}
-                      </div>
-                      <div style={{ marginTop: '4px' }}>
-                        <BarcodeSVG value={unit.barcode_value} />
-                      </div>
-                      <div style={{ fontSize: '10px', color: 'var(--muted)', fontWeight: 800, marginTop: '2px' }}>
-                        Unit #{String(unit.unit_number).padStart(2, '0')}
-                      </div>
-                    </div>
-                  ))}
                 </div>
               </div>
             )}

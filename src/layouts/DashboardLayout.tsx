@@ -257,7 +257,15 @@ export default function DashboardLayout() {
                   const active = isActive(item.path);
                   
                   if (item.path === '/inventory') {
-                    const inventorySubItems = [
+                    const inventorySubItems = role === 'member' ? [
+                      { lbl: '🛍️ Product Catalog', tab: 'catalogue' },
+                      { lbl: '📊 Barcode Manager', tab: 'barcodes' },
+                      { lbl: '📷 Scanner (Check-in/out)', tab: 'scanner' },
+                      { lbl: '⚡ My Items & Leases', tab: 'checkouts' },
+                      { lbl: '🎯 Mission Packages', tab: 'missions' },
+                      { lbl: '📊 Inventory Report', tab: 'reports' },
+                      { lbl: '⚙️ Settings', tab: 'settings' }
+                    ] : [
                       { lbl: '🛍️ Product Catalog', tab: 'catalogue' },
                       { lbl: '📊 Barcode Manager', tab: 'barcodes' },
                       { lbl: '📷 Scanner (Check-in/out)', tab: 'scanner' },

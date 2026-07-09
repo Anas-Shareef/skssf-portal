@@ -364,9 +364,15 @@ export default function Inventory() {
   useEffect(() => {
     if (printJob) {
       const timer = setTimeout(() => {
+        const cleanup = () => {
+          setPrintJob(null);
+          window.removeEventListener('afterprint', cleanup);
+        };
+        window.addEventListener('afterprint', cleanup);
         window.print();
-        setPrintJob(null);
-      }, 600);
+        // Fallback: clear after 8 seconds if afterprint didn't fire
+        setTimeout(() => cleanup(), 8000);
+      }, 800);
       return () => clearTimeout(timer);
     }
   }, [printJob]);
@@ -990,7 +996,7 @@ export default function Inventory() {
       </div>
 
       {/* Tabs list matching Claude Prototype */}
-      <div className="inv-tabs" style={{ display: 'flex', gap: '8px', marginBottom: '32px', borderBottom: '2.5px solid #f1f5f9', paddingBottom: '2px', flexWrap: 'wrap' }}>
+      <div className="inv-tabs" style={{ display: 'none', gap: '8px', marginBottom: '32px', borderBottom: '2.5px solid #f1f5f9', paddingBottom: '2px', flexWrap: 'wrap' }}>
         <button
           type="button"
           onClick={() => setActiveTab('catalogue')}
@@ -1814,7 +1820,7 @@ export default function Inventory() {
                                 style={{ width: '100%', height: '42px', borderRadius: '10px', border: '1px solid #c3fae8', background: '#fff' }}
                               >
                                 <option value="">Choose member...</option>
-                                {members.map(m => <option key={m.id} value={m.id}>{m.name} ({m.membership_no || 'No Member No'})</option>)}
+                                {members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
                               </select>
                             </div>
 
@@ -1995,6 +2001,7 @@ export default function Inventory() {
                         <th style={{ padding: '14px', fontWeight: 800, color: '#475569' }}>Mission</th>
                         <th style={{ padding: '14px', fontWeight: 800, color: '#475569' }}>Checkout Date</th>
                         <th style={{ padding: '14px', fontWeight: 800, color: '#475569' }}>Days Out</th>
+                        <th style={{ padding: '14px', fontWeight: 800, color: '#475569' }}>Check-In Date & Time</th>
                         <th style={{ padding: '14px', fontWeight: 800, color: '#475569' }}>Admin</th>
                         <th style={{ padding: '14px', fontWeight: 800, color: '#475569', textAlign: 'right' }}>Actions</th>
                       </tr>
@@ -2071,6 +2078,15 @@ export default function Inventory() {
                                 </span>
                               ) : (
                                 <span style={{ color: '#94a3b8' }}>Returned</span>
+                              )}
+                            </td>
+
+                            {/* Column 5.B: Check-In Date & Time */}
+                            <td style={{ padding: '16px 14px', fontSize: '13px', color: '#64748b' }}>
+                              {c.status === 'returned' && c.actual_return_date ? (
+                                new Date(c.actual_return_date).toLocaleString()
+                              ) : (
+                                '—'
                               )}
                             </td>
 

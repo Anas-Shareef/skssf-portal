@@ -325,25 +325,14 @@ export default function PublicCatalog() {
             )}
           </div>
 
-          {/* View Toggles & Print options */}
+          {/* View Toggles */}
           <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-            {viewMode === 'barcodes' && (
-              <button 
-                onClick={handlePrintBarcodes} 
-                style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 16px', border: '1.5px solid var(--card-border)', background: '#fff', borderRadius: '12px', fontSize: '12.5px', fontWeight: 800, color: 'var(--teal)', cursor: 'pointer' }}
-              >
-                <Printer size={14} /> Print Labels
-              </button>
-            )}
             <div className="pc-view-switchers">
               <button className={`pc-view-btn ${viewMode === 'gallery' ? 'active' : ''}`} onClick={() => setViewMode('gallery')}>
                 <Grid size={14} /> Gallery
               </button>
               <button className={`pc-view-btn ${viewMode === 'table' ? 'active' : ''}`} onClick={() => setViewMode('table')}>
                 <List size={14} /> Table
-              </button>
-              <button className={`pc-view-btn ${viewMode === 'barcodes' ? 'active' : ''}`} onClick={() => setViewMode('barcodes')}>
-                <BarcodeIcon size={14} /> Barcodes
               </button>
             </div>
           </div>
@@ -434,15 +423,13 @@ export default function PublicCatalog() {
                     <tr>
                       <th>Product Info</th>
                       <th>Category</th>
-                      <th>Barcode SKU</th>
                       <th>Status</th>
-                      <th>Availability</th>
+                      <th>Total Stock</th>
                       <th style={{ textAlign: 'right' }}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {items.map(item => {
-                      const avail = availabilityInfo(item);
                       return (
                         <tr key={item.id} style={{ cursor: 'pointer' }} onClick={() => navigate(`/catalog/${item.id}`)}>
                           <td>
@@ -459,29 +446,21 @@ export default function PublicCatalog() {
                           <td>
                             <span style={{ fontWeight: 700, fontSize: '12.5px', color: '#475569' }}>{item.categories?.name || 'General'}</span>
                           </td>
-                          <td style={{ minWidth: '150px' }}>
-                            {item.barcode_value ? (
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                                <BarcodeSVG value={item.barcode_value} />
-                              </div>
-                            ) : '—'}
-                          </td>
                           <td>
                             <span className={`pc-table-badge ${item.item_type}`}>
                               {item.item_type === 'permanent' ? 'Permanent' : 'Lease'}
                             </span>
                           </td>
                           <td>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 800, color: avail.color }}>
-                              <AvailIcon type={avail.icon} size={14} />
-                              {item.available_stock} / {item.total_stock} Available
+                            <div style={{ fontWeight: 800, color: '#475569' }}>
+                              Stock: {item.total_stock}
                             </div>
                           </td>
                           <td style={{ textAlign: 'right' }} onClick={e => e.stopPropagation()}>
                             <button
-                              className="pc-request-btn"
-                              style={{ display: 'inline-flex', padding: '8px 14px' }}
-                              onClick={() => handleRequest(item)}
+                                className="pc-request-btn"
+                                style={{ display: 'inline-flex', padding: '8px 14px' }}
+                                onClick={() => handleRequest(item)}
                             >
                               📲 Request
                             </button>
@@ -491,28 +470,6 @@ export default function PublicCatalog() {
                     })}
                   </tbody>
                 </table>
-              </div>
-            )}
-
-            {/* ③ BARCODES PRINT VIEW */}
-            {viewMode === 'barcodes' && (
-              <div className="pc-barcodes-grid">
-                {items.map(item => (
-                  <div key={item.id} className="pc-barcode-tile">
-                    <div style={{ fontSize: '9px', fontWeight: 900, color: 'var(--teal)', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '4px' }}>
-                      SKSSF COMMUNITY SERVICE
-                    </div>
-                    <div className="pc-barcode-title">{item.name}</div>
-                    {item.barcode_value ? (
-                      <BarcodeSVG value={item.barcode_value} />
-                    ) : (
-                      <span style={{ fontSize: '11px', color: 'var(--muted)' }}>No Barcode</span>
-                    )}
-                    <div style={{ fontSize: '10px', color: 'var(--muted)', fontWeight: 700, marginTop: '4px' }}>
-                      {item.categories?.name || 'General'}
-                    </div>
-                  </div>
-                ))}
               </div>
             )}
           </>

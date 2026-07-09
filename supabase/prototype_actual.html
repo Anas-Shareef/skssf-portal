@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>SKSSF — Product Catalog & Barcode System</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700;900&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{
+  --teal:#0D7377;--teal2:#14A085;--teal3:#1BB89A;
+  --teal-pale:rgba(13,115,119,.08);--teal-pale2:rgba(13,115,119,.18);
+  --amber:#F0A500;--amber2:#D4920A;--amber-pale:rgba(240,165,0,.10);
+  --red:#EF4444;--red-pale:rgba(239,68,68,.08);
+  --green:#16A34A;--green-pale:rgba(22,163,74,.08);--green-pale2:rgba(22,163,74,.18);
+  --blue:#3B82F6;--blue-pale:rgba(59,130,246,.08);
+  --purple:#8B5CF6;--purple-pale:rgba(139,92,246,.09);
+  --orange:#F97316;--orange-pale:rgba(249,115,22,.09);
+  --bg:#F0EDE6;--bg2:#E6E2DA;--bg3:#DEDAD0;
+  --white:#FFFFFF;--dark:#1A1F2E;--dark2:#2D3344;
+  --muted:#6B7280;--muted2:#9CA3AF;
+  --border:#E2DED6;--border2:#D4D0C8;
+  --shadow:0 2px 12px rgba(13,115,119,.07);
+  --shadow-md:0 8px 32px rgba(13,115,119,.12);
+  --shadow-lg:0 20px 60px rgba(13,115,119,.18);
+  --r:18px;--r-sm:12px;--r-xs:8px;
+  --mono:'JetBrains Mono',monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--dark);font-size:14px;}
+input,select,textarea,button{font-family:'DM Sans',sans-serif;}
+::-webkit-scrollbar{width:5px;height:5px;}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:10px;}
+
+@keyframes fadeUp{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+@keyframes scanLine{0%{top:8px}100%{top:calc(100% - 8px)}}
+@keyframes pulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.1);opacity:.7}}
+@keyframes shimmer{0%{background-position:-400px 0}100%{background-position:400px 0}}
+@keyframes slideUp{from{opacity:0;transform:translateY(100%)}to{opacity:1;transform:translateY(0)}}
+@keyframes zoomIn{from{opacity:0;transform:scale(.92)}to{opacity:1;transform:scale(1)}}
+
+.fu{animation:fadeUp .4s ease both;}
+.fu1{animation-delay:.06s;opacity:0}.fu2{animation-delay:.12s;opacity:0}
+.fu3{animation-delay:.18s;opacity:0}.fu4{animation-delay:.24s;opacity:0}
+
+/* ── LAYOUT ── */
+.app{display:flex;min-height:100vh;}
+.sidebar{width:256px;background:var(--dark);display:flex;flex-direction:column;flex-shrink:0;position:sticky;top:0;height:100vh;overflow-y:auto;}
+.sb-head{padding:24px 20px 16px;border-bottom:1px solid rgba(255,255,255,.08);}
+.sb-logo{display:flex;align-items:center;gap:11px;margin-bottom:18px;}
+.sb-logo-ic{width:38px;height:38px;background:var(--teal);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;}
+.sb-logo-txt{font-family:'Playfair Display',serif;font-size:15px;font-weight:700;color:#fff;}
+.sb-logo-sub{font-size:9.5px;color:rgba(255,255,255,.35);}
+.sb-user{display:flex;align-items:center;gap:10px;}
+.av{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:#fff;flex-shrink:0;}
+.sb-uname{font-size:13px;font-weight:600;color:#fff;}
+.sb-email{font-size:10.5px;color:rgba(255,255,255,.35);margin-top:1px;}
+.sb-badge{display:inline-block;font-size:9px;font-weight:700;padding:2px 8px;border-radius:50px;letter-spacing:.5px;margin-top:4px;background:rgba(13,115,119,.3);color:var(--teal3);}
+.sb-nav{padding:12px 9px;flex:1;}
+.sb-sec{font-size:9px;font-weight:700;color:rgba(255,255,255,.2);letter-spacing:1px;text-transform:uppercase;padding:10px 11px 5px;}
+.ni{display:flex;align-items:center;gap:11px;padding:10px 11px;border-radius:9px;cursor:pointer;transition:all .18s;color:rgba(255,255,255,.5);font-size:13px;font-weight:500;margin-bottom:1px;}
+.ni:hover{background:rgba(255,255,255,.07);color:#fff;}
+.ni.on{background:rgba(13,115,119,.28);color:#fff;}
+.ni.on .ni-ic{color:var(--teal3);}
+.ni-ic{font-size:16px;width:20px;text-align:center;}
+.ni-b{margin-left:auto;background:var(--red);font-size:9.5px;font-weight:700;padding:2px 7px;border-radius:50px;color:#fff;}
+.sb-foot{padding:12px 9px;border-top:1px solid rgba(255,255,255,.07);}
+.ni.logout{color:rgba(255,100,100,.6);}
+
+.main-wrap{flex:1;display:flex;flex-direction:column;overflow:hidden;}
+.top-bar{background:var(--white);border-bottom:1.5px solid var(--border);padding:13px 28px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:40;}
+.tb-left{display:flex;align-items:center;gap:14px;}
+.tb-title{font-family:'Playfair Display',serif;font-size:17px;font-weight:700;}
+.view-toggle{display:flex;background:var(--bg2);border-radius:9px;padding:3px;gap:2px;}
+.vt-btn{padding:6px 12px;border-radius:7px;border:none;background:transparent;font-size:12.5px;font-weight:600;color:var(--muted);cursor:pointer;transition:all .2s;display:flex;align-items:center;gap:5px;}
+.vt-btn.on{background:var(--white);color:var(--dark);box-shadow:var(--shadow);}
+.tb-right{display:flex;align-items:center;gap:9px;}
+.role-toggle{display:flex;background:var(--bg2);border-radius:50px;padding:3px;gap:2px;}
+.rt-btn{padding:7px 14px;border-radius:50px;border:none;background:transparent;font-size:12px;font-weight:600;color:var(--muted);cursor:pointer;transition:all .2s;}
+.rt-btn.on{background:var(--teal);color:#fff;box-shadow:0 2px 8px rgba(13,115,119,.25);}
+.main{flex:1;overflow-y:auto;background:var(--bg);}
+.mp{padding:28px 30px;}
+
+/* ── BTNS ── */
+.bsm{padding:9px 18px;border-radius:50px;font-size:13px;font-weight:600;cursor:pointer;border:none;transition:all .22s;font-family:'DM Sans',sans-serif;display:inline-flex;align-items:center;gap:7px;}
+.bsm.s{background:var(--teal);color:#fff;}
+.bsm.s:hover{background:var(--teal2);transform:translateY(-1px);box-shadow:0 4px 16px rgba(13,115,119,.25);}
+.bsm.g{background:var(--white);color:var(--dark);border:1.5px solid var(--border);}
+.bsm.g:hover{border-color:var(--teal);color:var(--teal);}
+.bsm.r{background:var(--red-pale);color:var(--red);border:1.5px solid rgba(239,68,68,.2);}
+.bsm.gr{background:var(--green-pale);color:var(--green);border:1.5px solid var(--green-pale2);}
+.bsm.am{background:var(--amber-pale);color:var(--amber2);border:1.5px solid rgba(240,165,0,.25);}
+.bsm.dark{background:var(--dark);color:#fff;}
+.bsm.dark:hover{background:var(--dark2);}
+
+/* ── MODAL ── */
+.ov{position:fixed;inset:0;background:rgba(26,31,46,.65);z-index:100;display:flex;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(6px);}
+.modal{background:var(--white);border-radius:22px;width:100%;max-width:620px;max-height:94vh;overflow-y:auto;box-shadow:var(--shadow-lg);animation:zoomIn .25s ease;}
+.modal.wide{max-width:860px;}
+.modal.xl{max-width:1040px;}
+.modal.scanner-modal{max-width:500px;background:var(--dark);}
+.modal.print-modal{max-width:700px;}
+.mh{padding:20px 24px 16px;border-bottom:1.5px solid var(--border);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:var(--white);z-index:2;border-radius:22px 22px 0 0;}
+.mh.dark-head{background:var(--dark);border-bottom-color:rgba(255,255,255,.1);}
+.mh-title{font-family:'Playfair Display',serif;font-size:19px;font-weight:700;}
+.mh-title.white{color:#fff;}
+.mh-close{width:30px;height:30px;border-radius:50%;border:1.5px solid var(--border);background:transparent;cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;transition:all .2s;}
+.mh-close:hover{background:var(--red-pale);border-color:var(--red);color:var(--red);}
+.mh-close.white-close{border-color:rgba(255,255,255,.2);color:#fff;}
+.mh-close.white-close:hover{background:rgba(239,68,68,.2);border-color:var(--red);}
+.mb{padding:22px 24px;}
+.mb.dark-body{background:var(--dark);}
+.mf{padding:16px 24px 22px;border-top:1.5px solid var(--border);display:flex;gap:9px;justify-content:flex-end;position:sticky;bottom:0;background:var(--white);}
+.mf.dark-foot{background:var(--dark);border-top-color:rgba(255,255,255,.1);}
+
+/* ── FORMS ── */
+.fg{margin-bottom:14px;}
+.fl{font-size:12.5px;font-weight:600;color:var(--dark2);margin-bottom:6px;display:block;}
+.fi{width:100%;padding:10px 13px;border:1.5px solid var(--border);border-radius:10px;font-size:13.5px;color:var(--dark);background:var(--bg);outline:none;transition:all .2s;}
+.fi:focus{border-color:var(--teal);box-shadow:0 0 0 3px rgba(13,115,119,.09);background:#fff;}
+.fi.mono{font-family:var(--mono);font-size:13px;letter-spacing:.5px;}
+.sel{width:100%;padding:10px 13px;border:1.5px solid var(--border);border-radius:10px;font-size:13.5px;color:var(--dark);background:var(--bg);outline:none;appearance:none;transition:all .2s;}
+.sel:focus{border-color:var(--teal);}
+.ta{width:100%;padding:10px 13px;border:1.5px solid var(--border);border-radius:10px;font-size:13.5px;color:var(--dark);background:var(--bg);outline:none;resize:vertical;min-height:72px;font-family:'DM Sans',sans-serif;transition:all .2s;}
+.ta:focus{border-color:var(--teal);}
+.fgrid2{display:grid;grid-template-columns:1fr 1fr;gap:13px;}
+.full{grid-column:1/-1;}
+.photo-upload{border:2px dashed var(--border2);border-radius:12px;padding:22px;text-align:center;cursor:pointer;transition:all .22s;position:relative;background:var(--bg);}
+.photo-upload:hover{border-color:var(--teal);background:var(--teal-pale);}
+.photo-upload.has{border-color:var(--green);background:var(--green-pale);border-style:solid;}
+.photo-upload input{position:absolute;inset:0;opacity:0;cursor:pointer;}
+.pu-prev{width:100%;max-height:140px;object-fit:contain;border-radius:8px;margin-top:8px;display:none;}
+
+/* ── PRODUCT GALLERY GRID ── */
+.cat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:18px;}
+.cat-card{background:var(--white);border-radius:var(--r);border:1.5px solid var(--border);overflow:hidden;transition:all .28s cubic-bezier(.34,1.56,.64,1);cursor:pointer;position:relative;box-shadow:var(--shadow);}
+.cat-card:hover{transform:translateY(-5px) scale(1.01);box-shadow:var(--shadow-lg);border-color:var(--teal-pale2);}
+.cat-card:hover .cc-hover-overlay{opacity:1;}
+.cc-img{width:100%;height:160px;display:flex;align-items:center;justify-content:center;font-size:60px;position:relative;overflow:hidden;}
+.cc-img.bg-edu{background:linear-gradient(135deg,#EFF6FF,#DBEAFE);}
+.cc-img.bg-rel{background:linear-gradient(135deg,#F0FDF4,#DCFCE7);}
+.cc-img.bg-hlt{background:linear-gradient(135deg,#FFF7ED,#FFEDD5);}
+.cc-img.bg-wel{background:linear-gradient(135deg,#FDF4FF,#F3E8FF);}
+.cc-img.bg-def{background:linear-gradient(135deg,var(--bg2),var(--bg3));}
+.cc-img img{width:100%;height:100%;object-fit:cover;position:absolute;inset:0;}
+.cc-stock-bar{position:absolute;bottom:0;left:0;right:0;height:3px;background:var(--border2);}
+.cc-stock-fill{height:100%;transition:width .6s ease;}
+.cc-hover-overlay{position:absolute;inset:0;background:rgba(13,115,119,.85);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;opacity:0;transition:opacity .25s;}
+.cc-hover-btn{padding:8px 18px;border-radius:50px;font-size:12.5px;font-weight:600;cursor:pointer;border:none;transition:all .2s;}
+.cc-body{padding:14px 16px;}
+.cc-cat{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:5px;}
+.cc-name{font-family:'Playfair Display',serif;font-size:16px;font-weight:700;margin-bottom:6px;line-height:1.3;}
+.cc-sku{font-family:var(--mono);font-size:10.5px;color:var(--muted2);margin-bottom:8px;letter-spacing:.3px;}
+.cc-stats{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
+.cc-stock-count{font-size:13px;font-weight:600;}
+.cc-bc-row{border-top:1px solid var(--border);padding-top:10px;display:flex;align-items:center;justify-content:space-between;}
+.cc-bc-svg-wrap{flex:1;overflow:hidden;}
+.cc-bc-actions{display:flex;gap:5px;margin-left:8px;}
+.cc-bc-action{width:28px;height:28px;border-radius:7px;border:1.5px solid var(--border);background:transparent;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:13px;transition:all .2s;}
+.cc-bc-action:hover{border-color:var(--teal);background:var(--teal-pale);}
+
+/* ── TABLE VIEW ── */
+.inv-table{width:100%;border-collapse:collapse;}
+.inv-table th{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;padding:9px 14px;text-align:left;border-bottom:1.5px solid var(--border);background:var(--bg);}
+.inv-table td{font-size:13px;padding:13px 14px;border-bottom:1px solid rgba(226,222,214,.5);color:var(--dark2);vertical-align:middle;}
+.inv-table tr:last-child td{border:none;}
+.inv-table tr:hover td{background:rgba(13,115,119,.016);}
+.tbl-bc{width:80px;height:30px;}
+
+/* ── BARCODE LABEL ── */
+.bc-label{background:var(--white);border:1.5px solid var(--border);border-radius:var(--r-xs);padding:12px 14px;text-align:center;transition:all .2s;}
+.bc-label:hover{border-color:var(--teal);box-shadow:var(--shadow);}
+.bc-label-org{font-size:9px;font-weight:700;color:var(--muted);letter-spacing:.5px;margin-bottom:4px;}
+.bc-svg{width:100%;max-height:48px;}
+.bc-code{font-family:var(--mono);font-size:9px;color:var(--dark2);margin-top:4px;letter-spacing:.3px;}
+.bc-product{font-size:10px;font-weight:600;color:var(--dark);margin-top:3px;}
+
+/* ── UNIT LIST ── */
+.unit-row{display:flex;align-items:center;gap:13px;padding:11px 14px;border-radius:10px;border:1.5px solid var(--border);margin-bottom:8px;transition:all .2s;background:var(--white);}
+.unit-row:hover{border-color:var(--teal-pale2);box-shadow:var(--shadow);}
+.unit-status-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;}
+.dot-avail{background:var(--green);}
+.dot-out{background:var(--blue);}
+.dot-damaged{background:var(--orange);}
+.dot-lost{background:var(--red);animation:pulse 2s infinite;}
+.unit-id{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--dark2);min-width:140px;}
+.unit-bc-sm{height:28px;}
+.unit-member{font-size:12.5px;flex:1;}
+
+/* ── SCANNER ── */
+.scanner-wrap{background:var(--dark);border-radius:16px;padding:22px;text-align:center;}
+.scanner-viewport{width:100%;aspect-ratio:4/3;background:#000;border-radius:12px;position:relative;overflow:hidden;margin-bottom:16px;border:2px solid rgba(255,255,255,.1);}
+.scanner-overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;}
+.scan-frame{width:65%;aspect-ratio:1;position:relative;}
+.scan-frame::before,.scan-frame::after{content:'';position:absolute;width:24px;height:24px;border-color:var(--teal3);border-style:solid;}
+.scan-frame::before{top:0;left:0;border-width:3px 0 0 3px;border-radius:6px 0 0 0;}
+.scan-frame::after{bottom:0;right:0;border-width:0 3px 3px 0;border-radius:0 0 6px 0;}
+.scan-corners::before,.scan-corners::after{content:'';position:absolute;width:24px;height:24px;border-color:var(--teal3);border-style:solid;}
+.scan-corners::before{top:0;right:0;border-width:3px 3px 0 0;border-radius:0 6px 0 0;}
+.scan-corners::after{bottom:0;left:0;border-width:0 0 3px 3px;border-radius:0 0 0 6px;}
+.scan-line{position:absolute;width:100%;height:2px;background:linear-gradient(90deg,transparent,var(--teal3),transparent);animation:scanLine 2s linear infinite;left:0;}
+.scanner-idle-icon{font-size:56px;margin-bottom:10px;}
+.scanner-idle-text{color:rgba(255,255,255,.5);font-size:13px;}
+.scan-result-card{background:rgba(255,255,255,.08);border:1.5px solid rgba(255,255,255,.15);border-radius:12px;padding:16px;margin-bottom:14px;text-align:left;}
+.scan-result-icon{font-size:32px;margin-bottom:8px;}
+.scan-result-name{font-family:'Playfair Display',serif;font-size:18px;font-weight:700;color:#fff;margin-bottom:3px;}
+.scan-result-sub{font-size:13px;color:rgba(255,255,255,.6);}
+.scan-mode-btns{display:flex;gap:8px;margin-bottom:14px;}
+.scan-mode-btn{flex:1;padding:10px;border-radius:10px;border:1.5px solid rgba(255,255,255,.15);background:transparent;color:rgba(255,255,255,.6);font-size:13px;font-weight:600;cursor:pointer;transition:all .2s;font-family:'DM Sans',sans-serif;}
+.scan-mode-btn.on{background:var(--teal);border-color:var(--teal);color:#fff;}
+.manual-scan-row{display:flex;gap:8px;}
+.scan-fi{flex:1;padding:10px 13px;border:1.5px solid rgba(255,255,255,.15);border-radius:10px;font-size:13px;color:#fff;background:rgba(255,255,255,.08);outline:none;font-family:var(--mono);}
+.scan-fi:focus{border-color:var(--teal3);}
+.scan-fi::placeholder{color:rgba(255,255,255,.35);}
+.scan-btn{background:var(--teal);color:#fff;border:none;padding:10px 18px;border-radius:10px;font-weight:600;cursor:pointer;font-size:13px;transition:all .2s;}
+.scan-btn:hover{background:var(--teal2);}
+
+/* ── PRINT SHEET ── */
+.print-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;}
+@media print{
+  body *{visibility:hidden !important;}
+  #print-area,#print-area *{visibility:visible !important;}
+  #print-area{position:fixed;top:0;left:0;width:100%;background:#fff;padding:10mm;}
+  .print-grid{grid-template-columns:repeat(3,1fr);gap:6mm;}
+  .bc-label{border:1px solid #ddd !important;page-break-inside:avoid;}
+}
+
+/* ── PRODUCT DETAIL ── */
+.pd-hero{display:grid;grid-template-columns:280px 1fr;gap:24px;margin-bottom:24px;}
+.pd-img{width:280px;height:280px;border-radius:var(--r);display:flex;align-items:center;justify-content:center;font-size:80px;flex-shrink:0;overflow:hidden;}
+.pd-img img{width:100%;height:100%;object-fit:cover;}
+.pd-info{}
+.pd-cat{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--teal);margin-bottom:6px;}
+.pd-name{font-family:'Playfair Display',serif;font-size:26px;font-weight:900;margin-bottom:8px;}
+.pd-sku{font-family:var(--mono);font-size:12.5px;color:var(--muted2);margin-bottom:14px;letter-spacing:.4px;}
+.pd-stock-row{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-bottom:16px;}
+.pd-stock-item{background:var(--bg);border-radius:10px;padding:12px;text-align:center;}
+.pd-stock-n{font-family:'Playfair Display',serif;font-size:22px;font-weight:700;margin-bottom:2px;}
+.pd-stock-l{font-size:11.5px;color:var(--muted);}
+.pd-bc-full{margin-bottom:14px;background:var(--bg);border-radius:10px;padding:12px;text-align:center;}
+.pd-bc-svg{max-width:220px;height:56px;margin:0 auto;display:block;}
+.pd-bc-code{font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:4px;}
+.pd-actions{display:flex;gap:9px;flex-wrap:wrap;}
+
+/* ── TABS ── */
+.ptabs{display:flex;gap:0;border-bottom:1.5px solid var(--border);margin-bottom:20px;}
+.ptab{padding:10px 18px;font-size:13px;font-weight:500;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;transition:all .2s;margin-bottom:-1.5px;}
+.ptab:hover{color:var(--dark);}
+.ptab.on{color:var(--teal);border-bottom-color:var(--teal);font-weight:600;}
+.ptab-panel{display:none;}
+.ptab-panel.on{display:block;animation:fadeUp .3s ease;}
+
+/* ── BADGES ── */
+.bdg{padding:3px 9px;border-radius:50px;font-size:10.5px;font-weight:700;letter-spacing:.3px;display:inline-flex;align-items:center;gap:4px;}
+.bdg-g{background:var(--green-pale);color:var(--green);}
+.bdg-a{background:var(--amber-pale);color:var(--amber2);}
+.bdg-r{background:var(--red-pale);color:var(--red);}
+.bdg-t{background:var(--teal-pale);color:var(--teal);}
+.bdg-b{background:var(--blue-pale);color:var(--blue);}
+.bdg-gr{background:rgba(107,114,128,.1);color:var(--muted);}
+.bdg-or{background:var(--orange-pale);color:var(--orange);}
+
+/* ── STAT CARDS ── */
+.stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:13px;margin-bottom:22px;}
+.sc{background:var(--white);border-radius:var(--r-sm);padding:18px;border:1.5px solid var(--border);transition:all .22s;}
+.sc:hover{box-shadow:var(--shadow-md);transform:translateY(-2px);}
+.sc-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
+.sc-ic{width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;}
+.sc-ic.t{background:var(--teal-pale);}
+.sc-ic.g{background:var(--green-pale);}
+.sc-ic.a{background:var(--amber-pale);}
+.sc-ic.b{background:var(--blue-pale);}
+.sc-ic.p{background:var(--purple-pale);}
+.sc-trend{font-size:11px;font-weight:600;padding:3px 8px;border-radius:50px;}
+.sc-trend.up{background:var(--green-pale);color:var(--green);}
+.sc-trend.dn{background:var(--red-pale);color:var(--red);}
+.sc-num{font-family:'Playfair Display',serif;font-size:24px;font-weight:700;margin-bottom:2px;}
+.sc-lbl{font-size:12px;color:var(--muted);}
+.pg-hd{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:22px;flex-wrap:wrap;gap:12px;}
+.pg-title{font-family:'Playfair Display',serif;font-size:24px;font-weight:700;}
+.pg-sub{font-size:13px;color:var(--muted);margin-top:3px;}
+.pg-acts{display:flex;gap:9px;align-items:center;flex-wrap:wrap;}
+.card{background:var(--white);border-radius:var(--r);border:1.5px solid var(--border);padding:22px;box-shadow:var(--shadow);}
+.card-hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;}
+.card-title{font-family:'Playfair Display',serif;font-size:16px;font-weight:700;}
+
+/* ── TOAST ── */
+.toast{position:fixed;bottom:24px;right:24px;background:var(--dark);color:#fff;padding:13px 20px;border-radius:12px;font-size:13.5px;box-shadow:0 8px 32px rgba(0,0,0,.25);z-index:999;display:none;align-items:center;gap:10px;max-width:360px;}
+.toast.show{display:flex;animation:fadeUp .3s ease;}
+
+/* Review stars */
+.stars{display:flex;gap:4px;}
+.star{font-size:20px;cursor:pointer;transition:transform .15s;color:var(--border2);}
+.star:hover,.star.on{color:var(--amber);}
+.star:hover{transform:scale(1.2);}
+
+/* SKU tag */
+.sku-tag{display:inline-flex;align-items:center;gap:6px;background:var(--dark);color:rgba(255,255,255,.85);padding:4px 11px;border-radius:7px;font-family:var(--mono);font-size:11px;letter-spacing:.4px;}
+
+/* Scan animation active */
+.scan-active .scan-line{display:block;}
+.scan-inactive .scan-line{display:none;}
+.scan-inactive .scanner-idle-icon{display:block;}
+.scan-active .scanner-idle-icon{display:none;}
+.scan-active .scan-frame{display:block;}
+.scan-inactive .scan-frame{display:none;}
+.scan-inactive .scan-corners{display:none;}
+.scan-active .scan-corners{display:block;}
+</style>
+</head>
+<body>
+<div class="app">
+
+<!-- ── SIDEBAR ── -->
+<div class="sidebar">
+  <div class="sb-head">
+    <div class="sb-logo"><div class="sb-logo-ic">☽</div><div><div class="sb-logo-txt">SKSSF eGov</div><div class="sb-logo-sub">Poyanad Branch</div></div></div>
+    <div class="sb-user">
+      <div class="av" id="sb-av" style="background:var(--teal)">MA</div>
+      <div><div class="sb-uname" id="sb-name">Mohammed Ashraf</div><div class="sb-email" id="sb-email">president@skssf.org</div><div class="sb-badge" id="sb-badge">PRESIDENT</div></div>
+    </div>
+  </div>
+  <div class="sb-nav">
+    <div class="sb-sec">Catalog</div>
+    <div class="ni on" onclick="gotoSection('catalog')"><span class="ni-ic">🛍️</span>Product Catalog</div>
+    <div class="ni" onclick="gotoSection('barcodes')"><span class="ni-ic">📊</span>Barcode Manager</div>
+    <div class="sb-sec">Operations</div>
+    <div class="ni" onclick="gotoSection('scanner')"><span class="ni-ic">📷</span>Scanner (Check-in/out)</div>
+    <div class="ni" onclick="gotoSection('checkedout')"><span class="ni-ic">📤</span>Currently Checked Out <span class="ni-b" id="co-badge">3</span></div>
+    <div class="sb-sec">Missions</div>
+    <div class="ni" onclick="gotoSection('missions')"><span class="ni-ic">🎯</span>Mission Packages</div>
+    <div class="sb-sec">Reports</div>
+    <div class="ni" onclick="gotoSection('reports')"><span class="ni-ic">📊</span>Inventory Report</div>
+    <div class="ni" onclick="gotoSection('settings')"><span class="ni-ic">⚙️</span>Settings</div>
+  </div>
+  <div class="sb-foot"><div class="ni logout" onclick="location.reload()"><span class="ni-ic">🚪</span>Exit</div></div>
+</div>
+
+<!-- ── MAIN ── -->
+<div class="main-wrap">
+  <div class="top-bar">
+    <div class="tb-left">
+      <div class="tb-title" id="tb-title">Product Catalog</div>
+      <div class="view-toggle" id="view-toggle">
+        <button class="vt-btn on" id="vt-gallery" onclick="setView('gallery')">⊞ Gallery</button>
+        <button class="vt-btn" id="vt-table" onclick="setView('table')">☰ Table</button>
+        <button class="vt-btn" id="vt-bc" onclick="setView('barcodes-catalog')">▌▌ Barcodes</button>
+      </div>
+    </div>
+    <div class="tb-right">
+      <div class="role-toggle">
+        <button class="rt-btn on" id="rt-admin" onclick="setRole('admin')">🛡️ Admin</button>
+        <button class="rt-btn" id="rt-member" onclick="setRole('member')">👤 Member</button>
+      </div>
+    </div>
+  </div>
+  <div class="main"><div class="mp" id="main-content"></div></div>
+</div>
+</div>
+
+<!-- ── MODAL ── -->
+<div class="ov" id="modal-ov" onclick="closeModalOv(event)" style="display:none">
+  <div class="modal" id="modal">
+    <div class="mh" id="modal-head"><div class="mh-title" id="modal-title">Modal</div><button class="mh-close" id="modal-close" onclick="closeModal()">✕</button></div>
+    <div class="mb" id="modal-body"></div>
+    <div class="mf" id="modal-foot"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"><span id="t-ic">✅</span><span id="t-msg"></span></div>
+
+<script>
+// ═══════════════════════════════════
+// DATA
+// ═══════════════════════════════════
+let ROLE = 'admin';
+let VIEW = 'gallery';
+let SECTION = 'catalog';
+let ratings = {};
+
+const MEMBERS = [
+  {id:'M001',name:'Faris Abdulrahman',memNo:'SKSSF-2024-1042',avColor:'#0D7377'},
+  {id:'M002',name:'Muhammed Ashraf',memNo:'SKSSF-2024-1028',avColor:'#8B5CF6'},
+  {id:'M003',name:'Shuaib Hassan',memNo:'SKSSF-2024-1033',avColor:'#F97316'},
+  {id:'M004',name:'Ameen Siddique',memNo:'SKSSF-2024-1015',avColor:'#14A085'},
+];
+
+const MISSIONS = [
+  {id:'MS001',name:'Ramadan Welfare 2025'},
+  {id:'MS002',name:'Student Support Drive'},
+  {id:'MS003',name:'General Distribution'},
+];
+
+let PRODUCTS = [
+  {id:'P001',name:'Study Kit 2025',category:'Education',catCode:'EDU',sku:'SKSSF-2025-EDU-001',emoji:'📚',desc:'Notebook set (5), pens (10), geometry box, ruler, eraser — complete stationery pack for students.',bgCls:'bg-edu',photo:null,totalQty:25,addedDate:'2025-01-10',supplier:'Reliable Stationery Co.',units:buildUnits('EDU-001',25,[1,2,3,4,5]),reviews:[]},
+  {id:'P002',name:'Prayer Mat Premium',category:'Religious',catCode:'REL',sku:'SKSSF-2025-REL-002',emoji:'🕌',desc:'High-quality thick prayer mat with carry bag. Non-slip base, washable fabric.',bgCls:'bg-rel',photo:null,totalQty:50,addedDate:'2025-01-15',supplier:'Islamic Gifts Store',units:buildUnits('REL-002',50,[6,7,8]),reviews:[{memberId:'M004',memberName:'Ameen Siddique',rating:5,text:'Excellent quality mat. JazakAllah for this initiative!',date:'2025-03-22'}]},
+  {id:'P003',name:'First Aid Kit',category:'Health',catCode:'HLT',sku:'SKSSF-2025-HLT-003',emoji:'🏥',desc:'Complete first aid box with bandages, antiseptic, ORS, basic medicines and instruction guide.',bgCls:'bg-hlt',photo:null,totalQty:15,addedDate:'2025-02-01',supplier:'MedCare Supplies',units:buildUnits('HLT-003',15,[9]),reviews:[]},
+  {id:'P004',name:'Quran with Translation',category:'Religious',catCode:'REL',sku:'SKSSF-2025-REL-004',emoji:'📖',desc:'Quran with complete Malayalam translation and Tafseer. Hard cover, clear print.',bgCls:'bg-rel',photo:null,totalQty:30,addedDate:'2025-02-10',supplier:'Islamic Publications',units:buildUnits('REL-004',30,[10,11]),reviews:[]},
+  {id:'P005',name:'Grocery Welfare Pack',category:'Welfare',catCode:'WEL',sku:'SKSSF-2025-WEL-005',emoji:'🛒',desc:'Monthly essential grocery bundle — 5kg rice, 1L oil, 1kg sugar, 500g atta, 200g tea.',bgCls:'bg-wel',photo:null,totalQty:40,addedDate:'2025-03-01',supplier:'Local Wholesale Market',units:buildUnits('WEL-005',40,[12,13,14]),reviews:[{memberId:'M001',memberName:'Faris Abdulrahman',rating:4,text:'Very helpful. The rice quality was great. Alhamdulillah.',date:'2025-03-25'}]},
+  {id:'P006',name:'School Bag',category:'Education',catCode:'EDU',sku:'SKSSF-2025-EDU-006',emoji:'🎒',desc:'Sturdy school bag for primary/secondary students. Multiple compartments, water resistant.',bgCls:'bg-edu',photo:null,totalQty:20,addedDate:'2025-03-05',supplier:'Student Supplies Hub',units:buildUnits('EDU-006',20,[15]),reviews:[]},
+];
+
+let CHECKOUT_LOG = [
+  {id:'CO001',unitId:'EDU-001-U01',productId:'P001',productName:'Study Kit 2025',sku:'SKSSF-2025-EDU-001',memberId:'M001',memberName:'Faris Abdulrahman',memberNo:'SKSSF-2024-1042',missionId:'MS002',missionName:'Student Support Drive',checkoutDate:'2025-03-10',checkinDate:null,adminBy:'Mohammed Ashraf',status:'out',note:''},
+  {id:'CO002',unitId:'REL-002-U06',productId:'P002',productName:'Prayer Mat Premium',sku:'SKSSF-2025-REL-002',memberId:'M004',memberName:'Ameen Siddique',memberNo:'SKSSF-2024-1015',missionId:'MS001',missionName:'Ramadan Welfare 2025',checkoutDate:'2025-03-15',checkinDate:'2025-03-20',adminBy:'Haris Nasser',status:'in',note:''},
+  {id:'CO003',unitId:'WEL-005-U12',productId:'P005',productName:'Grocery Welfare Pack',sku:'SKSSF-2025-WEL-005',memberId:'M002',memberName:'Muhammed Ashraf',memberNo:'SKSSF-2024-1028',missionId:'MS001',missionName:'Ramadan Welfare 2025',checkoutDate:'2025-03-16',checkinDate:null,adminBy:'Mohammed Ashraf',status:'out',note:''},
+  {id:'CO004',unitId:'EDU-001-U02',productId:'P001',productName:'Study Kit 2025',sku:'SKSSF-2025-EDU-001',memberId:'M003',memberName:'Shuaib Hassan',memberNo:'SKSSF-2024-1033',missionId:'MS002',missionName:'Student Support Drive',checkoutDate:'2025-03-12',checkinDate:null,adminBy:'Mohammed Ashraf',status:'out',note:''},
+];
+
+function buildUnits(prefix, total, checkedOutNums) {
+  return Array.from({length: total}, (_, i) => {
+    const n = i + 1;
+    const unitId = `${prefix}-U${String(n).padStart(2,'0')}`;
+    const isOut = checkedOutNums.includes(n);
+    return {
+      unitId,
+      barcode: `SKSSF2025${prefix.replace(/-/g,'').toUpperCase()}U${String(n).padStart(2,'0')}`,
+      status: isOut ? 'out' : 'available',
+      memberId: null, memberName: null, checkoutDate: null,
+    };
+  });
+}
+
+// ═══════════════════════════════════
+// ROLE & NAVIGATION
+// ═══════════════════════════════════
+function setRole(r) {
+  ROLE = r;
+  document.getElementById('rt-admin').classList.toggle('on', r==='admin');
+  document.getElementById('rt-member').classList.toggle('on', r==='member');
+  const cfg = r === 'admin'
+    ? {av:'MA',name:'Mohammed Ashraf',email:'president@skssf.org',badge:'PRESIDENT',bg:'var(--teal2)'}
+    : {av:'FA',name:'Faris Abdulrahman',email:'faris@skssf.org',badge:'MEMBER',bg:'#0D7377'};
+  document.getElementById('sb-av').textContent=cfg.av;
+  document.getElementById('sb-av').style.background=cfg.bg;
+  document.getElementById('sb-name').textContent=cfg.name;
+  document.getElementById('sb-email').textContent=cfg.email;
+  document.getElementById('sb-badge').textContent=cfg.badge;
+  gotoSection('catalog');
+}
+
+function gotoSection(id) {
+  SECTION = id;
+  document.querySelectorAll('.ni').forEach(n => n.classList.remove('on'));
+  const secMap = {catalog:'Product Catalog',barcodes:'Barcode Manager',scanner:'Scanner — Check In / Out',checkedout:'Currently Checked Out',missions:'Mission Packages',reports:'Inventory Report',settings:'Settings'};
+  document.getElementById('tb-title').textContent = secMap[id] || id;
+  const vt = document.getElementById('view-toggle');
+  vt.style.display = (id === 'catalog') ? 'flex' : 'none';
+  const renders = {catalog:renderCatalog,barcodes:renderBarcodes,scanner:renderScanner,checkedout:renderCheckedOut,missions:renderMissions,reports:renderReports,settings:renderSettings};
+  document.getElementById('main-content').innerHTML = (renders[id] || (() => '<div class="card fu">Coming soon.</div>'))();
+  updateCoBadge();
+  // render barcodes after DOM
+  setTimeout(renderAllBarcodes, 60);
+}
+
+function setView(v) {
+  VIEW = v;
+  ['gallery','table','barcodes-catalog'].forEach(x => {
+    const btn = document.getElementById('vt-'+x.replace('-catalog',''));
+    if(btn) btn.classList.toggle('on', x===v || (x==='barcodes-catalog'&&v==='barcodes-catalog'));
+  });
+  document.getElementById('vt-bc').classList.toggle('on', v==='barcodes-catalog');
+  document.getElementById('main-content').innerHTML = renderCatalog();
+  setTimeout(renderAllBarcodes, 60);
+}
+
+function updateCoBadge() {
+  const n = CHECKOUT_LOG.filter(c => c.status === 'out').length;
+  const badge = document.getElementById('co-badge');
+  if (badge) badge.textContent = n;
+}
+
+// ═══════════════════════════════════
+// CATALOG
+// ═══════════════════════════════════
+function renderCatalog() {
+  const canEdit = ROLE === 'admin';
+  const avail = PRODUCTS.reduce((s,p) => s + p.units.filter(u=>u.status==='available').length, 0);
+  const out = PRODUCTS.reduce((s,p) => s + p.units.filter(u=>u.status==='out').length, 0);
+  let html = `
+  <div class="pg-hd fu">
+    <div><div class="pg-title">📦 Product Catalog</div><div class="pg-sub">SKSSF welfare products — browse, manage, and distribute</div></div>
+    <div class="pg-acts">
+      <button class="bsm g" onclick="gotoSection('scanner')">📷 Scanner</button>
+      ${canEdit ? `<button class="bsm s" onclick="openAddProductModal()">+ Add Product</button>` : ''}
+    </div>
+  </div>
+  <div class="stats-row fu">
+    <div class="sc"><div class="sc-top"><div class="sc-ic t">📦</div><span class="sc-trend up">${PRODUCTS.length} types</span></div><div class="sc-num">${PRODUCTS.reduce((s,p)=>s+p.totalQty,0)}</div><div class="sc-lbl">Total Units</div></div>
+    <div class="sc"><div class="sc-top"><div class="sc-ic g">✅</div><span class="sc-trend up">In stock</span></div><div class="sc-num">${avail}</div><div class="sc-lbl">Available Now</div></div>
+    <div class="sc"><div class="sc-top"><div class="sc-ic b">📤</div><span class="sc-trend dn">${out} out</span></div><div class="sc-num">${out}</div><div class="sc-lbl">Checked Out</div></div>
+    <div class="sc"><div class="sc-top"><div class="sc-ic a">⭐</div><span class="sc-trend up">Reviews</span></div><div class="sc-num">${PRODUCTS.reduce((s,p)=>s+p.reviews.length,0)}</div><div class="sc-lbl">Member Reviews</div></div>
+  </div>`;
+
+  if (VIEW === 'gallery') html += renderGallery();
+  else if (VIEW === 'table') html += renderTable();
+  else html += renderBarcodeView();
+
+  return html;
+}
+
+function renderGallery() {
+  return `<div class="cat-grid fu">${PRODUCTS.map(p => {
+    const availQty = p.units.filter(u => u.status === 'available').length;
+    const pct = Math.round(availQty / p.totalQty * 100);
+    const stockColor = availQty > p.totalQty * 0.5 ? 'var(--green)' : availQty > 0 ? 'var(--amber)' : 'var(--red)';
+    const stockLabel = availQty > p.totalQty * 0.5 ? '✓ In Stock' : availQty > 0 ? '⚠ Low Stock' : '✕ Out of Stock';
+    const stockBdg = availQty > p.totalQty * 0.5 ? 'bdg-g' : availQty > 0 ? 'bdg-a' : 'bdg-r';
+    return `<div class="cat-card" onclick="openProductDetail('${p.id}')">
+      <div class="cc-img ${p.bgCls}">
+        ${p.photo ? `<img src="${p.photo}" alt="${p.name}">` : `<span style="font-size:64px">${p.emoji}</span>`}
+        <div class="cc-stock-bar"><div class="cc-stock-fill" style="width:${pct}%;background:${stockColor}"></div></div>
+        <div class="cc-hover-overlay">
+          <button class="cc-hover-btn" style="background:#fff;color:var(--teal)" onclick="event.stopPropagation();openProductDetail('${p.id}')">📋 View Details</button>
+          ${ROLE==='admin'?`<button class="cc-hover-btn" style="background:var(--teal);color:#fff" onclick="event.stopPropagation();openScannerCheckout('${p.id}')">📤 Check Out</button>`:''}
+          <button class="cc-hover-btn" style="background:rgba(255,255,255,.15);color:#fff" onclick="event.stopPropagation();openPrintModal('${p.id}')">🖨 Print Labels</button>
+        </div>
+      </div>
+      <div class="cc-body">
+        <div class="cc-cat">${p.category}</div>
+        <div class="cc-name">${p.name}</div>
+        <div class="cc-sku">${p.sku}</div>
+        <div class="cc-stats">
+          <span style="font-size:13px;font-weight:600;color:${stockColor}">${availQty} / ${p.totalQty} available</span>
+          <span class="bdg ${stockBdg}">${stockLabel}</span>
+        </div>
+        <div class="cc-bc-row">
+          <div class="cc-bc-svg-wrap">
+            <svg id="bc-card-${p.id}" class="cc-bc-svg"></svg>
+          </div>
+          <div class="cc-bc-actions">
+            <button class="cc-bc-action" title="Print Labels" onclick="event.stopPropagation();openPrintModal('${p.id}')">🖨</button>
+            <button class="cc-bc-action" title="View Barcode" onclick="event.stopPropagation();openBarcodeModal('${p.id}')">🔍</button>
+          </div>
+        </div>
+        ${p.reviews.length > 0 ? `<div style="margin-top:8px;font-size:11.5px;color:var(--muted)">${'⭐'.repeat(Math.round(p.reviews.reduce((s,r)=>s+r.rating,0)/p.reviews.length))} ${p.reviews.length} review${p.reviews.length>1?'s':''}</div>` : ''}
+      </div>
+    </div>`;
+  }).join('')}</div>`;
+}
+
+function renderTable() {
+  return `<div class="card fu" style="padding:0;overflow:hidden">
+  <div style="overflow-x:auto"><table class="inv-table">
+    <thead><tr><th>Product</th><th>SKU</th><th>Category</th><th>Total</th><th>Available</th><th>Out</th><th>Stock</th><th>Barcode</th><th>Actions</th></tr></thead>
+    <tbody>${PRODUCTS.map(p => {
+      const av = p.units.filter(u=>u.status==='available').length;
+      const out = p.units.filter(u=>u.status==='out').length;
+      const pct = Math.round(av/p.totalQty*100);
+      return `<tr>
+        <td><div style="display:flex;align-items:center;gap:10px"><div style="width:40px;height:40px;border-radius:9px;background:var(--bg2);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">${p.emoji}</div><div><div style="font-weight:700;font-size:13.5px">${p.name}</div><div style="font-size:11px;color:var(--muted);margin-top:1px">${p.desc.substring(0,40)}...</div></div></div></td>
+        <td><span class="sku-tag">${p.sku}</span></td>
+        <td><span class="bdg bdg-t">${p.category}</span></td>
+        <td style="font-weight:700;font-family:'Playfair Display',serif;font-size:16px">${p.totalQty}</td>
+        <td style="color:var(--green);font-weight:700">${av}</td>
+        <td style="color:var(--blue);font-weight:700">${out}</td>
+        <td><div style="min-width:100px"><div style="background:var(--bg2);border-radius:50px;height:6px;overflow:hidden;margin-bottom:3px"><div style="width:${pct}%;height:100%;background:${pct>50?'var(--green)':pct>20?'var(--amber)':'var(--red)'};border-radius:50px"></div></div><div style="font-size:10.5px;color:var(--muted)">${pct}% available</div></div></td>
+        <td><svg id="bc-tbl-${p.id}" class="tbl-bc"></svg></td>
+        <td><div style="display:flex;gap:6px"><button class="bsm s" style="font-size:11px;padding:5px 11px" onclick="openProductDetail('${p.id}')">View</button>${ROLE==='admin'?`<button class="bsm am" style="font-size:11px;padding:5px 11px" onclick="openScannerCheckout('${p.id}')">📤 Out</button>`:''}</div></td>
+      </tr>`;
+    }).join('')}</tbody>
+  </table></div></div>`;
+}
+
+function renderBarcodeView() {
+  let html = `<div class="pg-hd fu" style="margin-bottom:16px"><div><div style="font-size:17px;font-weight:700">All Product Barcodes</div><div style="font-size:13px;color:var(--muted)">Click any barcode to print or zoom</div></div><button class="bsm dark" onclick="printAllBarcodes()">🖨 Print All Barcodes</button></div>`;
+  html += `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px" class="fu">`;
+  PRODUCTS.forEach(p => {
+    html += `<div class="bc-label" onclick="openBarcodeModal('${p.id}')">
+      <div class="bc-label-org">SKSSF eGov · ${p.category}</div>
+      <svg id="bc-catalog-${p.id}"></svg>
+      <div class="bc-code">${p.sku}</div>
+      <div class="bc-product">${p.name}</div>
+    </div>`;
+  });
+  html += `</div>`;
+  return html;
+}
+
+// ═══════════════════════════════════
+// BARCODE RENDERING
+// ═══════════════════════════════════
+function renderAllBarcodes() {
+  PRODUCTS.forEach(p => {
+    const bcVal = p.sku.replace(/-/g,'').toUpperCase();
+    const ids = [`bc-card-${p.id}`,`bc-tbl-${p.id}`,`bc-catalog-${p.id}`,`bc-detail-${p.id}`,`bc-modal-${p.id}`];
+    ids.forEach(id => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      try {
+        JsBarcode(el, bcVal, {
+          format:'CODE128', width:1.2, height:id.includes('tbl')?28:id.includes('catalog')?38:id.includes('modal')?54:36,
+          displayValue:false, margin:0, background:'transparent',
+          lineColor:id.includes('card')||id.includes('catalog')?'#2D3344':'#2D3344',
+        });
+      } catch(e){}
+    });
+    // Unit barcodes
+    p.units.slice(0,6).forEach(u => {
+      const uid = `bc-unit-${u.unitId.replace(/[-]/g,'')}`;
+      const el = document.getElementById(uid);
+      if(!el) return;
+      try { JsBarcode(el, u.barcode, {format:'CODE128',width:1,height:28,displayValue:false,margin:0,background:'transparent',lineColor:'#2D3344'}); } catch(e){}
+    });
+  });
+}
+
+// ═══════════════════════════════════
+// PRODUCT DETAIL
+// ═══════════════════════════════════
+function openProductDetail(pid) {
+  const p = PRODUCTS.find(x => x.id === pid);
+  const availUnits = p.units.filter(u => u.status === 'available');
+  const outUnits = p.units.filter(u => u.status === 'out');
+  const myItems = p.units.filter(u => u.status === 'out' && u.memberId === 'M001');
+
+  document.getElementById('modal-title').textContent = p.name;
+  document.getElementById('modal').className = 'modal xl';
+  document.getElementById('modal-head').className = 'mh';
+
+  const unitsHtml = p.units.slice(0, 20).map(u => {
+    const co = CHECKOUT_LOG.find(c => c.unitId === u.unitId && c.status === 'out');
+    const dotCls = u.status === 'available' ? 'dot-avail' : 'dot-out';
+    return `<div class="unit-row">
+      <div class="unit-status-dot ${dotCls}"></div>
+      <div class="unit-id">${u.unitId}</div>
+      <svg id="bc-unit-${u.unitId.replace(/[-]/g,'')}" class="unit-bc-sm" style="flex:1;max-width:120px"></svg>
+      <div class="unit-member" style="font-size:12.5px;color:${u.status==='available'?'var(--green)':'var(--blue)'}">
+        ${u.status === 'available' ? '<span class="bdg bdg-g">Available</span>' : `<span class="bdg bdg-b">With ${co?.memberName||'Member'}</span>`}
+      </div>
+      <div style="font-size:11.5px;color:var(--muted)">${u.status==='out'?co?.checkoutDate||'—':'—'}</div>
+      ${ROLE==='admin' ? `<button class="bsm ${u.status==='available'?'s':'gr'}" style="font-size:11px;padding:5px 11px" onclick="quickCheckAction('${pid}','${u.unitId}')">${u.status==='available'?'📤 Check Out':'📥 Check In'}</button>` : ''}
+    </div>`;
+  }).join('');
+
+  const reviewsHtml = p.reviews.map(r => `
+    <div style="background:var(--bg);border-radius:10px;padding:13px 15px;margin-bottom:9px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+        <div style="font-size:13px;font-weight:600">${r.memberName}</div>
+        <div style="color:var(--amber);font-size:15px">${'⭐'.repeat(r.rating)}</div>
+      </div>
+      <div style="font-size:13px;color:var(--dark2);line-height:1.5">"${r.text}"</div>
+      <div style="font-size:11px;color:var(--muted2);margin-top:5px">${r.date}</div>
+    </div>`).join('');
+
+  const myReview = p.reviews.find(r => r.memberId === 'M001');
+
+  document.getElementById('modal-body').innerHTML = `
+    <div class="pd-hero">
+      <div class="pd-img ${p.bgCls}">${p.photo ? `<img src="${p.photo}">` : p.emoji}</div>
+      <div class="pd-info">
+        <div class="pd-cat">${p.category}</div>
+        <div class="pd-name">${p.name}</div>
+        <div class="pd-sku"><span class="sku-tag">${p.sku}</span></div>
+        <div style="font-size:13.5px;color:var(--muted);line-height:1.6;margin-bottom:14px">${p.desc}</div>
+        <div class="pd-stock-row">
+          <div class="pd-stock-item"><div class="pd-stock-n">${p.totalQty}</div><div class="pd-stock-l">Total Units</div></div>
+          <div class="pd-stock-item"><div class="pd-stock-n" style="color:var(--green)">${availUnits.length}</div><div class="pd-stock-l">Available</div></div>
+          <div class="pd-stock-item"><div class="pd-stock-n" style="color:var(--blue)">${outUnits.length}</div><div class="pd-stock-l">Checked Out</div></div>
+        </div>
+        <div class="pd-bc-full">
+          <svg id="bc-detail-${p.id}" class="pd-bc-svg"></svg>
+          <div class="pd-bc-code">${p.sku}</div>
+        </div>
+        <div class="pd-actions">
+          <button class="bsm s" onclick="openPrintModal('${p.id}')">🖨 Print Labels</button>
+          ${ROLE==='admin'?`<button class="bsm am" onclick="closeModal();openScannerCheckout('${p.id}')">📤 Check Out</button><button class="bsm g" onclick="closeModal();openEditProductModal('${p.id}')">✏️ Edit</button>`:''}
+        </div>
+      </div>
+    </div>
+    <div class="ptabs">
+      <div class="ptab on" onclick="switchPtab(this,'pt-units')">📦 Units (${p.units.length})</div>
+      <div class="ptab" onclick="switchPtab(this,'pt-dist')">📋 Distribution (${CHECKOUT_LOG.filter(c=>c.productId===pid).length})</div>
+      <div class="ptab" onclick="switchPtab(this,'pt-reviews')">⭐ Reviews (${p.reviews.length})</div>
+      ${ROLE==='member'&&!myReview?`<div class="ptab" onclick="switchPtab(this,'pt-myreview')">✍️ Leave Review</div>`:''}
+    </div>
+    <div class="ptab-panel on" id="pt-units">${unitsHtml}${p.units.length>20?`<div style="text-align:center;padding:12px;color:var(--muted);font-size:13px">Showing 20 of ${p.units.length} units</div>`:''}</div>
+    <div class="ptab-panel" id="pt-dist">${buildDistTable(pid)}</div>
+    <div class="ptab-panel" id="pt-reviews">
+      ${reviewsHtml || '<div style="color:var(--muted);padding:16px 0">No reviews yet.</div>'}
+    </div>
+    ${ROLE==='member'&&!myReview?`
+    <div class="ptab-panel" id="pt-myreview">
+      <div style="font-size:14px;font-weight:600;margin-bottom:12px">Share your experience with this SKSSF product</div>
+      <div class="stars" id="stars-${pid}">${[1,2,3,4,5].map(n=>`<span class="star" onclick="setStarRating('${pid}',${n})">★</span>`).join('')}</div>
+      <div id="rating-lbl-${pid}" style="font-size:12px;color:var(--muted);margin:6px 0 12px">Tap to rate</div>
+      <textarea class="ta" id="review-txt-${pid}" rows="3" placeholder="How was the product quality? Was it helpful? Share your experience..."></textarea>
+      <button class="bsm s" style="margin-top:12px" onclick="submitProductReview('${pid}')">Submit Review</button>
+    </div>`:''}
+  `;
+  document.getElementById('modal-foot').innerHTML = `<button class="bsm s" onclick="closeModal()">Close</button>`;
+  document.getElementById('modal-ov').style.display = 'flex';
+  setTimeout(() => renderAllBarcodes(), 80);
+}
+
+function buildDistTable(pid) {
+  const logs = CHECKOUT_LOG.filter(c => c.productId === pid);
+  if (!logs.length) return '<div style="color:var(--muted);padding:16px 0">No distribution records yet.</div>';
+  return `<table class="inv-table"><thead><tr><th>Unit ID</th><th>Member</th><th>Mission</th><th>Checkout</th><th>Check-in</th><th>Admin</th><th>Status</th></tr></thead><tbody>
+  ${logs.map(c=>`<tr>
+    <td><span class="sku-tag" style="font-size:10px">${c.unitId}</span></td>
+    <td><b>${c.memberName}</b><br><span style="font-size:11px;color:var(--muted)">${c.memberNo}</span></td>
+    <td style="font-size:12px">${c.missionName}</td>
+    <td style="font-size:12px">${c.checkoutDate}</td>
+    <td style="font-size:12px">${c.checkinDate||'—'}</td>
+    <td style="font-size:12px">${c.adminBy}</td>
+    <td><span class="bdg ${c.status==='out'?'bdg-b':'bdg-g'}">${c.status==='out'?'📤 Out':'📥 Returned'}</span></td>
+  </tr>`).join('')}</tbody></table>`;
+}
+
+functi
+<truncated 44927 bytes>
+
+NOTE: The output was truncated because it was too long. Use a more targeted query or a smaller range to get the information you need.

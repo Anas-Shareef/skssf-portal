@@ -306,7 +306,9 @@ export default function MemberInventory() {
       if (res.ok) {
         const data = await res.json();
         setMembers(data.members || []);
-        if (data.members?.length > 0) {
+        // For admins/supers, default to first member; for members, do NOT override (set by profile useEffect)
+        const isMemberRole = profile?.role === 'member';
+        if (!isMemberRole && data.members?.length > 0) {
           setScannerMemberId(data.members[0].id);
         }
       }
@@ -314,6 +316,13 @@ export default function MemberInventory() {
       console.warn("Failed to load profiles list:", e);
     }
   };
+
+  // Auto-assign member id for member-role scanner
+  useEffect(() => {
+    if (profile?.role === 'member' && (profile?.db_id || profile?.id)) {
+      setScannerMemberId(profile.db_id || profile.id);
+    }
+  }, [profile]);
 
   // Initial load
   useEffect(() => {
@@ -346,9 +355,15 @@ export default function MemberInventory() {
   useEffect(() => {
     if (printJob) {
       const timer = setTimeout(() => {
+        const cleanup = () => {
+          setPrintJob(null);
+          window.removeEventListener('afterprint', cleanup);
+        };
+        window.addEventListener('afterprint', cleanup);
         window.print();
-        setPrintJob(null);
-      }, 600);
+        // Fallback: clear after 8 seconds if afterprint didn't fire
+        setTimeout(() => cleanup(), 8000);
+      }, 800);
       return () => clearTimeout(timer);
     }
   }, [printJob]);
@@ -972,7 +987,7 @@ export default function MemberInventory() {
       </div>
 
       {/* Tabs list matching Claude Prototype */}
-      <div className="inv-tabs" style={{ display: 'flex', gap: '8px', marginBottom: '32px', borderBottom: '2.5px solid #f1f5f9', paddingBottom: '2px', flexWrap: 'wrap' }}>
+      <div className="inv-tabs" style={{ display: 'none', gap: '8px', marginBottom: '32px', borderBottom: '2.5px solid #f1f5f9', paddingBottom: '2px', flexWrap: 'wrap' }}>
         <button
           type="button"
           onClick={() => setActiveTab('catalogue')}
@@ -1787,18 +1802,25 @@ export default function MemberInventory() {
                         {/* Processing form fields */}
                         {scannerMode === 'checkout' ? (
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '24px' }}>
-                            <div>
-                              <label className="fl2" style={{ color: '#2b2d42', fontWeight: 700 }}>Select Member *</label>
-                              <select 
-                                value={scannerMemberId} 
-                                onChange={e => setScannerMemberId(e.target.value)} 
-                                className="sel2" 
-                                style={{ width: '100%', height: '42px', borderRadius: '10px', border: '1px solid #c3fae8', background: '#fff' }}
-                              >
-                                <option value="">Choose member...</option>
-                                {members.map(m => <option key={m.id} value={m.id}>{m.name} ({m.membership_no || 'No Member No'})</option>)}
-                              </select>
-                            </div>
+                            {/* Member Selection — hidden for member role, shown for admin/super */}
+                            {profile?.role === 'member' ? (
+                              <div style={{ background: 'rgba(13,115,119,0.06)', padding: '10px 14px', borderRadius: '10px', border: '1px solid #c3fae8', fontSize: '13px', color: '#0ca678', fontWeight: 700 }}>
+                                📋 Requesting as: <strong>{profile?.name || 'Current Member'}</strong>
+                              </div>
+                            ) : (
+                              <div>
+                                <label className="fl2" style={{ color: '#2b2d42', fontWeight: 700 }}>Select Member *</label>
+                                <select 
+                                  value={scannerMemberId} 
+                                  onChange={e => setScannerMemberId(e.target.value)} 
+                                  className="sel2" 
+                                  style={{ width: '100%', height: '42px', borderRadius: '10px', border: '1px solid #c3fae8', background: '#fff' }}
+                                >
+                                  <option value="">Choose member...</option>
+                                  {members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                                </select>
+                              </div>
+                            )}
 
                             <div>
                               <label className="fl2" style={{ color: '#2b2d42', fontWeight: 700 }}>Welfare Mission Package *</label>
@@ -2054,7 +2076,8 @@ export default function MemberInventory() {
                             <th style={{ padding: '14px', fontWeight: 800, color: '#475569' }}>ITEM</th>
                             <th style={{ padding: '14px', fontWeight: 800, color: '#475569' }}>QTY</th>
                             <th style={{ padding: '14px', fontWeight: 800, color: '#475569' }}>ALLOCATION</th>
-                            <th style={{ padding: '14px', fontWeight: 800, color: '#475569' }}>ACTION DATE</th>
+                            <th style={{ padding: '14px', fontWeight: 800, color: '#475569' }}>CHECK-OUT DATE</th>
+                            <th style={{ padding: '14px', fontWeight: 800, color: '#475569' }}>CHECK-IN DATE & TIME</th>
                             <th style={{ padding: '14px', fontWeight: 800, color: '#475569' }}>CONDITION</th>
                             <th style={{ padding: '14px', fontWeight: 800, color: '#475569', textAlign: 'right' }}>STATUS</th>
                           </tr>
@@ -2082,7 +2105,12 @@ export default function MemberInventory() {
                                 <td style={{ padding: '16px 14px', fontWeight: 800, color: '#334155' }}>{c.quantity}</td>
                                 <td style={{ padding: '16px 14px', color: '#475569', fontWeight: 600 }}>{allocationText}</td>
                                 <td style={{ padding: '16px 14px', color: '#64748b' }}>
-                                  {actionDate ? new Date(actionDate).toLocaleDateString() : '—'}
+                                  {c.checkout_date ? new Date(c.checkout_date).toLocaleDateString() : '—'}
+                                </td>
+                                <td style={{ padding: '16px 14px', color: '#64748b' }}>
+                                  {c.status === 'returned' && c.actual_return_date
+                                    ? new Date(c.actual_return_date).toLocaleString()
+                                    : '—'}
                                 </td>
                                 <td style={{ padding: '16px 14px' }}>
                                   {c.status === 'returned' ? (
