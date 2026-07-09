@@ -464,6 +464,7 @@ export default async function handler(req, res) {
                 .from('inventory_items')
                 .update({ available_stock: Math.max(0, currentItem.available_stock - unitsToDelete.length) })
                 .eq('id', id);
+            }
           }
         }
         await logInventoryAudit(profile.id, 'item-edit', 'item', id, {
