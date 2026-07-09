@@ -156,7 +156,7 @@ export default async function handler(req, res) {
 
   if (profErr || !profile) return res.status(401).json({ error: 'Profile not found' });
 
-  const resource = req.query.resource || req.body.resource;
+  const resource = req.query.resource || req.body?.resource;
   if (!resource) {
     return res.status(400).json({ error: 'Resource parameter required' });
   }

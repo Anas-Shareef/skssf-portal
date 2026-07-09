@@ -28,6 +28,10 @@
       "destination": "/api/users"
     },
     {
+      "source": "/api/members",
+      "destination": "/api/users"
+    },
+    {
       "source": "/api/send-otp",
       "destination": "/api/otp?action=send"
     },
