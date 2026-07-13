@@ -175,7 +175,6 @@ export default function Inventory() {
   const [showCreateMissionModal, setShowCreateMissionModal] = useState(false);
   const [newMissionName, setNewMissionName] = useState('');
   const [newMissionDesc, setNewMissionDesc] = useState('');
-  const [newMissionEmoji, setNewMissionEmoji] = useState('🤝');
   const [newMissionBundles, setNewMissionBundles] = useState<{ item_id: string; quantity: number }[]>([]);
 
   const [missionsList, setMissionsList] = useState<any[]>([]);
@@ -452,7 +451,7 @@ export default function Inventory() {
         body: JSON.stringify({
           name: newMissionName.trim(),
           description: newMissionDesc.trim(),
-          emoji: newMissionEmoji
+          emoji: '🤝'
         })
       });
 
@@ -465,7 +464,6 @@ export default function Inventory() {
       // Reset form
       setNewMissionName('');
       setNewMissionDesc('');
-      setNewMissionEmoji('🤝');
       setNewMissionBundles([]);
       setShowCreateMissionModal(false);
     } catch (err: any) {
@@ -2093,7 +2091,7 @@ export default function Inventory() {
 
                             {/* Column 4: Checkout Date */}
                             <td style={{ padding: '16px 14px', fontSize: '13px', color: '#64748b' }}>
-                              {c.checkout_date ? new Date(c.checkout_date).toISOString().split('T')[0] : 'N/A'}
+                              {c.checkout_date ? new Date(c.checkout_date).toLocaleString() : 'N/A'}
                             </td>
 
                             {/* Column 5: Days Out */}
@@ -2125,7 +2123,11 @@ export default function Inventory() {
 
                             {/* Column 6: Admin */}
                             <td style={{ padding: '16px 14px', fontSize: '13px', color: '#64748b', fontWeight: 600 }}>
-                              {c.manually_returned_by || 'Mohammed Ashraf'}
+                              {(() => {
+                                if (!c.manually_returned_by) return '—';
+                                const found = members.find((m: any) => m.id === c.manually_returned_by);
+                                return found ? found.name : c.manually_returned_by;
+                              })()}
                             </td>
 
                             {/* Column 7: Actions */}
@@ -3328,22 +3330,6 @@ export default function Inventory() {
                 />
               </div>
 
-              <div>
-                <label className="fl2">Mission Emoji Indicator *</label>
-                <select 
-                  value={newMissionEmoji} 
-                  onChange={e => setNewMissionEmoji(e.target.value)} 
-                  className="sel2"
-                  style={{ width: '100%', height: '42px', borderRadius: '10px' }}
-                >
-                  <option value="🤝">🤝 Welfare / General Distribution</option>
-                  <option value="🌙">🌙 Ramadan / Islamic</option>
-                  <option value="📚">📚 Education / Student Support</option>
-                  <option value="🚑">🚑 Medical Relief / Health Camp</option>
-                  <option value="📦">📦 Food Packs / Materials allocation</option>
-                  <option value="👚">👚 Clothing / Eid Kit drive</option>
-                </select>
-              </div>
 
               <div style={{ display: 'flex', gap: '10px', marginTop: '12px' }}>
                 <button type="button" onClick={() => setShowCreateMissionModal(false)} style={{ flex: 1, height: '42px', border: '1.5px solid #e2e8f0', background: '#fff', borderRadius: '12px', fontWeight: 800 }}>Cancel</button>
