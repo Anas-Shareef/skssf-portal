@@ -569,7 +569,7 @@ export default async function handler(req, res) {
             .eq('member_id', profile.id)
             .order('due_return_date', { ascending: true, nullsFirst: false });
           
-          if (error && (error.code === '42703' || error.message.includes('unit_id') || error.message.includes('unit'))) {
+          if (error) {
             const fallbackQuery = await supabase
               .from('inventory_checkouts')
               .select('*, items:item_id(*)')
@@ -577,8 +577,6 @@ export default async function handler(req, res) {
               .order('due_return_date', { ascending: true, nullsFirst: false });
             if (fallbackQuery.error) throw fallbackQuery.error;
             data = fallbackQuery.data;
-          } else if (error) {
-            throw error;
           }
           return res.status(200).json({ checkouts: data || [] });
         }
@@ -602,12 +600,10 @@ export default async function handler(req, res) {
         };
 
         let { data, error } = await buildQuery(true);
-        if (error && (error.code === '42703' || error.message.includes('unit_id') || error.message.includes('unit'))) {
+        if (error) {
           const fallbackQuery = await buildQuery(false);
           if (fallbackQuery.error) throw fallbackQuery.error;
           data = fallbackQuery.data;
-        } else if (error) {
-          throw error;
         }
         return res.status(200).json({ checkouts: data || [] });
       }
