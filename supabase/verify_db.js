@@ -25,25 +25,26 @@ async function run() {
   try {
     // 1. Check inventory_items columns
     console.log('1. Checking inventory_items schema...');
-    const { data: itemData, error: itemErr } = await supabase
+    const { error: itemErr } = await supabase
       .from('inventory_items')
-      .select('*')
-      .limit(1);
+      .select('id, name, item_type, available_stock, total_stock, photo_url, barcode_value, public_visible, public_description')
+      .limit(0);
 
     if (itemErr) {
-      console.log('❌ Error inventory_items:', itemErr.message);
-    } else {
-      const sample = itemData[0] || {};
-      const cols = Object.keys(sample);
-      console.log('✅ inventory_items table is accessible!');
-      console.log('   Available columns:', cols.join(', '));
-      const expected = ['barcode_value', 'public_visible', 'public_description'];
-      const missing = expected.filter(c => !cols.includes(c));
-      if (missing.length > 0) {
-        console.log(`   ⚠️ Missing columns: ${missing.join(', ')}. Please run 008_barcode_and_catalog.sql migration.`);
+      if (itemErr.message.includes('column') || itemErr.code === '42703') {
+        console.log('❌ Missing columns in inventory_items. Please run 008_barcode_and_catalog.sql migration.');
+        // Try basic select to confirm table accessibility
+        const { error: basicErr } = await supabase.from('inventory_items').select('id, name').limit(0);
+        if (basicErr) {
+          console.log('❌ Table inventory_items is NOT accessible:', basicErr.message);
+        } else {
+          console.log('✅ Table inventory_items is accessible, but missing barcode/public columns.');
+        }
       } else {
-        console.log('   🎉 All catalog columns are present!');
+        console.log('❌ Error inventory_items:', itemErr.message);
       }
+    } else {
+      console.log('✅ inventory_items table is accessible and all columns (barcode_value, public_visible, public_description) are present!');
     }
 
     // 2. Check inventory_units table
@@ -67,21 +68,19 @@ async function run() {
 
     // 3. Check inventory_checkouts unit_id column
     console.log('\n3. Checking inventory_checkouts unit_id column...');
-    const { data: chkData, error: chkErr } = await supabase
+    const { error: chkErr } = await supabase
       .from('inventory_checkouts')
-      .select('*')
-      .limit(1);
+      .select('id, unit_id')
+      .limit(0);
 
     if (chkErr) {
-      console.log('❌ Error inventory_checkouts:', chkErr.message);
-    } else {
-      const sample = chkData[0] || {};
-      const cols = Object.keys(sample);
-      if (cols.includes('unit_id')) {
-        console.log('✅ unit_id column is present in inventory_checkouts!');
-      } else {
+      if (chkErr.message.includes('column') || chkErr.code === '42703') {
         console.log('⚠️ unit_id column is missing in inventory_checkouts. Please run 009_physical_units.sql.');
+      } else {
+        console.log('❌ Error inventory_checkouts:', chkErr.message);
       }
+    } else {
+      console.log('✅ unit_id column is present in inventory_checkouts!');
     }
 
     // 4. Check org_settings table
