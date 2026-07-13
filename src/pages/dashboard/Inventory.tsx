@@ -9,6 +9,40 @@ import JsBarcode from 'jsbarcode';
 import * as XLSX from 'xlsx';
 import { useSearchParams } from 'react-router-dom';
 
+const compressImage = (file: File, callback: (base64: string) => void) => {
+  const reader = new FileReader();
+  reader.onload = (event) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const MAX_WIDTH = 800;
+      const MAX_HEIGHT = 800;
+      let width = img.width;
+      let height = img.height;
+
+      if (width > height) {
+        if (width > MAX_WIDTH) {
+          height *= MAX_WIDTH / width;
+          width = MAX_WIDTH;
+        }
+      } else {
+        if (height > MAX_HEIGHT) {
+          width *= MAX_HEIGHT / height;
+          height = MAX_HEIGHT;
+        }
+      }
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx?.drawImage(img, 0, 0, width, height);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+      callback(dataUrl);
+    };
+    img.src = event.target?.result as string;
+  };
+  reader.readAsDataURL(file);
+};
+
 interface InventoryItem {
   id: string;
   name: string;
@@ -2968,9 +3002,7 @@ ON CONFLICT (name) DO NOTHING;`}</pre>
                 <input type="file" id="add-prod-photo-up" hidden accept="image/*" onChange={(e) => {
                   const file = e.target.files?.[0];
                   if (file) {
-                    const reader = new FileReader();
-                    reader.onloadend = () => setNewItemPhoto(reader.result as string);
-                    reader.readAsDataURL(file);
+                    compressImage(file, (base64) => setNewItemPhoto(base64));
                   }
                 }} />
                 <div 
@@ -3085,9 +3117,7 @@ ON CONFLICT (name) DO NOTHING;`}</pre>
                 <input type="file" id="edit-prod-photo-up" hidden accept="image/*" onChange={(e) => {
                   const file = e.target.files?.[0];
                   if (file) {
-                    const reader = new FileReader();
-                    reader.onloadend = () => setEditingItem({ ...editingItem, photo_url: reader.result as string });
-                    reader.readAsDataURL(file);
+                    compressImage(file, (base64) => setEditingItem({ ...editingItem, photo_url: base64 }));
                   }
                 }} />
                 <div 
