@@ -1,3 +1,4 @@
+if (!globalThis.WebSocket) globalThis.WebSocket = class {};
 import nodemailer from 'nodemailer';
 import { createClient } from '@supabase/supabase-js';
 

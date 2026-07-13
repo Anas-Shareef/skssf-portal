@@ -1,3 +1,4 @@
+if (!globalThis.WebSocket) globalThis.WebSocket = class {};
 import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(
