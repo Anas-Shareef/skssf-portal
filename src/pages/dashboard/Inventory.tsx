@@ -1430,8 +1430,12 @@ export default function Inventory() {
 
                       {filteredCatalogue.map(item => {
                         const unitsList = item.units || [];
-                        const availableUnits = unitsList.filter((u: any) => u.status === 'available').length;
-                        const outUnits = unitsList.filter((u: any) => u.status === 'checked_out').length;
+                        const availableUnits = unitsList.length > 0 
+                          ? unitsList.filter((u: any) => u.status === 'available').length 
+                          : item.available_stock;
+                        const outUnits = unitsList.length > 0
+                          ? unitsList.filter((u: any) => u.status === 'checked_out').length
+                          : (item.total_stock - item.available_stock);
                         const pctAvailable = item.total_stock > 0 ? Math.round((availableUnits / item.total_stock) * 100) : 0;
                         
                         const stockColor = availableUnits > item.total_stock * 0.5 ? '#16A34A' : availableUnits > 0 ? '#F0A500' : '#EF4444';

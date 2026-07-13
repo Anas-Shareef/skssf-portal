@@ -473,21 +473,42 @@ export default async function handler(req, res) {
         if (fetchErr || !currentItem) throw fetchErr || new Error('Item not found');
 
         // Update the item main record
-        const { error: editErr } = await supabase
+        const updatePayload = {
+          name,
+          category_id,
+          total_stock: total_stock !== undefined ? total_stock : currentItem.total_stock,
+          lease_duration_days: currentItem.item_type === 'lease' ? lease_duration_days : null,
+          description,
+          photo_url,
+          public_visible: public_visible !== undefined ? public_visible : false,
+          public_description: public_description || null,
+          updated_by: profile.id,
+          updated_at: new Date().toISOString()
+        };
+
+        let { error: editErr } = await supabase
           .from('inventory_items')
-          .update({
+          .update(updatePayload)
+          .eq('id', id);
+
+        if (editErr && (editErr.message.includes('public_visible') || editErr.message.includes('public_description') || editErr.code === '42703')) {
+          // Fallback: update without public columns
+          const fallbackPayload = {
             name,
             category_id,
             total_stock: total_stock !== undefined ? total_stock : currentItem.total_stock,
             lease_duration_days: currentItem.item_type === 'lease' ? lease_duration_days : null,
             description,
             photo_url,
-            public_visible: public_visible !== undefined ? public_visible : false,
-            public_description: public_description || null,
             updated_by: profile.id,
             updated_at: new Date().toISOString()
-          })
-          .eq('id', id);
+          };
+          const fallbackRes = await supabase
+            .from('inventory_items')
+            .update(fallbackPayload)
+            .eq('id', id);
+          editErr = fallbackRes.error;
+        }
 
         if (editErr) throw editErr;
 

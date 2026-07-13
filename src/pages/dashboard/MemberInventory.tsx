@@ -1341,8 +1341,12 @@ export default function MemberInventory() {
 
                       {filteredCatalogue.map(item => {
                         const unitsList = item.units || [];
-                        const availableUnits = unitsList.filter((u: any) => u.status === 'available').length;
-                        const outUnits = unitsList.filter((u: any) => u.status === 'checked_out').length;
+                        const availableUnits = unitsList.length > 0 
+                          ? unitsList.filter((u: any) => u.status === 'available').length 
+                          : item.available_stock;
+                        const outUnits = unitsList.length > 0
+                          ? unitsList.filter((u: any) => u.status === 'checked_out').length
+                          : (item.total_stock - item.available_stock);
                         const pctAvailable = item.total_stock > 0 ? Math.round((availableUnits / item.total_stock) * 100) : 0;
                         
                         const stockColor = availableUnits > item.total_stock * 0.5 ? '#16A34A' : availableUnits > 0 ? '#F0A500' : '#EF4444';
@@ -2583,8 +2587,12 @@ export default function MemberInventory() {
       {/* Product Detail Modal */}
       {selectedProductDetail && (() => {
         const unitsList = selectedProductDetail.units || [];
-        const availableCount = unitsList.filter((u: any) => u.status === 'available').length;
-        const checkedOutCount = unitsList.filter((u: any) => u.status === 'checked_out' || u.status === 'out').length;
+        const availableCount = unitsList.length > 0 
+          ? unitsList.filter((u: any) => u.status === 'available').length 
+          : selectedProductDetail.available_stock;
+        const checkedOutCount = unitsList.length > 0
+          ? unitsList.filter((u: any) => u.status === 'checked_out' || u.status === 'out').length
+          : (selectedProductDetail.total_stock - selectedProductDetail.available_stock);
         const itemCheckouts = allCheckouts.filter(c => c.item_id === selectedProductDetail.id);
         const reviewsList = (selectedProductDetail as any).reviews || [];
 
