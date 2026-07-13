@@ -38,7 +38,8 @@ export default async function handler(req, res) {
 
       // 1. Single Item Detail Request
       if (id) {
-        const { data: item, error: itemErr } = await supabase
+        let item, itemErr;
+        const mainQuery = await supabase
           .from('inventory_items')
           .select('id, name, item_type, available_stock, total_stock, photo_url, public_description, barcode_value, categories:category_id(id, name)')
           .eq('id', id)
@@ -46,10 +47,24 @@ export default async function handler(req, res) {
           .eq('public_visible', true)
           .single();
 
-        if (itemErr || !item) return res.status(404).json({ error: 'Item not found' });
+        item = mainQuery.data;
+        itemErr = mainQuery.error;
+
+        if (itemErr) {
+          // Fallback: try without public/barcode/description columns or filters
+          const fallbackQuery = await supabase
+            .from('inventory_items')
+            .select('id, name, item_type, available_stock, total_stock, photo_url, categories:category_id(id, name)')
+            .eq('id', id)
+            .eq('is_active', true)
+            .single();
+
+          if (fallbackQuery.error) return res.status(404).json({ error: 'Item not found' });
+          item = fallbackQuery.data;
+        }
 
         // Query physical units (fallback to empty array if table not created yet)
-        const { data: units, error: unitsErr } = await supabase
+        const { data: units } = await supabase
           .from('inventory_units')
           .select('id, unit_number, barcode_value, status')
           .eq('item_id', id)
@@ -78,18 +93,27 @@ export default async function handler(req, res) {
       }
 
       // 2. List items request
-      let query = supabase
-        .from('inventory_items')
-        .select('id, name, item_type, available_stock, total_stock, photo_url, public_description, barcode_value, categories:category_id(id, name)')
-        .eq('is_active', true)
-        .eq('public_visible', true)
-        .order('name');
+      const buildListQuery = (withPublic) => {
+        let q = supabase.from('inventory_items');
+        if (withPublic) {
+          q = q.select('id, name, item_type, available_stock, total_stock, photo_url, public_description, barcode_value, categories:category_id(id, name)')
+               .eq('public_visible', true);
+        } else {
+          q = q.select('id, name, item_type, available_stock, total_stock, photo_url, categories:category_id(id, name)');
+        }
+        q = q.eq('is_active', true).order('name');
+        if (search) q = q.ilike('name', `%${search}%`);
+        if (category_id) q = q.eq('category_id', category_id);
+        return q;
+      };
 
-      if (search) query = query.ilike('name', `%${search}%`);
-      if (category_id) query = query.eq('category_id', category_id);
-
-      const { data: items, error } = await query;
-      if (error) return res.status(500).json({ error: error.message });
+      let { data: items, error } = await buildListQuery(true);
+      if (error) {
+        // Fallback list select without public columns
+        const fbResult = await buildListQuery(false);
+        if (fbResult.error) return res.status(500).json({ error: fbResult.error.message });
+        items = fbResult.data;
+      }
 
       const itemsWithUnitsAndReviews = [];
       for (const item of (items || [])) {
@@ -189,6 +213,21 @@ export default async function handler(req, res) {
           .single();
         if (error) throw error;
         return res.status(201).json({ category: data });
+      }
+
+      if (req.method === 'PATCH' || req.method === 'PUT') {
+        const { id, name } = req.body;
+        if (!id) return res.status(400).json({ error: 'Category ID required' });
+        if (!name) return res.status(400).json({ error: 'Category name required' });
+
+        const { data, error } = await supabase
+          .from('inventory_categories')
+          .update({ name })
+          .eq('id', id)
+          .select()
+          .single();
+        if (error) throw error;
+        return res.status(200).json({ category: data });
       }
 
       if (req.method === 'DELETE') {
@@ -333,9 +372,35 @@ export default async function handler(req, res) {
         const barcodeValue = `SKSSF-${currentYear}-${catCode}-${seq}`;
 
         // 2. Insert item details
-        const { data: item, error: itemErr } = await supabase
+        let item, itemErr;
+        const mainPayload = {
+          name,
+          category_id,
+          item_type,
+          total_stock,
+          available_stock: total_stock,
+          lease_duration_days: item_type === 'lease' ? lease_duration_days : null,
+          description,
+          photo_url,
+          public_visible: public_visible || false,
+          public_description: public_description || null,
+          barcode_value: barcodeValue,
+          is_active: true,
+          created_by: profile.id
+        };
+
+        const resInsert = await supabase
           .from('inventory_items')
-          .insert({
+          .insert(mainPayload)
+          .select()
+          .single();
+
+        item = resInsert.data;
+        itemErr = resInsert.error;
+
+        if (itemErr && (itemErr.message.includes('barcode_value') || itemErr.message.includes('public_visible') || itemErr.message.includes('public_description') || itemErr.code === '42703')) {
+          // Fallback: remove the columns that might be missing in older schemas
+          const fallbackPayload = {
             name,
             category_id,
             item_type,
@@ -344,14 +409,18 @@ export default async function handler(req, res) {
             lease_duration_days: item_type === 'lease' ? lease_duration_days : null,
             description,
             photo_url,
-            public_visible: public_visible || false,
-            public_description: public_description || null,
-            barcode_value: barcodeValue,
             is_active: true,
             created_by: profile.id
-          })
-          .select()
-          .single();
+          };
+          const fallbackInsert = await supabase
+            .from('inventory_items')
+            .insert(fallbackPayload)
+            .select()
+            .single();
+          
+          item = fallbackInsert.data;
+          itemErr = fallbackInsert.error;
+        }
 
         if (itemErr) throw itemErr;
 

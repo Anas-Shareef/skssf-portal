@@ -254,6 +254,8 @@ export default function Inventory() {
   // Category form
   const [newCatName, setNewCatName] = useState('');
   const [catSubmitting, setCatSubmitting] = useState(false);
+  const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
+  const [editingCategoryName, setEditingCategoryName] = useState('');
 
   // Adjust stock form
   const [adjustNewStock, setAdjustNewStock] = useState(0);
@@ -705,6 +707,35 @@ export default function Inventory() {
       popToast('e', err.message);
     } finally {
       setCatSubmitting(false);
+    }
+  };
+
+  const handleEditCategory = (id: string, name: string) => {
+    setEditingCategoryId(id);
+    setEditingCategoryName(name);
+  };
+
+  const handleUpdateCategory = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingCategoryName.trim() || !editingCategoryId) return;
+
+    try {
+      const res = await fetch('/api/inventory?resource=categories', {
+        method: 'PATCH',
+        headers: getHeaders(),
+        body: JSON.stringify({ id: editingCategoryId, name: editingCategoryName.trim() })
+      });
+      if (res.ok) {
+        popToast('s', 'Category updated successfully.');
+        setEditingCategoryId(null);
+        setEditingCategoryName('');
+        loadCatalogue(false);
+      } else {
+        const err = await res.json();
+        throw new Error(err.error || 'Failed to update category');
+      }
+    } catch (err: any) {
+      popToast('e', err.message);
     }
   };
 
@@ -3260,18 +3291,52 @@ ON CONFLICT (name) DO NOTHING;`}</pre>
                     <tbody>
                       {categories.map(c => (
                         <tr key={c.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                          <td style={{ padding: '12px 14px', fontWeight: 700 }}>{c.name}</td>
-                          <td style={{ padding: '12px 14px', textAlign: 'right' }}>
-                            {isSuper && (
-                              <button 
-                                onClick={() => handleDeleteCategory(c.id)}
-                                style={{ border: 'none', background: 'transparent', color: '#ef4444', cursor: 'pointer', display: 'inline-flex', padding: '4px' }}
-                                title="Delete Category"
-                              >
-                                <Trash2 size={14} />
-                              </button>
-                            )}
-                          </td>
+                          {editingCategoryId === c.id ? (
+                            <td colSpan={2} style={{ padding: '8px 14px' }}>
+                              <form onSubmit={handleUpdateCategory} style={{ display: 'flex', gap: '8px', alignItems: 'center', width: '100%' }}>
+                                <input 
+                                  type="text" 
+                                  value={editingCategoryName} 
+                                  onChange={e => setEditingCategoryName(e.target.value)} 
+                                  className="fi2" 
+                                  style={{ flex: 1, height: '32px', padding: '0 8px', fontSize: '12.5px' }} 
+                                  required 
+                                  autoFocus 
+                                />
+                                <button type="submit" className="bsm s" style={{ height: '32px', padding: '0 12px', background: 'var(--teal)', fontSize: '11px', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>
+                                  Save
+                                </button>
+                                <button 
+                                  type="button" 
+                                  onClick={() => setEditingCategoryId(null)} 
+                                  className="bsm s" 
+                                  style={{ height: '32px', padding: '0 12px', background: '#94a3b8', fontSize: '11px', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer' }}
+                                >
+                                  Cancel
+                                </button>
+                              </form>
+                            </td>
+                          ) : (
+                            <>
+                              <td style={{ padding: '12px 14px', fontWeight: 700 }}>{c.name}</td>
+                              <td style={{ padding: '12px 14px', textAlign: 'right' }}>
+                                <button 
+                                  onClick={() => handleEditCategory(c.id, c.name)}
+                                  style={{ border: 'none', background: 'transparent', color: 'var(--teal)', cursor: 'pointer', display: 'inline-flex', padding: '4px', marginRight: '8px', fontSize: '12px' }}
+                                  title="Edit Category"
+                                >
+                                  ✏️ Edit
+                                </button>
+                                <button 
+                                  onClick={() => handleDeleteCategory(c.id)}
+                                  style={{ border: 'none', background: 'transparent', color: '#ef4444', cursor: 'pointer', display: 'inline-flex', padding: '4px' }}
+                                  title="Delete Category"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </td>
+                            </>
+                          )}
                         </tr>
                       ))}
                     </tbody>
