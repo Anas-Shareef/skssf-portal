@@ -947,7 +947,18 @@ export default async function handler(req, res) {
           .from('welfare_missions')
           .select('*')
           .order('created_at', { ascending: false });
-        if (error) throw error;
+
+        // Gracefully handle missing table (PGRST205 = table not in schema cache, 42P01 = relation does not exist)
+        if (error) {
+          if (error.code === 'PGRST205' || error.code === '42P01' || (error.message && error.message.includes('welfare_missions'))) {
+            return res.status(500).json({
+              error: `Database table 'welfare_missions' not found. Please run migration: supabase/migrations/012_db_missions.sql in your Supabase SQL Editor.`,
+              missions: [],
+              migration_required: true
+            });
+          }
+          throw error;
+        }
 
         // Fetch counts of active checkouts dynamically for each mission
         const missionsWithCounts = [];

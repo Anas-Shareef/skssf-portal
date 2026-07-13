@@ -179,12 +179,26 @@ export default function Inventory() {
 
   const [missionsList, setMissionsList] = useState<any[]>([]);
 
+  const [missionsError, setMissionsError] = useState('');
+
   const loadMissions = async (silent = true) => {
     try {
       if (!silent) setRefreshing(true);
+      setMissionsError('');
       const res = await fetch('/api/inventory?resource=missions', { headers: getHeaders() });
-      if (!res.ok) throw new Error('Failed to load welfare missions');
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+
+      // DB migration not yet run — show banner but keep list empty (don't throw)
+      if (data.migration_required) {
+        setMissionsError(data.error || 'Database table missing — run 012_db_missions.sql migration');
+        setMissionsList([]);
+        return;
+      }
+
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to load welfare missions');
+      }
+
       const loadedMissions = data.missions || [];
       setMissionsList(loadedMissions);
       
@@ -199,6 +213,7 @@ export default function Inventory() {
       }
     } catch (e: any) {
       console.warn("Failed to load welfare missions:", e);
+      setMissionsError(e.message || 'Could not load missions');
     } finally {
       if (!silent) setRefreshing(false);
     }
@@ -1859,9 +1874,13 @@ export default function Inventory() {
                                 className="sel2" 
                                 style={{ width: '100%', height: '42px', borderRadius: '10px', border: '1px solid #c3fae8', background: '#fff' }}
                               >
-                                {missionsList.map(m => (
-                                  <option key={m.id} value={m.id}>{m.name}</option>
-                                ))}
+                                {missionsList.length === 0 ? (
+                                  <option value="">No missions available — run DB migration first</option>
+                                ) : (
+                                  missionsList.map(m => (
+                                    <option key={m.id} value={m.id}>{m.emoji ? `${m.emoji} ` : ''}{m.name}</option>
+                                  ))
+                                )}
                               </select>
                             </div>
                             
@@ -2208,6 +2227,68 @@ export default function Inventory() {
                   <Plus size={16} /> Create Mission
                 </button>
               </div>
+
+              {/* DB Error Banner */}
+              {missionsError && (
+                <div style={{ background: '#FEF2F2', border: '1.5px solid #FECACA', borderRadius: '20px', padding: '22px 26px' }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '14px', marginBottom: '16px' }}>
+                    <span style={{ fontSize: '24px', flexShrink: 0 }}>⚠️</span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 800, color: '#991B1B', fontSize: '15px', marginBottom: '4px' }}>Database Migration Required</div>
+                      <div style={{ fontSize: '13px', color: '#7F1D1D' }}>
+                        The <code style={{ background: 'rgba(0,0,0,0.06)', padding: '1px 5px', borderRadius: '4px', fontFamily: 'monospace' }}>welfare_missions</code> table does not exist in your Supabase database yet. Run the SQL below in your Supabase SQL Editor to fix this.
+                      </div>
+                    </div>
+                  </div>
+                  <pre style={{ background: '#1E293B', color: '#E2E8F0', padding: '16px 18px', borderRadius: '12px', fontSize: '12px', overflowX: 'auto', margin: '0 0 14px 0', lineHeight: 1.6, fontFamily: 'monospace' }}>{`-- Run this in Supabase SQL Editor
+CREATE TABLE IF NOT EXISTS welfare_missions (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name         TEXT NOT NULL UNIQUE,
+  emoji        TEXT DEFAULT '🤝',
+  description  TEXT NULL,
+  status       TEXT DEFAULT 'active' CHECK (status IN ('active','completed','cancelled')),
+  created_by   UUID REFERENCES profiles(id) ON DELETE SET NULL,
+  created_at   TIMESTAMPTZ DEFAULT NOW(),
+  completed_at TIMESTAMPTZ NULL
+);
+ALTER TABLE inventory_checkouts
+  ADD COLUMN IF NOT EXISTS mission_id UUID REFERENCES welfare_missions(id) ON DELETE SET NULL;
+ALTER TABLE welfare_missions ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "welfare_missions_select" ON welfare_missions FOR SELECT TO authenticated USING (TRUE);
+CREATE POLICY "welfare_missions_all_admin" ON welfare_missions FOR ALL TO authenticated
+  USING (EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('admin','super')));
+INSERT INTO welfare_missions (name,emoji,description,status) VALUES
+  ('Ramadan Welfare 2025','🌙','Welfare food packs distributed for the holy month.','active'),
+  ('Student Support Drive 2025','📚','Stationery kits allocated for students.','active'),
+  ('Medical Relief Camp','🚑','Healthcare supplies to medical teams.','active'),
+  ('General Distribution','🤝','Standard distributions for local families.','active')
+ON CONFLICT (name) DO NOTHING;`}</pre>
+                  <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      onClick={() => navigator.clipboard?.writeText(`CREATE TABLE IF NOT EXISTS welfare_missions (\n  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),\n  name TEXT NOT NULL UNIQUE,\n  emoji TEXT DEFAULT '🤝',\n  description TEXT NULL,\n  status TEXT DEFAULT 'active' CHECK (status IN ('active','completed','cancelled')),\n  created_by UUID REFERENCES profiles(id) ON DELETE SET NULL,\n  created_at TIMESTAMPTZ DEFAULT NOW(),\n  completed_at TIMESTAMPTZ NULL\n);\nALTER TABLE inventory_checkouts ADD COLUMN IF NOT EXISTS mission_id UUID REFERENCES welfare_missions(id) ON DELETE SET NULL;\nALTER TABLE welfare_missions ENABLE ROW LEVEL SECURITY;\nCREATE POLICY "welfare_missions_select" ON welfare_missions FOR SELECT TO authenticated USING (TRUE);\nCREATE POLICY "welfare_missions_all_admin" ON welfare_missions FOR ALL TO authenticated USING (EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('admin','super')));\nINSERT INTO welfare_missions (name,emoji,description,status) VALUES ('Ramadan Welfare 2025','🌙','Welfare food packs.','active'),('Student Support Drive 2025','📚','Stationery kits.','active'),('Medical Relief Camp','🚑','Healthcare supplies.','active'),('General Distribution','🤝','Standard distributions.','active') ON CONFLICT (name) DO NOTHING;`)}
+                      style={{ height: '36px', padding: '0 16px', background: '#1E293B', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 700, fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
+                    >
+                      📋 Copy SQL
+                    </button>
+                    <a
+                      href="https://supabase.com/dashboard/project/_/sql/new"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ height: '36px', padding: '0 16px', background: '#3ECF8E', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 700, fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', textDecoration: 'none' }}
+                    >
+                      🔗 Open Supabase SQL Editor
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => loadMissions(false)}
+                      style={{ height: '36px', padding: '0 16px', background: '#F0FDF4', color: '#166534', border: '1.5px solid #DCFCE7', borderRadius: '8px', fontWeight: 700, fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
+                    >
+                      🔄 Retry After Running SQL
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Grid of Mission Cards */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '20px' }}>
@@ -2589,8 +2670,14 @@ export default function Inventory() {
       {/* Product Detail Modal */}
       {selectedProductDetail && (() => {
         const unitsList = selectedProductDetail.units || [];
-        const availableCount = unitsList.filter((u: any) => u.status === 'available').length;
-        const checkedOutCount = unitsList.filter((u: any) => u.status === 'checked_out' || u.status === 'out').length;
+        // If physical units are tracked, count by unit status; otherwise fall back to item-level stock fields
+        const hasPhysicalUnits = unitsList.length > 0;
+        const availableCount = hasPhysicalUnits
+          ? unitsList.filter((u: any) => u.status === 'available').length
+          : (selectedProductDetail.available_stock ?? 0);
+        const checkedOutCount = hasPhysicalUnits
+          ? unitsList.filter((u: any) => u.status === 'checked_out' || u.status === 'out').length
+          : Math.max(0, (selectedProductDetail.total_stock ?? 0) - (selectedProductDetail.available_stock ?? 0));
         const itemCheckouts = allCheckouts.filter(c => c.item_id === selectedProductDetail.id);
         const reviewsList = (selectedProductDetail as any).reviews || [];
 
