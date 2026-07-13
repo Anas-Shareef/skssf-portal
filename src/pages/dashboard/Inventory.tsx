@@ -2029,7 +2029,7 @@ export default function Inventory() {
                         <th style={{ padding: '14px', fontWeight: 800, color: '#475569' }}>Checkout Date</th>
                         <th style={{ padding: '14px', fontWeight: 800, color: '#475569' }}>Days Out</th>
                         <th style={{ padding: '14px', fontWeight: 800, color: '#475569' }}>Check-In Date & Time</th>
-                        <th style={{ padding: '14px', fontWeight: 800, color: '#475569' }}>Admin</th>
+                        <th style={{ padding: '14px', fontWeight: 800, color: '#475569' }}>Checked In By</th>
                         <th style={{ padding: '14px', fontWeight: 800, color: '#475569', textAlign: 'right' }}>Actions</th>
                       </tr>
                     </thead>
@@ -2121,12 +2121,29 @@ export default function Inventory() {
                               )}
                             </td>
 
-                            {/* Column 6: Admin */}
-                            <td style={{ padding: '16px 14px', fontSize: '13px', color: '#64748b', fontWeight: 600 }}>
+                            {/* Column 6: Checked In By (name + role badge) */}
+                            <td style={{ padding: '16px 14px', fontSize: '13px' }}>
                               {(() => {
-                                if (!c.manually_returned_by) return '—';
+                                if (!c.manually_returned_by) return <span style={{ color: '#94a3b8' }}>—</span>;
                                 const found = members.find((m: any) => m.id === c.manually_returned_by);
-                                return found ? found.name : c.manually_returned_by;
+                                if (!found) return <span style={{ color: '#64748b' }}>{c.manually_returned_by}</span>;
+                                const roleColors: Record<string, { bg: string; color: string; label: string }> = {
+                                  super:  { bg: '#fef3c7', color: '#92400e', label: 'Super Admin' },
+                                  admin:  { bg: '#dbeafe', color: '#1e40af', label: 'Admin' },
+                                  member: { bg: '#dcfce7', color: '#166534', label: 'Member' },
+                                };
+                                const badge = roleColors[found.role] ?? { bg: '#f1f5f9', color: '#475569', label: found.role };
+                                return (
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                    <span style={{ fontWeight: 700, color: '#0f172a' }}>{found.name}</span>
+                                    <span style={{
+                                      display: 'inline-block', width: 'fit-content',
+                                      padding: '2px 8px', borderRadius: '50px', fontSize: '11px',
+                                      fontWeight: 700, background: badge.bg, color: badge.color,
+                                      textTransform: 'capitalize', letterSpacing: '0.3px'
+                                    }}>{badge.label}</span>
+                                  </div>
+                                );
                               })()}
                             </td>
 
