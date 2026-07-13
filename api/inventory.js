@@ -563,30 +563,52 @@ export default async function handler(req, res) {
 
         // Member checking their own items
         if (mine === 'true') {
-          const { data, error } = await supabase
+          let { data, error } = await supabase
             .from('inventory_checkouts')
             .select('*, items:item_id(*), unit:unit_id(barcode_value)')
             .eq('member_id', profile.id)
             .order('due_return_date', { ascending: true, nullsFirst: false });
-          if (error) throw error;
+          
+          if (error && (error.code === '42703' || error.message.includes('unit_id') || error.message.includes('unit'))) {
+            const fallbackQuery = await supabase
+              .from('inventory_checkouts')
+              .select('*, items:item_id(*)')
+              .eq('member_id', profile.id)
+              .order('due_return_date', { ascending: true, nullsFirst: false });
+            if (fallbackQuery.error) throw fallbackQuery.error;
+            data = fallbackQuery.data;
+          } else if (error) {
+            throw error;
+          }
           return res.status(200).json({ checkouts: data || [] });
         }
 
-        // Admin checks all
+        // Admin/Member checks all
         if (profile.role !== 'admin' && profile.role !== 'super' && profile.role !== 'member') {
           return res.status(403).json({ error: 'Forbidden' });
         }
 
-        const query = supabase
-          .from('inventory_checkouts')
-          .select('*, member:member_id(name), items:item_id(*), unit:unit_id(barcode_value)');
+        const buildQuery = (withUnit) => {
+          const q = supabase.from('inventory_checkouts');
+          if (withUnit) {
+            q.select('*, member:member_id(name), items:item_id(*), unit:unit_id(barcode_value)');
+          } else {
+            q.select('*, member:member_id(name), items:item_id(*)');
+          }
+          if (member_id) q.eq('member_id', member_id);
+          if (status) q.eq('status', status);
+          if (type) q.eq('item_type_at_checkout', type);
+          return q.order('due_return_date', { ascending: true, nullsFirst: false });
+        };
 
-        if (member_id) query.eq('member_id', member_id);
-        if (status) query.eq('status', status);
-        if (type) query.eq('item_type_at_checkout', type);
-
-        const { data, error } = await query.order('due_return_date', { ascending: true, nullsFirst: false });
-        if (error) throw error;
+        let { data, error } = await buildQuery(true);
+        if (error && (error.code === '42703' || error.message.includes('unit_id') || error.message.includes('unit'))) {
+          const fallbackQuery = await buildQuery(false);
+          if (fallbackQuery.error) throw fallbackQuery.error;
+          data = fallbackQuery.data;
+        } else if (error) {
+          throw error;
+        }
         return res.status(200).json({ checkouts: data || [] });
       }
 
@@ -882,12 +904,39 @@ export default async function handler(req, res) {
       if (profile.role !== 'admin' && profile.role !== 'super' && profile.role !== 'member') return res.status(403).json({ error: 'Forbidden' });
 
       if (req.method === 'GET') {
-        const { data, error } = await supabase
+        const queryWithAll = () => supabase
           .from('inventory_checkouts')
           .select('*, member:member_id(name), items:item_id(name, barcode_value), unit:unit_id(barcode_value)')
           .eq('condition_flag', true)
           .order('created_at', { ascending: false });
-        if (error) throw error;
+
+        let { data, error } = await queryWithAll();
+
+        if (error) {
+          // Fallback 1: Try without unit relation
+          const queryWithoutUnit = () => supabase
+            .from('inventory_checkouts')
+            .select('*, member:member_id(name), items:item_id(name, barcode_value)')
+            .eq('condition_flag', true)
+            .order('created_at', { ascending: false });
+          
+          let fb1 = await queryWithoutUnit();
+          if (fb1.error) {
+            // Fallback 2: Try without unit relation AND without barcode_value
+            const queryBasic = () => supabase
+              .from('inventory_checkouts')
+              .select('*, member:member_id(name), items:item_id(name)')
+              .eq('condition_flag', true)
+              .order('created_at', { ascending: false });
+            
+            let fb2 = await queryBasic();
+            if (fb2.error) throw fb2.error;
+            data = fb2.data;
+          } else {
+            data = fb1.data;
+          }
+        }
+
         return res.status(200).json({ records: data || [] });
       }
 
