@@ -334,6 +334,9 @@ export default function PublicCatalog() {
               <button className={`pc-view-btn ${viewMode === 'table' ? 'active' : ''}`} onClick={() => setViewMode('table')}>
                 <List size={14} /> Table
               </button>
+              <button className={`pc-view-btn ${viewMode === 'barcodes' ? 'active' : ''}`} onClick={() => setViewMode('barcodes')}>
+                <BarcodeIcon size={14} /> Barcodes
+              </button>
             </div>
           </div>
         </div>
@@ -470,6 +473,25 @@ export default function PublicCatalog() {
                     })}
                   </tbody>
                 </table>
+              </div>
+            )}
+
+            {/* ③ BARCODES VIEW */}
+            {viewMode === 'barcodes' && (
+              <div className="pc-barcodes-grid">
+                {items.map(item => (
+                  <div key={item.id} className="pc-barcode-tile">
+                    <div className="pc-barcode-title">{item.name}</div>
+                    {item.barcode_value ? (
+                      <BarcodeSVG value={item.barcode_value} />
+                    ) : (
+                      <span style={{ fontSize: '11px', color: 'var(--muted)' }}>No Barcode</span>
+                    )}
+                    <div style={{ fontFamily: 'monospace', fontSize: '11px', color: 'var(--muted)', marginTop: '4px' }}>
+                      {item.barcode_value || '—'}
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </>

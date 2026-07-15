@@ -111,17 +111,17 @@ const getProductEmoji = (name: string, catName: string) => {
 
 export default function MemberInventory() {
   const { profile } = useAuth();
-  const isAdmin = profile?.role === 'admin' || profile?.role === 'super' || profile?.role === 'member';
-  const isSuper = profile?.role === 'super';
+  const isAdmin = false;
+  const isSuper = false;
 
   // State Declarations
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTabParam = searchParams.get('tab') || 'catalogue';
-  const activeTab = (['catalogue', 'barcodes', 'scanner', 'checkouts', 'missions', 'reports', 'settings', 'damage_review'].includes(activeTabParam)
+  const activeTab = (['catalogue', 'checkouts'].includes(activeTabParam)
     ? activeTabParam
-    : 'catalogue') as 'catalogue' | 'barcodes' | 'scanner' | 'checkouts' | 'missions' | 'reports' | 'settings' | 'damage_review';
+    : 'catalogue') as 'catalogue' | 'checkouts';
 
-  const setActiveTab = (tab: 'catalogue' | 'barcodes' | 'scanner' | 'checkouts' | 'missions' | 'reports' | 'settings' | 'damage_review') => {
+  const setActiveTab = (tab: 'catalogue' | 'checkouts') => {
     setSearchParams({ tab });
   };
   const [viewMode, setViewMode] = useState<'gallery' | 'table' | 'barcodes'>('gallery');
@@ -988,21 +988,14 @@ export default function MemberInventory() {
       {/* Header */}
       <div className="inv-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px', flexWrap: 'wrap', gap: '16px' }}>
         <div>
-          <h1 style={{ fontSize: '32px', fontWeight: 900, color: '#0f172a', letterSpacing: '-0.75px', margin: 0 }}>Inventory Admin</h1>
-          <p style={{ fontSize: '14px', color: '#64748b', margin: '6px 0 0 0', fontWeight: 500 }}>Create items, monitor member checkouts, and override warehouse records.</p>
+          <h1 style={{ fontSize: '32px', fontWeight: 900, color: '#0f172a', letterSpacing: '-0.75px', margin: 0 }}>My Inventory & Catalog</h1>
+          <p style={{ fontSize: '14px', color: '#64748b', margin: '6px 0 0 0', fontWeight: 500 }}>Browse catalog resources and view your active temporary leases.</p>
         </div>
         <div className="inv-header-btns" style={{ display: 'flex', gap: '10px' }}>
-          <button 
-            onClick={() => setShowCategoryModal(true)}
-            style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', border: '1.5px solid #e2e8f0', background: '#fff', borderRadius: '14px', fontSize: '13px', fontWeight: 700, color: '#475569', cursor: 'pointer' }}
-          >
-            <FolderPlus size={14} /> Manage Categories
-          </button>
           <button 
             onClick={() => {
               if (activeTab === 'catalogue') loadCatalogue(false);
               else if (activeTab === 'checkouts') loadCheckouts(false);
-              else if (activeTab === 'damage_review') loadDamageReview(false);
             }}
             disabled={refreshing}
             style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', border: '1.5px solid #e2e8f0', background: '#fff', borderRadius: '14px', fontSize: '13px', fontWeight: 700, color: '#475569', cursor: refreshing ? 'default' : 'pointer' }}
@@ -1014,7 +1007,7 @@ export default function MemberInventory() {
       </div>
 
       {/* Tabs list matching Claude Prototype */}
-      <div className="inv-tabs" style={{ display: 'none', gap: '8px', marginBottom: '32px', borderBottom: '2.5px solid #f1f5f9', paddingBottom: '2px', flexWrap: 'wrap' }}>
+      <div className="inv-tabs" style={{ display: 'flex', gap: '8px', marginBottom: '32px', borderBottom: '2.5px solid #f1f5f9', paddingBottom: '2px', flexWrap: 'wrap' }}>
         <button
           type="button"
           onClick={() => setActiveTab('catalogue')}
@@ -1028,28 +1021,6 @@ export default function MemberInventory() {
         </button>
         <button
           type="button"
-          onClick={() => setActiveTab('barcodes')}
-          style={{
-            padding: '14px 20px', fontWeight: 800, fontSize: '14.5px', border: 'none', background: 'none',
-            borderBottom: activeTab === 'barcodes' ? '3.5px solid var(--teal)' : '3.5px solid transparent',
-            color: activeTab === 'barcodes' ? 'var(--teal)' : '#64748b', cursor: 'pointer', whiteSpace: 'nowrap'
-          }}
-        >
-          📊 Barcode Manager
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('scanner')}
-          style={{
-            padding: '14px 20px', fontWeight: 800, fontSize: '14.5px', border: 'none', background: 'none',
-            borderBottom: activeTab === 'scanner' ? '3.5px solid var(--teal)' : '3.5px solid transparent',
-            color: activeTab === 'scanner' ? 'var(--teal)' : '#64748b', cursor: 'pointer', whiteSpace: 'nowrap'
-          }}
-        >
-          📷 Scanner (Check In/Out)
-        </button>
-        <button
-          type="button"
           onClick={() => setActiveTab('checkouts')}
           style={{
             padding: '14px 20px', fontWeight: 800, fontSize: '14.5px', border: 'none', background: 'none',
@@ -1058,50 +1029,6 @@ export default function MemberInventory() {
           }}
         >
           ⚡ My Items & Leases
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('missions')}
-          style={{
-            padding: '14px 20px', fontWeight: 800, fontSize: '14.5px', border: 'none', background: 'none',
-            borderBottom: activeTab === 'missions' ? '3.5px solid var(--teal)' : '3.5px solid transparent',
-            color: activeTab === 'missions' ? 'var(--teal)' : '#64748b', cursor: 'pointer', whiteSpace: 'nowrap'
-          }}
-        >
-          🎯 Mission Packages
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('reports')}
-          style={{
-            padding: '14px 20px', fontWeight: 800, fontSize: '14.5px', border: 'none', background: 'none',
-            borderBottom: activeTab === 'reports' ? '3.5px solid var(--teal)' : '3.5px solid transparent',
-            color: activeTab === 'reports' ? 'var(--teal)' : '#64748b', cursor: 'pointer', whiteSpace: 'nowrap'
-          }}
-        >
-          📊 Inventory Reports
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('settings')}
-          style={{
-            padding: '14px 20px', fontWeight: 800, fontSize: '14.5px', border: 'none', background: 'none',
-            borderBottom: activeTab === 'settings' ? '3.5px solid var(--teal)' : '3.5px solid transparent',
-            color: activeTab === 'settings' ? 'var(--teal)' : '#64748b', cursor: 'pointer', whiteSpace: 'nowrap'
-          }}
-        >
-          ⚙️ Settings
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('damage_review')}
-          style={{
-            padding: '14px 20px', fontWeight: 800, fontSize: '14.5px', border: 'none', background: 'none',
-            borderBottom: activeTab === 'damage_review' ? '3.5px solid var(--teal)' : '3.5px solid transparent',
-            color: activeTab === 'damage_review' ? 'var(--teal)' : '#64748b', cursor: 'pointer', whiteSpace: 'nowrap'
-          }}
-        >
-          ⚠️ Damage Queue ({damageRecords.length})
         </button>
       </div>
 
@@ -1147,9 +1074,9 @@ export default function MemberInventory() {
                   <button onClick={() => setSelectedType('lease')} style={{ padding: '8px 16px', fontSize: '12px', fontWeight: 800, border: 'none', borderRadius: '10px', cursor: 'pointer', background: selectedType === 'lease' ? '#fff' : 'transparent', color: selectedType === 'lease' ? '#0f172a' : '#64748b' }}>Lease</button>
                   <button onClick={() => setSelectedType('permanent')} style={{ padding: '8px 16px', fontSize: '12px', fontWeight: 800, border: 'none', borderRadius: '10px', cursor: 'pointer', background: selectedType === 'permanent' ? '#fff' : 'transparent', color: selectedType === 'permanent' ? '#0f172a' : '#64748b' }}>Permanent</button>
                 </div>
-
+                
                 {/* View Toggles matching Claude Prototype */}
-                <div style={{ display: 'flex', background: '#f1f5f9', padding: '4px', borderRadius: '14px', marginRight: 'auto' }}>
+                <div style={{ display: 'flex', background: '#f1f5f9', padding: '4px', borderRadius: '14px' }}>
                   <button onClick={() => setViewMode('gallery')} style={{ padding: '8px 14px', fontSize: '12px', fontWeight: 800, border: 'none', borderRadius: '10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', background: viewMode === 'gallery' ? '#fff' : 'transparent', color: viewMode === 'gallery' ? '#0f172a' : '#64748b' }}>
                     <Grid size={13} /> Gallery
                   </button>
@@ -1157,21 +1084,13 @@ export default function MemberInventory() {
                     <List size={13} /> Table
                   </button>
                 </div>
-
-                <button 
-                  onClick={() => setShowAddModal(true)}
-                  className="bsm s"
-                  style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '0 24px', height: '46px', borderRadius: '14px', fontSize: '13px', fontWeight: 800 }}
-                >
-                  <Plus size={16} /> Add Catalog Item
-                </button>
               </div>
 
               {filteredCatalogue.length === 0 ? (
                 <div className="card" style={{ padding: '80px 24px', textAlign: 'center', borderRadius: '24px', background: '#fff', border: '2px dashed #e2e8f0' }}>
                   <Package size={48} style={{ margin: '0 auto 16px', opacity: 0.4, color: '#64748b' }} />
                   <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 800, color: '#1e293b' }}>No Catalogue Matches</h3>
-                  <p style={{ margin: '6px 0 0 0', fontSize: '14px', color: '#94a3b8' }}>Try adding items or clearing filters.</p>
+                  <p style={{ margin: '6px 0 0 0', fontSize: '14px', color: '#94a3b8' }}>Try selecting a different category or clearing filters.</p>
                 </div>
               ) : (
                 <>
@@ -1309,34 +1228,6 @@ export default function MemberInventory() {
                           justify-content: space-between;
                           margin-top: auto;
                         }
-                        .cc-bc-svg-wrap {
-                          flex: 1;
-                          overflow: hidden;
-                          display: flex;
-                          justify-content: center;
-                        }
-                        .cc-bc-actions {
-                          display: flex;
-                          gap: 5px;
-                          margin-left: 8px;
-                        }
-                        .cc-bc-action {
-                          width: 28px;
-                          height: 28px;
-                          border-radius: 7px;
-                          border: 1.5px solid #E2DED6;
-                          background: #fff;
-                          cursor: pointer;
-                          display: flex;
-                          align-items: center;
-                          justify-content: center;
-                          font-size: 13px;
-                          transition: all 0.2s;
-                        }
-                        .cc-bc-action:hover {
-                          border-color: #0D7377;
-                          background: rgba(13,115,119,0.08);
-                        }
                       `}</style>
 
                       {filteredCatalogue.map(item => {
@@ -1344,24 +1235,13 @@ export default function MemberInventory() {
                         const availableUnits = unitsList.length > 0 
                           ? unitsList.filter((u: any) => u.status === 'available').length 
                           : item.available_stock;
-                        const outUnits = unitsList.length > 0
-                          ? unitsList.filter((u: any) => u.status === 'checked_out').length
-                          : (item.total_stock - item.available_stock);
                         const pctAvailable = item.total_stock > 0 ? Math.round((availableUnits / item.total_stock) * 100) : 0;
-                        
                         const stockColor = availableUnits > item.total_stock * 0.5 ? '#16A34A' : availableUnits > 0 ? '#F0A500' : '#EF4444';
                         const stockLabel = availableUnits > item.total_stock * 0.5 ? '✓ In Stock' : availableUnits > 0 ? '⚠ Low Stock' : '✕ Out of Stock';
                         const stockBdg = availableUnits > item.total_stock * 0.5 ? 'bdg-g' : availableUnits > 0 ? 'bdg-a' : 'bdg-r';
 
-                        const reviewsList = (item as any).reviews || [];
-                        const avgRating = reviewsList.length > 0 
-                          ? Math.round(reviewsList.reduce((acc: number, r: any) => acc + r.rating, 0) / reviewsList.length) 
-                          : 5; // default mock rating
-
                         return (
                           <div key={item.id} className="cat-card" onClick={() => setSelectedProductDetail(item)}>
-                            
-                            {/* Photo / Emoji Section */}
                             <div className={`cc-img ${getCategoryBgClass(item.categories?.name || '')}`}>
                               {item.photo_url ? (
                                 <img src={item.photo_url} alt={item.name} />
@@ -1370,13 +1250,9 @@ export default function MemberInventory() {
                                   {getProductEmoji(item.name, item.categories?.name || '')}
                                 </span>
                               )}
-
-                              {/* Green Stock Progress bar border */}
                               <div className="cc-stock-bar">
                                 <div className="cc-stock-fill" style={{ width: `${pctAvailable}%`, background: stockColor }} />
                               </div>
-
-                              {/* Hover overlay actions */}
                               <div className="cc-hover-overlay">
                                 <button 
                                   className="cc-hover-btn" 
@@ -1385,53 +1261,18 @@ export default function MemberInventory() {
                                 >
                                   📋 View Details
                                 </button>
-                                {item.item_type === 'lease' && (
-                                  <button 
-                                    className="cc-hover-btn" 
-                                    style={{ background: 'var(--teal)', color: '#fff' }}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setScannerMode('checkout');
-                                      setManualBarcode(item.units?.[0]?.barcode_value || item.barcode_value || '');
-                                      setActiveTab('scanner');
-                                      handleSelectQuickScan(item.units?.[0]?.barcode_value || item.barcode_value || '');
-                                    }}
-                                  >
-                                    📤 Check Out
-                                  </button>
-                                )}
                               </div>
                             </div>
-
-                            {/* Details body */}
                             <div className="cc-body">
                               <div className="cc-cat">{item.categories?.name || 'Uncategorized'}</div>
                               <div className="cc-name">{item.name}</div>
-                              
                               <div className="cc-stats">
                                 <span style={{ fontSize: '13px', fontWeight: 600, color: '#64748b' }}>
                                   Stock: {item.total_stock}
                                 </span>
                                 <span className={`bdg ${stockBdg}`}>{stockLabel}</span>
                               </div>
-
-                              {/* Admin Extra Actions Row */}
-                              <div style={{ display: 'flex', gap: '6px', marginTop: '12px', borderTop: '1px solid #f1f5f9', paddingTop: '10px' }}>
-                                <button 
-                                  onClick={(e) => { e.stopPropagation(); setEditingItem(item); }} 
-                                  style={{ flex: 1, padding: '5px 0', fontSize: '11px', fontWeight: 800, border: '1px solid #e2e8f0', borderRadius: '8px', background: '#fff', cursor: 'pointer' }}
-                                >
-                                  ✏️ Edit
-                                </button>
-                                <button 
-                                  onClick={(e) => { e.stopPropagation(); setAdjustingItem(item); setAdjustNewStock(item.available_stock); }} 
-                                  style={{ flex: 1, padding: '5px 0', fontSize: '11px', fontWeight: 800, border: '1px solid #e2e8f0', borderRadius: '8px', background: '#fff', cursor: 'pointer' }}
-                                >
-                                  ⚙️ Adjust
-                                </button>
-                              </div>
                             </div>
-
                           </div>
                         );
                       })}
@@ -1449,12 +1290,10 @@ export default function MemberInventory() {
                               <th style={{ padding: '16px 20px', fontWeight: 800, color: '#475569' }}>Category</th>
                               <th style={{ padding: '16px 20px', fontWeight: 800, color: '#475569' }}>Type</th>
                               <th style={{ padding: '16px 20px', fontWeight: 800, color: '#475569' }}>Total Stock</th>
-                              <th style={{ padding: '16px 20px', fontWeight: 800, color: '#475569', textAlign: 'right' }}>Actions</th>
                             </tr>
                           </thead>
                           <tbody>
-                            {filteredCatalogue.map(item => {
-                              return (
+                            {filteredCatalogue.map(item => (
                                 <tr key={item.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                                   <td style={{ padding: '16px 20px' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -1477,510 +1316,16 @@ export default function MemberInventory() {
                                       {item.total_stock}
                                     </div>
                                   </td>
-                                  <td style={{ padding: '16px 20px', textAlign: 'right' }}>
-                                    <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
-                                      <button onClick={() => setSelectedProductDetail(item)} className="bsm s" style={{ fontSize: '11px', padding: '5px 12px', borderRadius: '8px' }}>View Detail</button>
-                                      <button onClick={() => setEditingItem(item)} className="bsm g" style={{ fontSize: '11px', padding: '5px 12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>Edit</button>
-                                    </div>
-                                  </td>
                                 </tr>
-                              );
-                            })}
+                              ))}
                           </tbody>
                         </table>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* ③ BARCODES PRINT VIEW */}
-                  {viewMode === 'barcodes' && (
-                    <div style={{ background: '#fff', border: '1.5px solid #f1f5f9', borderRadius: '24px', padding: '28px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-                        <div>
-                          <h3 style={{ fontSize: '16px', fontWeight: 900, color: '#0f172a' }}>All Product SKU Barcodes</h3>
-                          <p style={{ fontSize: '12px', color: '#64748b' }}>Ready-to-print SKU sheets for product catalog shelves.</p>
-                        </div>
-                        <button onClick={() => window.print()} className="bsm dark" style={{ height: '38px', borderRadius: '10px' }}>
-                          <Printer size={13} /> Print Barcode Sheet
-                        </button>
-                      </div>
-
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '14px' }}>
-                        {filteredCatalogue.map(item => (
-                          <div key={item.id} style={{ border: '1.5px solid #e2e8f0', borderRadius: '12px', padding: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
-                            <div style={{ fontSize: '9px', fontWeight: 900, color: 'var(--teal)', letterSpacing: '0.5px', textTransform: 'uppercase', marginBottom: '4px' }}>SKSSF POYANAD BRANCH</div>
-                            <div style={{ fontSize: '12px', fontWeight: 800, color: '#1e293b', height: '18px', overflow: 'hidden', width: '100%' }}>{item.name}</div>
-                            <div style={{ margin: '6px 0' }}>
-                              {item.barcode_value ? <BarcodeSVG value={item.barcode_value} /> : 'No Barcode'}
-                            </div>
-                            <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 700 }}>{item.categories?.name || 'General'}</div>
-                          </div>
-                        ))}
                       </div>
                     </div>
                   )}
                 </>
               )}
             </>
-          )}
-
-          {/* ①.B BARCODE MANAGER TAB */}
-          {activeTab === 'barcodes' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '28px' }}>
-              {/* Page Header */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <span style={{ fontSize: '24px' }}>📊</span>
-                    <h3 style={{ fontSize: '24px', fontWeight: 900, color: '#1A1F2E', fontFamily: 'Playfair Display, serif', margin: 0 }}>Barcode Manager</h3>
-                  </div>
-                  <p style={{ fontSize: '13px', color: '#6B7280', margin: '4px 0 0 0' }}>View, print, and manage all product barcodes</p>
-                </div>
-                <button 
-                  type="button" 
-                  onClick={() => setPrintJob({ type: 'all' })} 
-                  style={{ height: '42px', padding: '0 20px', background: '#1A1F2E', color: '#fff', borderRadius: '50px', border: 'none', fontWeight: 800, fontSize: '13.5px', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}
-                >
-                  <Printer size={16} /> Print All
-                </button>
-              </div>
-
-              {/* List of Products Barcode Cards */}
-              {filteredCatalogue.map(item => {
-                const unitsList = item.units || [];
-                const showCount = 6;
-                const visibleUnits = unitsList.slice(0, showCount);
-                const remainingCount = unitsList.length - showCount;
-
-                return (
-                  <div 
-                    key={item.id} 
-                    style={{ background: '#fff', border: '1.5px solid #E2DED6', borderRadius: '24px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px', boxShadow: '0 2px 12px rgba(13,115,119,.04)' }}
-                  >
-                    {/* Header Row */}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                        <div style={{ width: '48px', height: '48px', background: '#F4F1EB', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '28px', border: '1px solid #E2DED6' }}>
-                          {getProductEmoji(item.name, item.categories?.name || '')}
-                        </div>
-                        <div>
-                          <h4 style={{ fontSize: '18px', fontWeight: 900, color: '#1A1F2E', fontFamily: 'Playfair Display, serif', margin: 0 }}>{item.name}</h4>
-                          <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginTop: '4px' }}>
-                            <span style={{ background: '#1E293B', color: '#fff', fontSize: '9.5px', fontWeight: 700, padding: '2px 8px', borderRadius: '50px', fontFamily: 'monospace' }}>
-                              {item.barcode_value || 'PENDING'}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                      <div style={{ display: 'flex', gap: '8px' }}>
-                        <button 
-                          type="button" 
-                          onClick={() => setSelectedProductDetail(item)}
-                          style={{ height: '36px', padding: '0 16px', background: '#fff', color: '#4B5563', borderRadius: '50px', border: '1.5px solid #E2DED6', fontWeight: 800, fontSize: '12px', cursor: 'pointer' }}
-                        >
-                          🔍 View
-                        </button>
-                        <button 
-                          type="button" 
-                          onClick={() => setPrintJob({ type: 'single', item })}
-                          style={{ height: '36px', padding: '0 16px', background: 'var(--teal)', color: '#fff', borderRadius: '50px', border: 'none', fontWeight: 800, fontSize: '12px', cursor: 'pointer' }}
-                        >
-                          🖨️ Print Labels
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Product Barcode Section */}
-                    <div>
-                      <div style={{ fontSize: '11px', fontWeight: 800, color: '#6B7280', textTransform: 'uppercase', marginBottom: '8px', letterSpacing: '0.5px' }}>
-                        Product Barcode
-                      </div>
-                      {item.barcode_value ? (
-                        <div style={{ background: '#F9F8F6', border: '1.5px solid #E2DED6', borderRadius: '12px', padding: '20px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                          <BarcodeSVG value={item.barcode_value} />
-                          <div style={{ fontSize: '10px', fontFamily: 'monospace', color: '#6B7280', marginTop: '6px', letterSpacing: '0.5px' }}>
-                            {item.barcode_value}
-                          </div>
-                        </div>
-                      ) : (
-                        <div style={{ padding: '16px', textAlign: 'center', background: '#F9F8F6', borderRadius: '12px', color: '#6B7280' }}>
-                          No barcode generated.
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Individual Unit Barcodes */}
-                    <div>
-                      <div style={{ fontSize: '11px', fontWeight: 800, color: '#6B7280', textTransform: 'uppercase', marginBottom: '10px', letterSpacing: '0.5px' }}>
-                        Individual Unit Barcodes (Showing {visibleUnits.length} of {unitsList.length})
-                      </div>
-                      {unitsList.length === 0 ? (
-                        <div style={{ padding: '20px', textAlign: 'center', border: '1.5px dashed #E2DED6', borderRadius: '12px', color: '#9CA3AF' }}>
-                          No units created yet.
-                        </div>
-                      ) : (
-                        <>
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '14px' }}>
-                            {visibleUnits.map((u: any) => {
-                              const isOut = u.status === 'checked_out' || u.status === 'out';
-                              return (
-                                <div 
-                                  key={u.id} 
-                                  style={{ border: '1.5px solid #E2DED6', borderRadius: '12px', padding: '12px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', background: '#fff' }}
-                                >
-                                  <div style={{ fontSize: '8px', fontWeight: 800, color: '#9CA3AF', letterSpacing: '0.5px' }}>› SKSSF</div>
-                                  <BarcodeSVG value={u.barcode_value} />
-                                  <div style={{ fontSize: '9.5px', fontFamily: 'monospace', fontWeight: 700, color: '#1A1F2E' }}>
-                                    {u.barcode_value.split('-').slice(-2).join('-')}
-                                  </div>
-                                  <div style={{ 
-                                    fontSize: '10px', fontWeight: 900, 
-                                    color: isOut ? '#2563EB' : '#16A34A',
-                                    display: 'flex', alignItems: 'center', gap: '3px'
-                                  }}>
-                                    {isOut ? '📤 Checked Out' : '✓ Available'}
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                          {remainingCount > 0 && (
-                            <div 
-                              onClick={() => setSelectedProductDetail(item)}
-                              style={{ textAlign: 'center', marginTop: '14px', fontSize: '13px', color: 'var(--teal)', fontWeight: 800, cursor: 'pointer' }}
-                            >
-                              + {remainingCount} more units
-                            </div>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {activeTab === 'scanner' && (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '28px', alignItems: 'start' }} className="inv-2col">
-              
-              {/* Left Column: Viewfinder simulation */}
-              <div style={{ background: '#1e293b', borderRadius: '24px', padding: '28px', color: '#fff' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
-                  <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 900, letterSpacing: '-0.3px' }}>📷 Barcode Scanner</h3>
-                </div>
-
-                <div className="scan-mode-btns" style={{ display: 'flex', gap: '8px', marginBottom: '18px' }}>
-                  <button 
-                    onClick={() => { setScannerMode('checkout'); setScanLookupResult(null); }} 
-                    style={{ 
-                      flex: 1, 
-                      padding: '12px', 
-                      borderRadius: '12px', 
-                      border: '1.5px solid rgba(255,255,255,0.15)', 
-                      background: scannerMode === 'checkout' ? 'var(--teal)' : 'transparent', 
-                      color: '#fff', 
-                      fontSize: '13px', 
-                      fontWeight: 800, 
-                      cursor: 'pointer',
-                      transition: 'all 0.2s',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '6px'
-                    }}
-                  >
-                    📤 Check-Out Mode
-                  </button>
-                  <button 
-                    onClick={() => { setScannerMode('checkin'); setScanLookupResult(null); }} 
-                    style={{ 
-                      flex: 1, 
-                      padding: '12px', 
-                      borderRadius: '12px', 
-                      border: '1.5px solid rgba(255,255,255,0.15)', 
-                      background: scannerMode === 'checkin' ? 'var(--teal)' : 'transparent', 
-                      color: '#fff', 
-                      fontSize: '13px', 
-                      fontWeight: 800, 
-                      cursor: 'pointer',
-                      transition: 'all 0.2s',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '6px'
-                    }}
-                  >
-                    📥 Check-In Mode
-                  </button>
-                </div>
-
-                <div style={{ width: '100%', aspectRatio: '16/10', background: '#090d16', borderRadius: '16px', position: 'relative', overflow: 'hidden', border: '2px solid rgba(255,255,255,0.15)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                  <div style={{ width: '60%', height: '50%', border: '2px dashed rgba(27, 184, 154, 0.4)', borderRadius: '12px', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <div style={{ position: 'absolute', left: 0, width: '100%', height: '3px', background: '#1BB89A', boxShadow: '0 0 10px #1BB89A', animation: 'scanLineAnim 2s linear infinite' }} />
-                  </div>
-                  <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', marginTop: '16px', fontWeight: 700 }}>viewfinder active (getUserMedia)</span>
-
-                  <style>{`
-                    @keyframes scanLineAnim {
-                      0% { top: 10% }
-                      50% { top: 90% }
-                      100% { top: 10% }
-                    }
-                  `}</style>
-                </div>
-
-                <form onSubmit={handleBarcodeLookup} style={{ display: 'flex', gap: '8px', marginTop: '20px' }}>
-                  <input 
-                    type="text" 
-                    placeholder="Enter or scan barcode (SKSSF-2025-...)" 
-                    value={manualBarcode} 
-                    onChange={e => setManualBarcode(e.target.value)} 
-                    style={{ flex: 1, height: '44px', background: 'rgba(255,255,255,0.08)', border: '1.5px solid rgba(255,255,255,0.15)', borderRadius: '12px', color: '#fff', padding: '0 16px', fontFamily: 'monospace', fontSize: '13px', outline: 'none' }}
-                  />
-                  <button type="submit" className="bsm s" style={{ height: '44px', borderRadius: '12px', padding: '0 20px' }}>Lookup</button>
-                </form>
-
-                <div style={{ marginTop: '20px', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '16px' }}>
-                  <div style={{ fontSize: '11px', fontWeight: 800, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', marginBottom: '10px' }}>Simulate Scan Detection</div>
-                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', maxHeight: '110px', overflowY: 'auto' }}>
-                    {items.flatMap(item => (item.units || []).slice(0, 3).map((unit: any) => ({
-                      barcode: unit.barcode_value,
-                      label: `${item.name.split(' ')[0]} (${unit.barcode_value.split('-').pop() || unit.barcode_value})`
-                    }))).map((sim, idx) => (
-                      <button 
-                        key={idx} 
-                        onClick={() => handleSelectQuickScan(sim.barcode)}
-                        style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.85)', padding: '6px 12px', borderRadius: '8px', fontSize: '11px', fontFamily: 'monospace', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                      >
-                        ⚡ {sim.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* Right Column */}
-              <div style={{ background: '#fff', border: '1.5px solid #f1f5f9', borderRadius: '24px', padding: '28px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)' }}>
-                <h3 style={{ margin: '0 0 20px 0', fontSize: '18px', fontWeight: 900 }}>Scan Processing Details</h3>
-
-                {scanError && (
-                  <div style={{ background: '#fef2f2', border: '1.5px solid #fee2e2', borderRadius: '16px', padding: '16px', display: 'flex', alignItems: 'center', gap: '10px', color: '#b91c1c', fontSize: '13px', fontWeight: 700, marginBottom: '20px' }}>
-                    <AlertTriangle size={16} /> {scanError}
-                  </div>
-                )}
-
-                {scanLookupResult ? (
-                  (() => {
-                    const item = scanLookupResult.item;
-                    const isUnit = scanLookupResult.type === 'unit';
-                    const unit = scanLookupResult.unit;
-                    const totalStock = item.total_stock || 0;
-                    const availableStock = item.available_stock || 0;
-                    const outStock = totalStock - availableStock;
-                    const emoji = getProductEmoji(item.name, item.categories?.name || '');
-
-                    return (
-                      <div style={{ background: '#E6FCF5', border: '1.5px solid #c3fae8', borderRadius: '20px', padding: '24px', position: 'relative' }}>
-                        
-                        {/* Header info */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '20px', justifyContent: 'space-between' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                            <span style={{ fontSize: '32px' }}>{emoji}</span>
-                            <div>
-                              <h4 style={{ margin: 0, fontSize: '18px', fontWeight: 900, color: '#0CA678' }}>
-                                {item.name}
-                              </h4>
-                              <div style={{ fontSize: '11px', fontFamily: 'monospace', color: '#64748b', marginTop: '2px' }}>
-                                SKU: {item.barcode_value}
-                                {isUnit && (
-                                  <span style={{ color: 'var(--teal)', fontWeight: 800, marginLeft: '6px' }}>
-                                    • Unit: {unit.barcode_value}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                          
-                          <span style={{ 
-                            padding: '4px 10px', 
-                            borderRadius: '50px', 
-                            background: '#C3FAE8', 
-                            color: '#0CA678', 
-                            fontSize: '11px', 
-                            fontWeight: 900 
-                          }}>
-                            {availableStock} available
-                          </span>
-                        </div>
-
-                        {/* Stats grid */}
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginBottom: '24px' }}>
-                          <div style={{ background: 'rgba(0,0,0,0.03)', borderRadius: '12px', padding: '12px', textAlign: 'center' }}>
-                            <div style={{ fontSize: '20px', fontWeight: 900, fontFamily: 'Playfair Display, serif', color: '#1e293b' }}>{totalStock}</div>
-                            <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px', fontWeight: 700 }}>Total</div>
-                          </div>
-                          <div style={{ background: '#d3f9d8', borderRadius: '12px', padding: '12px', textAlign: 'center' }}>
-                            <div style={{ fontSize: '20px', fontWeight: 900, fontFamily: 'Playfair Display, serif', color: '#2b8a3e' }}>{availableStock}</div>
-                            <div style={{ fontSize: '11px', color: '#2b8a3e', marginTop: '2px', fontWeight: 700 }}>Available</div>
-                          </div>
-                          <div style={{ background: '#e7f5ff', borderRadius: '12px', padding: '12px', textAlign: 'center' }}>
-                            <div style={{ fontSize: '20px', fontWeight: 900, fontFamily: 'Playfair Display, serif', color: '#1c7ed6' }}>{outStock}</div>
-                            <div style={{ fontSize: '11px', color: '#1c7ed6', marginTop: '2px', fontWeight: 700 }}>Out</div>
-                          </div>
-                        </div>
-
-                        {/* Processing form fields */}
-                        {scannerMode === 'checkout' ? (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '24px' }}>
-                            {/* Member Selection — hidden for member role, shown for admin/super */}
-                            {profile?.role === 'member' ? (
-                              <div style={{ background: 'rgba(13,115,119,0.06)', padding: '10px 14px', borderRadius: '10px', border: '1px solid #c3fae8', fontSize: '13px', color: '#0ca678', fontWeight: 700 }}>
-                                📋 Requesting as: <strong>{profile?.name || 'Current Member'}</strong>
-                              </div>
-                            ) : (
-                              <div>
-                                <label className="fl2" style={{ color: '#2b2d42', fontWeight: 700 }}>Select Member *</label>
-                                <select 
-                                  value={scannerMemberId} 
-                                  onChange={e => setScannerMemberId(e.target.value)} 
-                                  className="sel2" 
-                                  style={{ width: '100%', height: '42px', borderRadius: '10px', border: '1px solid #c3fae8', background: '#fff' }}
-                                >
-                                  <option value="">Choose member...</option>
-                                  {members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-                                </select>
-                              </div>
-                            )}
-
-                            <div>
-                              <label className="fl2" style={{ color: '#2b2d42', fontWeight: 700 }}>Welfare Mission Package *</label>
-                              <select 
-                                value={scannerMission} 
-                                onChange={e => setScannerMission(e.target.value)} 
-                                className="sel2" 
-                                style={{ width: '100%', height: '42px', borderRadius: '10px', border: '1px solid #c3fae8', background: '#fff' }}
-                              >
-                                {missionsList.map(m => (
-                                  <option key={m.id} value={m.id}>{m.name}</option>
-                                ))}
-                              </select>
-                            </div>
-                            
-                            <div>
-                              <label className="fl2" style={{ color: '#2b2d42', fontWeight: 700 }}>Notes / Remarks (Optional)</label>
-                              <input 
-                                type="text" 
-                                placeholder="E.g. pristine condition..." 
-                                value={scanNotes}
-                                onChange={e => setScanNotes(e.target.value)}
-                                className="fi2" 
-                                style={{ border: '1px solid #c3fae8', background: '#fff' }}
-                              />
-                            </div>
-                          </div>
-                        ) : (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '24px' }}>
-                            <div style={{ background: 'rgba(12, 166, 120, 0.08)', padding: '12px 16px', borderRadius: '12px', border: '1px solid rgba(12, 166, 120, 0.2)', fontSize: '13px', color: '#0ca678' }}>
-                              <strong>Check In Return Match</strong>: Mark unit barcode <code>{unit?.barcode_value}</code> as returned and available.
-                            </div>
-                            
-                            {unit?.current_checkout?.member && (
-                              <div style={{ fontSize: '13px', color: '#334155' }}>
-                                Borrowed by: <strong>{unit.current_checkout.member.name}</strong> ({unit.current_checkout.member.membership_no || 'No Member No'})
-                              </div>
-                            )}
-
-                            <div>
-                              <label className="fl2" style={{ color: '#2b2d42', fontWeight: 700 }}>Notes / Return Condition (Optional)</label>
-                              <input 
-                                type="text" 
-                                placeholder="E.g., returned in good condition..." 
-                                value={scanNotes}
-                                onChange={e => setScanNotes(e.target.value)}
-                                className="fi2" 
-                                style={{ border: '1px solid #c3fae8', background: '#fff' }}
-                              />
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Actions */}
-                        <div style={{ display: 'flex', gap: '10px' }}>
-                          <button 
-                            onClick={() => setScanLookupResult(null)} 
-                            style={{ 
-                              flex: 1, 
-                              height: '44px', 
-                              border: '1.5px solid #c3fae8', 
-                              background: '#fff', 
-                              color: '#0ca678', 
-                              borderRadius: '50px', 
-                              fontSize: '12px', 
-                              fontWeight: 800,
-                              cursor: 'pointer' 
-                            }}
-                          >
-                            Cancel
-                          </button>
-                          <button 
-                            onClick={handleConfirmScannerAction} 
-                            disabled={scanSubmitting || (scannerMode === 'checkout' && !scannerMemberId)}
-                            className="bsm s" 
-                            style={{ 
-                              flex: 2, 
-                              height: '44px', 
-                              borderRadius: '50px', 
-                              fontSize: '12px', 
-                              background: 'var(--teal)', 
-                              color: '#fff',
-                              border: 'none',
-                              fontWeight: 800,
-                              cursor: 'pointer',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              gap: '6px'
-                            }}
-                          >
-                            {scanSubmitting ? (
-                              'Confirming...'
-                            ) : scannerMode === 'checkout' ? (
-                              <>📤 Confirm Check Out</>
-                            ) : (
-                              <>📥 Confirm Check In</>
-                            )}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setSelectedProductDetail(item)}
-                            style={{
-                              height: '44px',
-                              padding: '0 16px',
-                              border: '1.5px solid #c3fae8',
-                              background: '#fff',
-                              color: '#0ca678',
-                              borderRadius: '50px',
-                              fontSize: '12px',
-                              fontWeight: 800,
-                              cursor: 'pointer'
-                            }}
-                          >
-                            View Details
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })()
-                ) : (
-                  <div style={{ padding: '40px', border: '2px dashed #e2e8f0', borderRadius: '16px', textAlign: 'center', color: '#94a3b8' }}>
-                    <BarcodeIcon size={36} style={{ margin: '0 auto 10px', opacity: 0.3 }} />
-                    <div style={{ fontSize: '13px', fontWeight: 700 }}>Awaiting Barcode Scan Detection</div>
-                    <p style={{ fontSize: '11px', marginTop: '4px' }}>Scan a barcode or lookup manually to process checkout/check-in.</p>
-                  </div>
-                )}
-              </div>
-            </div>
           )}
 
           {/* ③ CURRENTLY CHECKED OUT TAB */}
@@ -2013,7 +1358,6 @@ export default function MemberInventory() {
                             <th style={{ padding: '14px', fontWeight: 800, color: '#475569' }}>CHECKOUT DATE</th>
                             <th style={{ padding: '14px', fontWeight: 800, color: '#475569' }}>EXPECTED RETURN</th>
                             <th style={{ padding: '14px', fontWeight: 800, color: '#475569' }}>STATUS</th>
-                            <th style={{ padding: '14px', fontWeight: 800, color: '#475569', textAlign: 'right' }}>ACTION</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -2061,23 +1405,6 @@ export default function MemberInventory() {
                                   }}>
                                     {statusText}
                                   </span>
-                                </td>
-                                <td style={{ padding: '16px 14px', textAlign: 'right' }}>
-                                  <button
-                                    onClick={() => handleQuickReturn(c.id, 'good')}
-                                    style={{
-                                      padding: '6px 16px',
-                                      borderRadius: '50px',
-                                      background: '#0D7377',
-                                      color: '#fff',
-                                      border: 'none',
-                                      fontWeight: 800,
-                                      fontSize: '12px',
-                                      cursor: 'pointer'
-                                    }}
-                                  >
-                                    Return / Check-In
-                                  </button>
                                 </td>
                               </tr>
                             );

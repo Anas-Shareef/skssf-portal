@@ -1103,7 +1103,7 @@ export default function Inventory() {
       </div>
 
       {/* Tabs list matching Claude Prototype */}
-      <div className="inv-tabs" style={{ display: 'none', gap: '8px', marginBottom: '32px', borderBottom: '2.5px solid #f1f5f9', paddingBottom: '2px', flexWrap: 'wrap' }}>
+      <div className="inv-tabs" style={{ display: 'flex', gap: '8px', marginBottom: '32px', borderBottom: '2.5px solid #f1f5f9', paddingBottom: '2px', flexWrap: 'wrap' }}>
         <button
           type="button"
           onClick={() => setActiveTab('catalogue')}
