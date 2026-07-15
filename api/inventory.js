@@ -297,18 +297,18 @@ export default async function handler(req, res) {
     // ==========================================
     if (resource === 'items') {
       if (req.method === 'GET') {
-        const query = supabase.from('inventory_items').select('*, categories:category_id(name)');
+        let query = supabase.from('inventory_items').select('*, categories:category_id(name)');
 
         // Non-admins can only see active items
         if (profile.role !== 'admin' && profile.role !== 'super' && profile.role !== 'member') {
-          query.eq('is_active', true);
+          query = query.eq('is_active', true);
         }
 
         // Apply filters
         const { search, category_id, type } = req.query;
-        if (search) query.ilike('name', `%${search}%`);
-        if (category_id) query.eq('category_id', category_id);
-        if (type) query.eq('item_type', type);
+        if (search) query = query.ilike('name', `%${search}%`);
+        if (category_id) query = query.eq('category_id', category_id);
+        if (type) query = query.eq('item_type', type);
 
         const { data: items, error } = await query.order('name');
         if (error) throw error;
@@ -678,15 +678,15 @@ export default async function handler(req, res) {
         }
 
         const buildQuery = (withUnit) => {
-          const q = supabase.from('inventory_checkouts');
+          let q = supabase.from('inventory_checkouts');
           if (withUnit) {
-            q.select('*, member:member_id(name), items:item_id(*), unit:unit_id(barcode_value)');
+            q = q.select('*, member:member_id(name), items:item_id(*), unit:unit_id(barcode_value)');
           } else {
-            q.select('*, member:member_id(name), items:item_id(*)');
+            q = q.select('*, member:member_id(name), items:item_id(*)');
           }
-          if (member_id) q.eq('member_id', member_id);
-          if (status) q.eq('status', status);
-          if (type) q.eq('item_type_at_checkout', type);
+          if (member_id) q = q.eq('member_id', member_id);
+          if (status) q = q.eq('status', status);
+          if (type) q = q.eq('item_type_at_checkout', type);
           return q.order('due_return_date', { ascending: true, nullsFirst: false });
         };
 

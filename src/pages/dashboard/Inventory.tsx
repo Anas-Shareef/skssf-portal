@@ -262,6 +262,9 @@ export default function Inventory() {
   const [scannerMission, setScannerMission] = useState('');
   const [scanError, setScanError] = useState('');
   const [scanSubmitting, setScanSubmitting] = useState(false);
+  const [cameraActive, setCameraActive] = useState(false);
+  const cameraVideoRef = useRef<HTMLVideoElement | null>(null);
+  const cameraStreamRef = useRef<MediaStream | null>(null);
 
   // Confirm dialog state
   interface ConfirmOpts {
@@ -414,6 +417,12 @@ export default function Inventory() {
       loadDamageReview(false);
     } else if (activeTab === 'missions') {
       loadMissions(false);
+    }
+    // Stop camera when leaving scanner tab
+    if (activeTab !== 'scanner' && cameraStreamRef.current) {
+      cameraStreamRef.current.getTracks().forEach(t => t.stop());
+      cameraStreamRef.current = null;
+      setCameraActive(false);
     }
   }, [activeTab]);
 
@@ -1518,6 +1527,13 @@ export default function Inventory() {
                                 >
                                   ⚙️ Adjust
                                 </button>
+                                <button 
+                                  onClick={(e) => { e.stopPropagation(); isSuper ? handleDeleteItem(item.id) : handleDeactivate(item.id); }} 
+                                  style={{ flex: 1, padding: '5px 0', fontSize: '11px', fontWeight: 800, border: `1px solid ${isSuper ? '#fecaca' : '#e2e8f0'}`, borderRadius: '8px', background: isSuper ? '#fef2f2' : '#fff', color: isSuper ? '#dc2626' : '#64748b', cursor: 'pointer' }}
+                                  title={isSuper ? 'Permanently delete' : 'Deactivate (hide from members)'}
+                                >
+                                  {isSuper ? '🗑️ Del' : '👁️ Hide'}
+                                </button>
                               </div>
                             </div>
 
@@ -1570,6 +1586,13 @@ export default function Inventory() {
                                     <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
                                       <button onClick={() => setSelectedProductDetail(item)} className="bsm s" style={{ fontSize: '11px', padding: '5px 12px', borderRadius: '8px' }}>View Detail</button>
                                       <button onClick={() => setEditingItem(item)} className="bsm g" style={{ fontSize: '11px', padding: '5px 12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>Edit</button>
+                                      <button 
+                                        onClick={() => isSuper ? handleDeleteItem(item.id) : handleDeactivate(item.id)} 
+                                        style={{ fontSize: '11px', padding: '5px 12px', borderRadius: '8px', border: `1px solid ${isSuper ? '#fecaca' : '#e2e8f0'}`, background: isSuper ? '#fef2f2' : '#fff', color: isSuper ? '#dc2626' : '#64748b', fontWeight: 800, cursor: 'pointer' }}
+                                        title={isSuper ? 'Permanently delete' : 'Deactivate'}
+                                      >
+                                        {isSuper ? '🗑️' : '👁️'}
+                                      </button>
                                     </div>
                                   </td>
                                 </tr>
@@ -1805,10 +1828,22 @@ export default function Inventory() {
                 </div>
 
                 <div style={{ width: '100%', aspectRatio: '16/10', background: '#090d16', borderRadius: '16px', position: 'relative', overflow: 'hidden', border: '2px solid rgba(255,255,255,0.15)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                  <div style={{ width: '60%', height: '50%', border: '2px dashed rgba(27, 184, 154, 0.4)', borderRadius: '12px', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <div style={{ position: 'absolute', left: 0, width: '100%', height: '3px', background: '#1BB89A', boxShadow: '0 0 10px #1BB89A', animation: 'scanLineAnim 2s linear infinite' }} />
-                  </div>
-                  <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', marginTop: '16px', fontWeight: 700 }}>viewfinder active (getUserMedia)</span>
+                  {cameraActive ? (
+                    <video
+                      ref={cameraVideoRef}
+                      autoPlay
+                      playsInline
+                      muted
+                      style={{ width: '100%', height: '100%', objectFit: 'cover', position: 'absolute', inset: 0 }}
+                    />
+                  ) : (
+                    <>
+                      <div style={{ width: '60%', height: '50%', border: '2px dashed rgba(27, 184, 154, 0.4)', borderRadius: '12px', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <div style={{ position: 'absolute', left: 0, width: '100%', height: '3px', background: '#1BB89A', boxShadow: '0 0 10px #1BB89A', animation: 'scanLineAnim 2s linear infinite' }} />
+                      </div>
+                      <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', marginTop: '16px', fontWeight: 700 }}>Camera off — click button below to activate</span>
+                    </>
+                  )}
 
                   <style>{`
                     @keyframes scanLineAnim {
@@ -1817,7 +1852,63 @@ export default function Inventory() {
                       100% { top: 10% }
                     }
                   `}</style>
+
+                  {/* Camera overlay label when active */}
+                  {cameraActive && (
+                    <div style={{ position: 'absolute', bottom: '10px', left: '50%', transform: 'translateX(-50%)', background: 'rgba(0,0,0,0.6)', color: '#1BB89A', fontSize: '11px', fontWeight: 800, padding: '4px 12px', borderRadius: '50px', letterSpacing: '0.5px' }}>
+                      📷 LIVE
+                    </div>
+                  )}
                 </div>
+
+                {/* Camera activate / stop button */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (cameraActive) {
+                      // Stop camera
+                      if (cameraStreamRef.current) {
+                        cameraStreamRef.current.getTracks().forEach(t => t.stop());
+                        cameraStreamRef.current = null;
+                      }
+                      setCameraActive(false);
+                    } else {
+                      // Start camera
+                      navigator.mediaDevices?.getUserMedia({ video: { facingMode: 'environment' } })
+                        .then(stream => {
+                          cameraStreamRef.current = stream;
+                          setCameraActive(true);
+                          // Attach stream to video element after React renders it
+                          setTimeout(() => {
+                            if (cameraVideoRef.current) {
+                              cameraVideoRef.current.srcObject = stream;
+                            }
+                          }, 100);
+                        })
+                        .catch(() => {
+                          setScanError('Camera access denied or unavailable. Use manual barcode entry below.');
+                        });
+                    }
+                  }}
+                  style={{
+                    marginTop: '14px',
+                    width: '100%',
+                    height: '42px',
+                    borderRadius: '12px',
+                    border: `1.5px solid ${cameraActive ? '#ef4444' : 'rgba(255,255,255,0.25)'}`,
+                    background: cameraActive ? 'rgba(239,68,68,0.15)' : 'rgba(27,184,154,0.15)',
+                    color: cameraActive ? '#ef4444' : '#1BB89A',
+                    fontWeight: 800,
+                    fontSize: '13px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px'
+                  }}
+                >
+                  {cameraActive ? '⏹ Stop Camera' : '📷 Activate Camera'}
+                </button>
 
                 <form onSubmit={handleBarcodeLookup} style={{ display: 'flex', gap: '8px', marginTop: '20px' }}>
                   <input 
@@ -1831,20 +1922,38 @@ export default function Inventory() {
                 </form>
 
                 <div style={{ marginTop: '20px', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '16px' }}>
-                  <div style={{ fontSize: '11px', fontWeight: 800, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', marginBottom: '10px' }}>Simulate Scan Detection</div>
-                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', maxHeight: '110px', overflowY: 'auto' }}>
+                  <div style={{ fontSize: '11px', fontWeight: 800, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', marginBottom: '4px', letterSpacing: '0.5px' }}>Quick Scan — Click to Simulate</div>
+                  <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.25)', marginBottom: '10px' }}>Select any unit barcode to auto-populate the lookup</div>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', maxHeight: '120px', overflowY: 'auto' }}>
                     {items.flatMap(item => (item.units || []).slice(0, 3).map((unit: any) => ({
                       barcode: unit.barcode_value,
-                      label: `${item.name.split(' ')[0]} (${unit.barcode_value.split('-').pop() || unit.barcode_value})`
-                    }))).map((sim, idx) => (
+                      label: `${item.name.substring(0, 10)} ${unit.barcode_value.split('-').slice(-1)[0] || ''}`,
+                      status: unit.status
+                    }))).slice(0, 18).map((sim, idx) => (
                       <button 
                         key={idx} 
-                        onClick={() => handleSelectQuickScan(sim.barcode)}
-                        style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.85)', padding: '6px 12px', borderRadius: '8px', fontSize: '11px', fontFamily: 'monospace', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                        onClick={() => { setManualBarcode(sim.barcode); handleSelectQuickScan(sim.barcode); }}
+                        style={{ 
+                          background: sim.status === 'available' ? 'rgba(27,184,154,0.12)' : 'rgba(255,255,255,0.06)', 
+                          border: `1px solid ${sim.status === 'available' ? 'rgba(27,184,154,0.3)' : 'rgba(255,255,255,0.1)'}`, 
+                          color: sim.status === 'available' ? '#1BB89A' : 'rgba(255,255,255,0.7)', 
+                          padding: '6px 12px', 
+                          borderRadius: '8px', 
+                          fontSize: '11px', 
+                          fontFamily: 'monospace', 
+                          cursor: 'pointer', 
+                          display: 'inline-flex', 
+                          alignItems: 'center', 
+                          gap: '4px',
+                          transition: 'all 0.2s'
+                        }}
                       >
                         ⚡ {sim.label}
                       </button>
                     ))}
+                    {items.flatMap(item => (item.units || [])).length === 0 && (
+                      <div style={{ color: 'rgba(255,255,255,0.3)', fontSize: '11px' }}>No units loaded yet. Add items first.</div>
+                    )}
                   </div>
                 </div>
               </div>
