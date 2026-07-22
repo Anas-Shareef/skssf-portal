@@ -81,14 +81,19 @@ BEGIN
     
     -- Create units
     FOR i IN 1..item_rec.total_stock LOOP
-      INSERT INTO inventory_units (item_id, unit_number, barcode_value, status)
-      VALUES (
-        item_rec.id, 
-        i, 
-        p_barcode || '-U' || LPAD(i::TEXT, 2, '0'),
-        'available'
-      )
-      ON CONFLICT (item_id, unit_number) DO NOTHING;
+      IF NOT EXISTS (
+        SELECT 1 FROM inventory_units 
+        WHERE (item_id = item_rec.id AND unit_number = i) 
+           OR barcode_value = p_barcode || '-U' || LPAD(i::TEXT, 2, '0')
+      ) THEN
+        INSERT INTO inventory_units (item_id, unit_number, barcode_value, status)
+        VALUES (
+          item_rec.id, 
+          i, 
+          p_barcode || '-U' || LPAD(i::TEXT, 2, '0'),
+          'available'
+        );
+      END IF;
     END LOOP;
     
     seq_val := seq_val + 1;
