@@ -864,7 +864,7 @@ export default function MemberInventory() {
     const activeLeases = allCheckouts
       .filter(c => c.status === 'active')
       .map(c => ({
-        'Borrower': c.member?.name || 'N/A',
+        'Distributor': c.member?.name || 'N/A',
         'Item Name': c.items?.name || 'N/A',
         'Unit SKU': c.unit?.barcode_value || 'N/A',
         'Qty': c.quantity,
@@ -1849,7 +1849,7 @@ export default function MemberInventory() {
                   <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
                     <thead>
                       <tr style={{ borderBottom: '2px solid #f1f5f9', background: '#f8fafc' }}>
-                        <th style={{ padding: '12px 14px', fontWeight: 900 }}>Member</th>
+                        <th style={{ padding: '12px 14px', fontWeight: 900 }}>Distributor</th>
                         <th style={{ padding: '12px 14px', fontWeight: 900 }}>Item &amp; Unit SKU</th>
                         <th style={{ padding: '12px 14px', fontWeight: 900 }}>Observed Status</th>
                         <th style={{ padding: '12px 14px', fontWeight: 900 }}>Damage Notes</th>
@@ -1860,7 +1860,7 @@ export default function MemberInventory() {
                       {damageRecords.map(rec => (
                         <tr key={rec.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                           <td style={{ padding: '16px 14px' }}>
-                            <div style={{ fontWeight: 800, color: '#0f172a' }}>{rec.member?.name || 'Borrower'}</div>
+                            <div style={{ fontWeight: 800, color: '#0f172a' }}>{rec.member?.name || 'Distributor'}</div>
                           </td>
                           <td style={{ padding: '16px 14px' }}>
                             <div style={{ fontWeight: 800, color: '#0f172a' }}>{rec.items?.name}</div>
@@ -2424,7 +2424,7 @@ export default function MemberInventory() {
             
             <form onSubmit={handleOverrideSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '14px', border: '1.5px solid #e2e8f0', fontSize: '13px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                <div><b>Borrower:</b> {overrideCheckout.member?.name}</div>
+                <div><b>Distributor:</b> {overrideCheckout.member?.name}</div>
                 <div><b>Product:</b> {overrideCheckout.items?.name}</div>
                 {overrideCheckout.unit?.barcode_value && (
                   <div><b>Unit Barcode:</b> <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{overrideCheckout.unit.barcode_value}</span></div>
@@ -2555,7 +2555,7 @@ export default function MemberInventory() {
                   <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
                     <th style={{ padding: '12px 14px', fontWeight: 800, color: '#475569' }}>Product</th>
                     <th style={{ padding: '12px 14px', fontWeight: 800, color: '#475569' }}>Unit</th>
-                    <th style={{ padding: '12px 14px', fontWeight: 800, color: '#475569' }}>Member</th>
+                    <th style={{ padding: '12px 14px', fontWeight: 800, color: '#475569' }}>Distributor</th>
                     <th style={{ padding: '12px 14px', fontWeight: 800, color: '#475569' }}>Date</th>
                     <th style={{ padding: '12px 14px', fontWeight: 800, color: '#475569' }}>Status</th>
                   </tr>
@@ -2593,7 +2593,7 @@ export default function MemberInventory() {
                           ) : '—'}
                         </td>
                         <td style={{ padding: '12px 14px', fontWeight: 600, color: '#475569' }}>
-                          {c.member?.name || 'Unknown Borrower'}
+                          {c.member?.name || 'Unknown Distributor'}
                         </td>
                         <td style={{ padding: '12px 14px', color: '#64748b' }}>
                           {c.checkout_date ? new Date(c.checkout_date).toISOString().split('T')[0] : '—'}
@@ -2607,7 +2607,7 @@ export default function MemberInventory() {
                             background: c.status === 'returned' ? '#E6FCF5' : '#E7F5FF',
                             color: c.status === 'returned' ? '#0CA678' : '#1C7ED6'
                           }}>
-                            {c.status === 'returned' ? 'Returned' : 'With Member'}
+                            {c.status === 'returned' ? 'Returned' : 'With Customer'}
                           </span>
                         </td>
                       </tr>
