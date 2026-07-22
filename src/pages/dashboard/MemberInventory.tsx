@@ -110,16 +110,28 @@ const getProductEmoji = (name: string, catName: string) => {
 };
 
 export default function MemberInventory() {
-  const { profile } = useAuth();
+  const { profile, hasPermission } = useAuth();
   const isAdmin = false;
   const isSuper = false;
 
+  const tabPermissionMap: Record<string, string> = {
+    catalogue: 'catalogue.view',
+    checkouts: 'checkout.view'
+  };
+
+  const allowedTabs = ['catalogue', 'checkouts'].filter(t => {
+    const requiredPerm = tabPermissionMap[t];
+    return profile?.role === 'super' || hasPermission(requiredPerm);
+  });
+
+  const defaultTab = allowedTabs[0] || 'catalogue';
+
   // State Declarations
   const [searchParams, setSearchParams] = useSearchParams();
-  const activeTabParam = searchParams.get('tab') || 'catalogue';
-  const activeTab = (['catalogue', 'checkouts'].includes(activeTabParam)
+  const activeTabParam = searchParams.get('tab') || defaultTab;
+  const activeTab = (allowedTabs.includes(activeTabParam)
     ? activeTabParam
-    : 'catalogue') as 'catalogue' | 'checkouts';
+    : defaultTab) as 'catalogue' | 'checkouts';
 
   const setActiveTab = (tab: 'catalogue' | 'checkouts') => {
     setSearchParams({ tab });
@@ -936,6 +948,18 @@ export default function MemberInventory() {
     return '0d';
   };
 
+  if (allowedTabs.length === 0) {
+    return (
+      <div style={{ textAlign: 'center', padding: '100px 20px', background: '#fff', borderRadius: 24, border: '1.5px solid #e2e8f0', maxWidth: 500, margin: '60px auto' }}>
+        <div style={{ fontSize: 72, marginBottom: 20 }}>🛡️</div>
+        <h1 style={{ fontSize: 24, fontWeight: 950, color: '#0f172a', margin: 0 }}>Access Restricted</h1>
+        <p style={{ fontSize: 14, color: '#64748b', maxWidth: 400, margin: '12px auto 24px', lineHeight: 1.5 }}>
+          You do not have permission to view any inventory tabs.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="inv-wrap" style={{ animation: 'fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1)', padding: '30px', maxWidth: '1400px', margin: '0 auto' }}>
       
@@ -1008,28 +1032,32 @@ export default function MemberInventory() {
 
       {/* Tabs list matching Claude Prototype */}
       <div className="inv-tabs" style={{ display: 'flex', gap: '8px', marginBottom: '32px', borderBottom: '2.5px solid #f1f5f9', paddingBottom: '2px', flexWrap: 'wrap' }}>
-        <button
-          type="button"
-          onClick={() => setActiveTab('catalogue')}
-          style={{
-            padding: '14px 20px', fontWeight: 800, fontSize: '14.5px', border: 'none', background: 'none',
-            borderBottom: activeTab === 'catalogue' ? '3.5px solid var(--teal)' : '3.5px solid transparent',
-            color: activeTab === 'catalogue' ? 'var(--teal)' : '#64748b', cursor: 'pointer', whiteSpace: 'nowrap'
-          }}
-        >
-          🛍️ Product Catalog
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('checkouts')}
-          style={{
-            padding: '14px 20px', fontWeight: 800, fontSize: '14.5px', border: 'none', background: 'none',
-            borderBottom: activeTab === 'checkouts' ? '3.5px solid var(--teal)' : '3.5px solid transparent',
-            color: activeTab === 'checkouts' ? 'var(--teal)' : '#64748b', cursor: 'pointer', whiteSpace: 'nowrap'
-          }}
-        >
-          ⚡ My Items & Leases
-        </button>
+        {allowedTabs.includes('catalogue') && (
+          <button
+            type="button"
+            onClick={() => setActiveTab('catalogue')}
+            style={{
+              padding: '14px 20px', fontWeight: 800, fontSize: '14.5px', border: 'none', background: 'none',
+              borderBottom: activeTab === 'catalogue' ? '3.5px solid var(--teal)' : '3.5px solid transparent',
+              color: activeTab === 'catalogue' ? 'var(--teal)' : '#64748b', cursor: 'pointer', whiteSpace: 'nowrap'
+            }}
+          >
+            🛍️ Product Catalog
+          </button>
+        )}
+        {allowedTabs.includes('checkouts') && (
+          <button
+            type="button"
+            onClick={() => setActiveTab('checkouts')}
+            style={{
+              padding: '14px 20px', fontWeight: 800, fontSize: '14.5px', border: 'none', background: 'none',
+              borderBottom: activeTab === 'checkouts' ? '3.5px solid var(--teal)' : '3.5px solid transparent',
+              color: activeTab === 'checkouts' ? 'var(--teal)' : '#64748b', cursor: 'pointer', whiteSpace: 'nowrap'
+            }}
+          >
+            ⚡ My Items & Leases
+          </button>
+        )}
       </div>
 
       {/* Loading state */}

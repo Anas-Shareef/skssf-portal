@@ -3,6 +3,7 @@ import { Navigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { localDb } from '../../lib/localDb';
 import ConfirmDialog from '../../components/ConfirmDialog';
+import { PERMISSION_MODULES, DEFAULT_MEMBER_PERMISSIONS } from '../../lib/permissions';
 
 export default function Members() {
   const { profile } = useAuth();
@@ -27,6 +28,14 @@ export default function Members() {
   const [editingMember, setEditingMember] = useState<any | null>(null);
   const [avatar, setAvatar] = useState('');
   const [showFilters, setShowFilters] = useState(false);
+  const [selectedPerms, setSelectedPerms] = useState<Record<string, boolean>>({});
+
+  const togglePermission = (key: string) => {
+    setSelectedPerms(prev => ({
+      ...prev,
+      [key]: !prev[key]
+    }));
+  };
   // Filter fields
   const [fName, setFName] = useState('');
   const [fEmail, setFEmail] = useState('');
@@ -150,6 +159,7 @@ export default function Members() {
       assigned_zone: zoneRef.current?.value || '',
       must_change_password: mustChangeRef.current ? mustChangeRef.current.checked : true,
       created_by: profile?.id || null,
+      perms: selectedPerms
     };
 
     if (editingMember) {
@@ -175,6 +185,7 @@ export default function Members() {
     const fresh = localDb.getUsers().find((u: any) => u.id === m.id) || m;
     setEditingMember(fresh);
     setAvatar(fresh.avatar || '');
+    setSelectedPerms(fresh.perms || DEFAULT_MEMBER_PERMISSIONS);
     setShowAddModal(true);
   };
 
@@ -205,7 +216,13 @@ export default function Members() {
           </div>
         </div>
         <div className="pg-acts">
-          <button className="bsm s" onClick={() => { setSaveError(''); setShowAddModal(true); }}>+ Add Member</button>
+          <button className="bsm s" onClick={() => { 
+            setSaveError(''); 
+            setEditingMember(null);
+            setAvatar('');
+            setSelectedPerms(DEFAULT_MEMBER_PERMISSIONS);
+            setShowAddModal(true); 
+          }}>+ Add Member</button>
         </div>
       </div>
 
@@ -485,6 +502,55 @@ export default function Members() {
 
                   <div className="fg2 full"><label className="fl2">Address</label><textarea className="ta2" rows={2} defaultValue={editingMember?.addr} placeholder="Full address" ref={addrRef}></textarea></div>
                 </div>
+              </div>
+
+              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--dark2)', margin: '20px 0 10px', borderTop: '1px solid var(--border)', paddingTop: '16px' }}>Access Permissions</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', maxHeight: '250px', overflowY: 'auto', paddingRight: '6px' }}>
+                {PERMISSION_MODULES.map((mod, idx) => (
+                  <div key={idx} style={{ borderBottom: idx < PERMISSION_MODULES.length - 1 ? '1px solid #e2e8f0' : 'none', paddingBottom: '16px' }}>
+                    <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--teal)', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' }}>
+                      <span>{mod.icon}</span> {mod.name}
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '9px' }}>
+                      {mod.items.map((p) => {
+                        const checked = !!selectedPerms[p.key];
+                        const isSuperOnly = p.superOnly;
+                        const isDisabled = (profile?.role !== 'super' && !profile?.perms?.[p.key]) || (isSuperOnly && profile?.role !== 'super');
+                        
+                        return (
+                          <label 
+                            key={p.key} 
+                            className="cb-row" 
+                            style={{ 
+                              background: 'var(--bg)', 
+                              borderRadius: '9px', 
+                              padding: '10px 12px', 
+                              cursor: isDisabled ? 'not-allowed' : 'pointer', 
+                              display: 'flex', 
+                              alignItems: 'center', 
+                              gap: '8px',
+                              opacity: isDisabled ? 0.5 : 1
+                            }}
+                          >
+                            <input 
+                              type="checkbox" 
+                              checked={checked} 
+                              disabled={isDisabled}
+                              onChange={() => {
+                                if (!isDisabled) {
+                                  togglePermission(p.key);
+                                }
+                              }}
+                            /> 
+                            <span style={{ fontSize: '12.5px', fontWeight: 600, color: 'var(--dark)' }}>
+                              {p.label} {isDisabled && <span style={{ fontSize: '9px', color: 'var(--muted)' }}>(Locked)</span>}
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
             <div className="modal-foot">

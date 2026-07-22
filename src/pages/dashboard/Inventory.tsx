@@ -144,17 +144,37 @@ const getProductEmoji = (name: string, catName: string) => {
 };
 
 export default function Inventory() {
-  const { profile } = useAuth();
+  const { profile, hasPermission } = useAuth();
   const isAdmin = profile?.role === 'admin' || profile?.role === 'super';
   const isSuper = profile?.role === 'super';
 
-  if (!isAdmin) {
+  const tabPermissionMap: Record<string, string> = {
+    catalogue: 'catalogue.view',
+    barcodes: 'barcode.view',
+    scanner: 'scanner.use',
+    checkouts: 'checkout.view',
+    missions: 'missions.view',
+    reports: 'reports.view',
+    settings: 'settings.view',
+    damage_review: 'checkout.view'
+  };
+
+  const allowedTabs = ['catalogue', 'barcodes', 'scanner', 'checkouts', 'missions', 'reports', 'settings', 'damage_review'].filter(t => {
+    const requiredPerm = tabPermissionMap[t];
+    return profile?.role === 'super' || hasPermission(requiredPerm);
+  });
+
+  const defaultTab = allowedTabs[0] || 'catalogue';
+
+  if (!isAdmin || allowedTabs.length === 0) {
     return (
       <div style={{ textAlign: 'center', padding: '100px 20px', background: '#fff', borderRadius: 24, border: '1.5px solid #e2e8f0', maxWidth: 500, margin: '60px auto' }}>
         <div style={{ fontSize: 72, marginBottom: 20 }}>🛡️</div>
         <h1 style={{ fontSize: 24, fontWeight: 950, color: '#0f172a', margin: 0 }}>Access Restricted</h1>
         <p style={{ fontSize: 14, color: '#64748b', maxWidth: 400, margin: '12px auto 24px', lineHeight: 1.5 }}>
-          The Inventory &amp; Catalog Management page is reserved for authorized administrators only.
+          {!isAdmin 
+            ? 'The Inventory & Catalog Management page is reserved for authorized administrators only.' 
+            : 'You do not have permission to view any inventory tabs.'}
         </p>
         <button 
           onClick={() => window.location.href = '/member/dashboard'}
@@ -168,10 +188,10 @@ export default function Inventory() {
 
   // State Declarations
   const [searchParams, setSearchParams] = useSearchParams();
-  const activeTabParam = searchParams.get('tab') || 'catalogue';
-  const activeTab = (['catalogue', 'barcodes', 'scanner', 'checkouts', 'missions', 'reports', 'settings', 'damage_review'].includes(activeTabParam)
+  const activeTabParam = searchParams.get('tab') || defaultTab;
+  const activeTab = (allowedTabs.includes(activeTabParam)
     ? activeTabParam
-    : 'catalogue') as 'catalogue' | 'barcodes' | 'scanner' | 'checkouts' | 'missions' | 'reports' | 'settings' | 'damage_review';
+    : defaultTab) as 'catalogue' | 'barcodes' | 'scanner' | 'checkouts' | 'missions' | 'reports' | 'settings' | 'damage_review';
 
   const setActiveTab = (tab: 'catalogue' | 'barcodes' | 'scanner' | 'checkouts' | 'missions' | 'reports' | 'settings' | 'damage_review') => {
     setSearchParams({ tab });
@@ -1113,94 +1133,110 @@ export default function Inventory() {
 
       {/* Tabs list matching Claude Prototype */}
       <div className="inv-tabs" style={{ display: 'flex', gap: '8px', marginBottom: '32px', borderBottom: '2.5px solid #f1f5f9', paddingBottom: '2px', flexWrap: 'wrap' }}>
-        <button
-          type="button"
-          onClick={() => setActiveTab('catalogue')}
-          style={{
-            padding: '14px 20px', fontWeight: 800, fontSize: '14.5px', border: 'none', background: 'none',
-            borderBottom: activeTab === 'catalogue' ? '3.5px solid var(--teal)' : '3.5px solid transparent',
-            color: activeTab === 'catalogue' ? 'var(--teal)' : '#64748b', cursor: 'pointer', whiteSpace: 'nowrap'
-          }}
-        >
-          🛍️ Product Catalog
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('barcodes')}
-          style={{
-            padding: '14px 20px', fontWeight: 800, fontSize: '14.5px', border: 'none', background: 'none',
-            borderBottom: activeTab === 'barcodes' ? '3.5px solid var(--teal)' : '3.5px solid transparent',
-            color: activeTab === 'barcodes' ? 'var(--teal)' : '#64748b', cursor: 'pointer', whiteSpace: 'nowrap'
-          }}
-        >
-          📊 Barcode Manager
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('scanner')}
-          style={{
-            padding: '14px 20px', fontWeight: 800, fontSize: '14.5px', border: 'none', background: 'none',
-            borderBottom: activeTab === 'scanner' ? '3.5px solid var(--teal)' : '3.5px solid transparent',
-            color: activeTab === 'scanner' ? 'var(--teal)' : '#64748b', cursor: 'pointer', whiteSpace: 'nowrap'
-          }}
-        >
-          📷 Scanner (Check In/Out)
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('checkouts')}
-          style={{
-            padding: '14px 20px', fontWeight: 800, fontSize: '14.5px', border: 'none', background: 'none',
-            borderBottom: activeTab === 'checkouts' ? '3.5px solid var(--teal)' : '3.5px solid transparent',
-            color: activeTab === 'checkouts' ? 'var(--teal)' : '#64748b', cursor: 'pointer', whiteSpace: 'nowrap'
-          }}
-        >
-          📤 Currently Checked Out
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('missions')}
-          style={{
-            padding: '14px 20px', fontWeight: 800, fontSize: '14.5px', border: 'none', background: 'none',
-            borderBottom: activeTab === 'missions' ? '3.5px solid var(--teal)' : '3.5px solid transparent',
-            color: activeTab === 'missions' ? 'var(--teal)' : '#64748b', cursor: 'pointer', whiteSpace: 'nowrap'
-          }}
-        >
-          🎯 Mission Packages
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('reports')}
-          style={{
-            padding: '14px 20px', fontWeight: 800, fontSize: '14.5px', border: 'none', background: 'none',
-            borderBottom: activeTab === 'reports' ? '3.5px solid var(--teal)' : '3.5px solid transparent',
-            color: activeTab === 'reports' ? 'var(--teal)' : '#64748b', cursor: 'pointer', whiteSpace: 'nowrap'
-          }}
-        >
-          📊 Inventory Reports
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('settings')}
-          style={{
-            padding: '14px 20px', fontWeight: 800, fontSize: '14.5px', border: 'none', background: 'none',
-            borderBottom: activeTab === 'settings' ? '3.5px solid var(--teal)' : '3.5px solid transparent',
-            color: activeTab === 'settings' ? 'var(--teal)' : '#64748b', cursor: 'pointer', whiteSpace: 'nowrap'
-          }}
-        >
-          ⚙️ Settings
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('damage_review')}
-          style={{
-            padding: '14px 20px', fontWeight: 800, fontSize: '14.5px', border: 'none', background: 'none',
-            borderBottom: activeTab === 'damage_review' ? '3.5px solid var(--teal)' : '3.5px solid transparent',
-            color: activeTab === 'damage_review' ? 'var(--teal)' : '#64748b', cursor: 'pointer', whiteSpace: 'nowrap'
-          }}
-        >
-          ⚠️ Damage Queue ({damageRecords.length})
-        </button>
+        {allowedTabs.includes('catalogue') && (
+          <button
+            type="button"
+            onClick={() => setActiveTab('catalogue')}
+            style={{
+              padding: '14px 20px', fontWeight: 800, fontSize: '14.5px', border: 'none', background: 'none',
+              borderBottom: activeTab === 'catalogue' ? '3.5px solid var(--teal)' : '3.5px solid transparent',
+              color: activeTab === 'catalogue' ? 'var(--teal)' : '#64748b', cursor: 'pointer', whiteSpace: 'nowrap'
+            }}
+          >
+            🛍️ Product Catalog
+          </button>
+        )}
+        {allowedTabs.includes('barcodes') && (
+          <button
+            type="button"
+            onClick={() => setActiveTab('barcodes')}
+            style={{
+              padding: '14px 20px', fontWeight: 800, fontSize: '14.5px', border: 'none', background: 'none',
+              borderBottom: activeTab === 'barcodes' ? '3.5px solid var(--teal)' : '3.5px solid transparent',
+              color: activeTab === 'barcodes' ? 'var(--teal)' : '#64748b', cursor: 'pointer', whiteSpace: 'nowrap'
+            }}
+          >
+            📊 Barcode Manager
+          </button>
+        )}
+        {allowedTabs.includes('scanner') && (
+          <button
+            type="button"
+            onClick={() => setActiveTab('scanner')}
+            style={{
+              padding: '14px 20px', fontWeight: 800, fontSize: '14.5px', border: 'none', background: 'none',
+              borderBottom: activeTab === 'scanner' ? '3.5px solid var(--teal)' : '3.5px solid transparent',
+              color: activeTab === 'scanner' ? 'var(--teal)' : '#64748b', cursor: 'pointer', whiteSpace: 'nowrap'
+            }}
+          >
+            📷 Scanner (Check In/Out)
+          </button>
+        )}
+        {allowedTabs.includes('checkouts') && (
+          <button
+            type="button"
+            onClick={() => setActiveTab('checkouts')}
+            style={{
+              padding: '14px 20px', fontWeight: 800, fontSize: '14.5px', border: 'none', background: 'none',
+              borderBottom: activeTab === 'checkouts' ? '3.5px solid var(--teal)' : '3.5px solid transparent',
+              color: activeTab === 'checkouts' ? 'var(--teal)' : '#64748b', cursor: 'pointer', whiteSpace: 'nowrap'
+            }}
+          >
+            📤 Currently Checked Out
+          </button>
+        )}
+        {allowedTabs.includes('missions') && (
+          <button
+            type="button"
+            onClick={() => setActiveTab('missions')}
+            style={{
+              padding: '14px 20px', fontWeight: 800, fontSize: '14.5px', border: 'none', background: 'none',
+              borderBottom: activeTab === 'missions' ? '3.5px solid var(--teal)' : '3.5px solid transparent',
+              color: activeTab === 'missions' ? 'var(--teal)' : '#64748b', cursor: 'pointer', whiteSpace: 'nowrap'
+            }}
+          >
+            🎯 Mission Packages
+          </button>
+        )}
+        {allowedTabs.includes('reports') && (
+          <button
+            type="button"
+            onClick={() => setActiveTab('reports')}
+            style={{
+              padding: '14px 20px', fontWeight: 800, fontSize: '14.5px', border: 'none', background: 'none',
+              borderBottom: activeTab === 'reports' ? '3.5px solid var(--teal)' : '3.5px solid transparent',
+              color: activeTab === 'reports' ? 'var(--teal)' : '#64748b', cursor: 'pointer', whiteSpace: 'nowrap'
+            }}
+          >
+            📊 Inventory Reports
+          </button>
+        )}
+        {allowedTabs.includes('settings') && (
+          <button
+            type="button"
+            onClick={() => setActiveTab('settings')}
+            style={{
+              padding: '14px 20px', fontWeight: 800, fontSize: '14.5px', border: 'none', background: 'none',
+              borderBottom: activeTab === 'settings' ? '3.5px solid var(--teal)' : '3.5px solid transparent',
+              color: activeTab === 'settings' ? 'var(--teal)' : '#64748b', cursor: 'pointer', whiteSpace: 'nowrap'
+            }}
+          >
+            ⚙️ Settings
+          </button>
+        )}
+        {allowedTabs.includes('damage_review') && (
+          <button
+            type="button"
+            onClick={() => setActiveTab('damage_review')}
+            style={{
+              padding: '14px 20px', fontWeight: 800, fontSize: '14.5px', border: 'none', background: 'none',
+              borderBottom: activeTab === 'damage_review' ? '3.5px solid var(--teal)' : '3.5px solid transparent',
+              color: activeTab === 'damage_review' ? 'var(--teal)' : '#64748b', cursor: 'pointer', whiteSpace: 'nowrap'
+            }}
+          >
+            ⚠️ Damage Queue ({damageRecords.length})
+          </button>
+        )}
       </div>
 
       {/* Loading state */}

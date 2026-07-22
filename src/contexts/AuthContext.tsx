@@ -18,6 +18,7 @@ export type Profile = {
   assigned_zone?: string;
   member_unique_code?: string;
   is_panel_coordinator?: boolean; // true when this coordinator is assigned to panel
+  perms?: Record<string, boolean>;
 };
 
 type AuthContextType = {
@@ -26,6 +27,7 @@ type AuthContextType = {
   signIn: (email: string, pass: string) => Promise<boolean>;
   signOut: () => void;
   refreshProfile: () => void;
+  hasPermission: (permission: string) => boolean;
 };
 
 const AuthContext = createContext<AuthContextType>({
@@ -34,6 +36,7 @@ const AuthContext = createContext<AuthContextType>({
   signIn: async () => false,
   signOut: () => {},
   refreshProfile: () => {},
+  hasPermission: () => false,
 });
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -129,8 +132,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setProfile(null);
   };
 
+  const hasPermission = (permission: string): boolean => {
+    if (!profile) return false;
+    if (profile.role === 'super') return true;
+    return !!profile.perms?.[permission];
+  };
+
   return (
-    <AuthContext.Provider value={{ profile, loading, signIn, signOut, refreshProfile }}>
+    <AuthContext.Provider value={{ profile, loading, signIn, signOut, refreshProfile, hasPermission }}>
       {!loading && children}
     </AuthContext.Provider>
   );

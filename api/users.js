@@ -7,6 +7,31 @@ const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 // Create Supabase client with Service Role Key for admin privileges
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
+function hasSubsetPermissions(requesterPerms, targetPerms) {
+  if (!targetPerms) return true;
+  const requester = requesterPerms || {};
+  for (const key of Object.keys(targetPerms)) {
+    if (targetPerms[key] === true && requester[key] !== true) {
+      return false;
+    }
+  }
+  return true;
+}
+
+async function logInventoryAudit(actorId, action, entityType, entityId, payload = null) {
+  try {
+    await supabase.from('inventory_audit_log').insert({
+      actor_id: actorId,
+      action,
+      entity_type: entityType,
+      entity_id: entityId,
+      payload
+    });
+  } catch (err) {
+    console.error('Audit log failed:', err.message);
+  }
+}
+
 export default async function handler(req, res) {
   // CORS Headers
   res.setHeader('Access-Control-Allow-Credentials', true);
@@ -81,10 +106,10 @@ export default async function handler(req, res) {
     // METHOD: POST (create-user.js logic)
     // ==========================================
     if (req.method === 'POST') {
-      // Check requester role (must be admin or super)
+      // Check requester role, branch, and permissions
       const { data: requesterProfile, error: profileErr } = await supabase
         .from('profiles')
-        .select('role')
+        .select('role, branch, perms')
         .eq('id', requester.id)
         .single();
 
@@ -111,9 +136,22 @@ export default async function handler(req, res) {
         active = true,
         join_date,
         is_approver = false,
-        perms = [],
+        perms = {},
         avatar = ''
       } = req.body;
+
+      // Rule Enforcement for Admin
+      if (requesterProfile.role === 'admin') {
+        if (role !== 'member') {
+          return res.status(403).json({ message: 'Forbidden - Admins can only create members' });
+        }
+        if (branch !== requesterProfile.branch) {
+          return res.status(403).json({ message: `Forbidden - Admins can only create members in their own branch (${requesterProfile.branch})` });
+        }
+        if (!hasSubsetPermissions(requesterProfile.perms, perms)) {
+          return res.status(403).json({ message: 'Forbidden - Admins can only assign permissions that they possess' });
+        }
+      }
 
       if (!email || !password || !name) {
         return res.status(400).json({ message: 'Email, password, and name are required' });
@@ -196,20 +234,22 @@ export default async function handler(req, res) {
         return res.status(400).json({ message: 'User ID is required' });
       }
 
-      // Check requester role (must be admin or super, OR the user updating themselves)
-      let isSelf = (requester.id === id);
+      // Fetch requester's profile to check role, branch, and permissions
+      const { data: requesterProfile, error: profileErr } = await supabase
+        .from('profiles')
+        .select('role, branch, perms')
+        .eq('id', requester.id)
+        .single();
+
+      if (profileErr || !requesterProfile) {
+        return res.status(401).json({ message: 'Unauthorized - Requester profile not found' });
+      }
+
+      const isSelf = (requester.id === id);
       let isAuthorized = isSelf;
 
-      if (!isAuthorized) {
-        const { data: requesterProfile, error: profileErr } = await supabase
-          .from('profiles')
-          .select('role')
-          .eq('id', requester.id)
-          .single();
-
-        if (!profileErr && requesterProfile && (requesterProfile.role === 'admin' || requesterProfile.role === 'super')) {
-          isAuthorized = true;
-        }
+      if (!isAuthorized && (requesterProfile.role === 'admin' || requesterProfile.role === 'super')) {
+        isAuthorized = true;
       }
 
       if (!isAuthorized) {
@@ -241,6 +281,57 @@ export default async function handler(req, res) {
         total_donated,
         avatar
       } = req.body;
+
+      // Fetch target profile
+      const { data: targetProfile, error: targetErr } = await supabase
+        .from('profiles')
+        .select('role, branch, perms')
+        .eq('id', id)
+        .single();
+
+      if (targetErr || !targetProfile) {
+        return res.status(404).json({ message: 'User profile not found' });
+      }
+
+      // Prevent non-admin self-updates from promoting role or changing permissions
+      if (isSelf && requesterProfile.role !== 'super' && requesterProfile.role !== 'admin') {
+        if (role !== undefined && role !== requesterProfile.role) {
+          return res.status(403).json({ message: 'Forbidden - Cannot modify your own role' });
+        }
+        if (perms !== undefined) {
+          return res.status(403).json({ message: 'Forbidden - Cannot modify your own permissions' });
+        }
+      }
+
+      // Admin role rule constraints
+      if (requesterProfile.role === 'admin') {
+
+        // Admin can only edit members
+        if (targetProfile.role !== 'member') {
+          return res.status(403).json({ message: 'Forbidden - Admins can only edit members' });
+        }
+
+        // Admin can only edit members of their own branch
+        if (targetProfile.branch !== requesterProfile.branch) {
+          return res.status(403).json({ message: `Forbidden - Admins can only edit members of their own branch (${requesterProfile.branch})` });
+        }
+
+        // Admin cannot change user role to admin or super
+        if (role !== undefined && role !== 'member') {
+          return res.status(403).json({ message: 'Forbidden - Admins cannot promote members to admins' });
+        }
+
+        // Admin cannot transfer user to another branch
+        const targetBranch = branch !== undefined ? branch : targetProfile.branch;
+        if (targetBranch !== requesterProfile.branch) {
+          return res.status(403).json({ message: 'Forbidden - Admins cannot transfer members to another branch' });
+        }
+
+        // Admin can only assign permissions they possess
+        if (perms !== undefined && !hasSubsetPermissions(requesterProfile.perms, perms)) {
+          return res.status(403).json({ message: 'Forbidden - Admins can only assign permissions that they possess' });
+        }
+      }
 
       // Update Auth User if provided
       const { data: userData } = await supabase.auth.admin.getUserById(id);
@@ -301,6 +392,20 @@ export default async function handler(req, res) {
         if (updateError) {
           console.error('Error updating profiles table:', updateError);
           return res.status(500).json({ message: 'Profile update failed: ' + updateError.message });
+        }
+
+        // Log permission updates to audit log
+        if (perms !== undefined) {
+          await logInventoryAudit(
+            requester.id,
+            'update_permissions',
+            'profile',
+            id,
+            {
+              old_perms: targetProfile.perms || {},
+              new_perms: perms
+            }
+          );
         }
       }
 

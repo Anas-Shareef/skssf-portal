@@ -30,31 +30,81 @@ import { supabase } from '../lib/supabaseClient';
 
 const SKSSF_LOGO = `data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgdmlld0JveD0iMCAwIDEwMCAxMDAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxwYXRoIGQ9Ik01MCA1TDg5IDI3LjdWNzIuM0w1MCA5NUwxMSA3Mi4zVjI3LjdMNTAgNVoiIGZpbGw9IndoaXRlIiBzdHJva2U9IiMxNDBCOEE2IiBzdHJva2Utd2lkdGg9IjQiLz4KPHBhdGggZD0iTTUwIDVMODkgMjcuN0w3My41IDM3TDUwIDE5LjVMMjYuNSAzN0wxMSAyNy43TDUwIDVaIiBmaWxsPSIjMDdBQUUxIi8+CjxwYXRoIGQ9Ik0xMSA3Mi4zTDUwIDk1TDg5IDcyLjNMODkgNjAuNUw1MCA4My41TDExIDYwLjVWMTtwIj4KPC9zdmc+`;
 
-const buildNav = (role: string, isPanelCoordinator: boolean) => {
+const buildNav = (role: string, isPanelCoordinator: boolean, hasPermission: (perm: string) => boolean) => {
   const pending = localDb.getLoans().filter((l: any) => l.status === 'pending').length;
 
-  const commonAdmin = [
-    { sec: 'Main', items: [{ ic: BarChart3, lbl: 'Dashboard', path: '' }] },
-    { sec: 'Loan Scheme', items: [{ ic: CircleDollarSign, lbl: 'Loan Management', path: '/loans', badge: pending, bc: 'r' }, { ic: CalendarCheck, lbl: 'Repayment Portal', path: '/repayments' }] },
-    { sec: 'Finance', items: [{ ic: HandHeart, lbl: 'Sahachari', path: '/sahachari' }, { ic: Gift, lbl: 'Donations', path: '/donations' }] },
-    { sec: 'Inventory', items: [{ ic: Boxes, lbl: 'Inventory & Catalog', path: '/inventory' }] },
-    { sec: 'Reports', items: [{ ic: BarChart3, lbl: 'Reports & Export', path: '/reports' }, { ic: Settings, lbl: 'Settings', path: '/settings' }] },
-  ];
+  const showInventory = hasPermission('inventory.view') || 
+                        hasPermission('catalogue.view') || 
+                        hasPermission('barcode.view') || 
+                        hasPermission('scanner.use') || 
+                        hasPermission('checkout.view') || 
+                        hasPermission('missions.view');
 
-  if (role === 'super') {
-    return [
-      commonAdmin[0],
-      { sec: 'Administration', items: [{ ic: ShieldCheck, lbl: 'Manage Admins', path: '/admins' }, { ic: Users, lbl: 'Members', path: '/members' }] },
-      ...commonAdmin.slice(1),
-    ];
+  const showSahachari = role === 'super' || hasPermission('sahachari');
+  const showDonations = role === 'super' || hasPermission('donations');
+
+  const mainSection = { sec: 'Main', items: [{ ic: BarChart3, lbl: 'Dashboard', path: '' }] };
+  
+  // Build items lists conditionally
+  const loanItems = [];
+  if (role === 'super' || hasPermission('loan')) {
+    loanItems.push({ ic: CircleDollarSign, lbl: 'Loan Management', path: '/loans', badge: pending, bc: 'r' });
+  }
+  if (role === 'super' || hasPermission('loan') || hasPermission('checkout.view')) {
+    loanItems.push({ ic: CalendarCheck, lbl: 'Repayment Portal', path: '/repayments' });
   }
 
-  if (role === 'admin') {
-    return [
-      commonAdmin[0],
-      { sec: 'Members', items: [{ ic: Users, lbl: 'My Members', path: '/members' }] },
-      ...commonAdmin.slice(1),
-    ];
+  const financeItems = [];
+  if (showSahachari) {
+    financeItems.push({ ic: HandHeart, lbl: 'Sahachari', path: '/sahachari' });
+  }
+  if (showDonations) {
+    financeItems.push({ ic: Gift, lbl: 'Donations', path: '/donations' });
+  }
+
+  const inventoryItems = [];
+  if (showInventory) {
+    inventoryItems.push({ ic: Boxes, lbl: 'Inventory & Catalog', path: '/inventory' });
+  }
+
+  const reportItems = [];
+  if (role === 'super' || hasPermission('reports.view')) {
+    reportItems.push({ ic: BarChart3, lbl: 'Reports & Export', path: '/reports' });
+  }
+  if (role === 'super' || hasPermission('settings.view')) {
+    reportItems.push({ ic: Settings, lbl: 'Settings', path: '/settings' });
+  }
+
+  const adminNav: any[] = [mainSection];
+
+  // Administration section for Super and Admin
+  const adminSectionItems = [];
+  if (role === 'super' || hasPermission('admins.view')) {
+    adminSectionItems.push({ ic: ShieldCheck, lbl: 'Manage Admins', path: '/admins' });
+  }
+  if (role === 'super' || hasPermission('members.view')) {
+    adminSectionItems.push({ ic: Users, lbl: role === 'super' ? 'Members' : 'My Members', path: '/members' });
+  }
+
+  if (adminSectionItems.length > 0) {
+    adminNav.push({ sec: role === 'super' ? 'Administration' : 'Members', items: adminSectionItems });
+  }
+
+  if (loanItems.length > 0) {
+    adminNav.push({ sec: 'Loan Scheme', items: loanItems });
+  }
+  if (financeItems.length > 0) {
+    adminNav.push({ sec: 'Finance', items: financeItems });
+  }
+  if (inventoryItems.length > 0) {
+    adminNav.push({ sec: 'Inventory', items: inventoryItems });
+  }
+  if (reportItems.length > 0) {
+    adminNav.push({ sec: 'Reports', items: reportItems });
+  }
+
+  if (role === 'super' || role === 'admin') {
+    return adminNav;
   }
 
   if (role === 'coordinator') {
@@ -72,26 +122,42 @@ const buildNav = (role: string, isPanelCoordinator: boolean) => {
   }
 
   // Member
-  return [
+  const memberNav = [
     { sec: 'Main', items: [{ ic: BarChart3, lbl: 'My Dashboard', path: '' }] },
     { sec: 'Tasks', items: [
       { ic: Inbox, lbl: 'Requests Inbox', path: '/inbox' },
       { ic: CircleDollarSign, lbl: 'Loans I Filed', path: '/filed-loans' },
       { ic: CalendarCheck, lbl: 'Repayments', path: '/repayments' },
       { ic: ClipboardPenLine, lbl: 'New Application', path: '/apply' }
-    ]},
-    { sec: 'Logistics', items: [
-      { ic: Boxes, lbl: 'Inventory', path: '/inventory' }
-    ]},
-    { sec: 'Finance', items: [
-      { ic: HandHeart, lbl: 'Sahachari', path: '/sahachari' },
-      { ic: Gift, lbl: 'My Donations', path: '/donations' }
-    ]},
-    { sec: 'Account', items: [
-      { ic: User, lbl: 'My Profile', path: '/profile' },
-      { ic: Settings, lbl: 'Settings', path: '/settings' }
     ]}
   ];
+
+  const memberLogistics = [];
+  if (showInventory) {
+    memberLogistics.push({ ic: Boxes, lbl: 'Inventory', path: '/inventory' });
+  }
+  if (memberLogistics.length > 0) {
+    memberNav.push({ sec: 'Logistics', items: memberLogistics });
+  }
+
+  const memberFinance = [];
+  if (showSahachari) {
+    memberFinance.push({ ic: HandHeart, lbl: 'Sahachari', path: '/sahachari' });
+  }
+  if (showDonations) {
+    memberFinance.push({ ic: Gift, lbl: 'My Donations', path: '/donations' });
+  }
+  if (memberFinance.length > 0) {
+    memberNav.push({ sec: 'Finance', items: memberFinance });
+  }
+
+  const memberAccount = [{ ic: User, lbl: 'My Profile', path: '/profile' }];
+  if (role === 'super' || hasPermission('settings.view')) {
+    memberAccount.push({ ic: Settings, lbl: 'Settings', path: '/settings' });
+  }
+  memberNav.push({ sec: 'Account', items: memberAccount });
+
+  return memberNav;
 };
 
 const ROLE_LABELS: Record<string, { badge: string; avBg: string }> = {
@@ -104,7 +170,7 @@ const ROLE_LABELS: Record<string, { badge: string; avBg: string }> = {
 export default function DashboardLayout() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { profile, signOut } = useAuth();
+  const { profile, signOut, hasPermission } = useAuth();
   const [showNotifs, setShowNotifs] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
@@ -143,7 +209,7 @@ export default function DashboardLayout() {
   const role = profile?.role || 'member';
   const prefix = role === 'super' ? '/super-admin/dashboard' : role === 'admin' ? '/admin/dashboard' : role === 'coordinator' ? '/coordinator/dashboard' : '/member/dashboard';
   
-  const nav = buildNav(role, profile?.is_panel_coordinator || false);
+  const nav = buildNav(role, profile?.is_panel_coordinator || false, hasPermission);
   const roleLabel = ROLE_LABELS[role] || ROLE_LABELS.member;
   const initials = (profile?.name || 'U').split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase();
 

@@ -3,6 +3,7 @@ import { Navigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { localDb } from '../../lib/localDb';
 import ConfirmDialog from '../../components/ConfirmDialog';
+import { PERMISSION_MODULES, DEFAULT_ADMIN_PERMISSIONS } from '../../lib/permissions';
 
 export default function Admins() {
   const { profile } = useAuth();
@@ -34,13 +35,16 @@ export default function Admins() {
   const emailRef = useRef<HTMLInputElement>(null);
   const phoneRef = useRef<HTMLInputElement>(null);
   const passRef = useRef<HTMLInputElement>(null);
-  const permLoan = useRef<HTMLInputElement>(null);
-  const permMember = useRef<HTMLInputElement>(null);
-  const permReports = useRef<HTMLInputElement>(null);
-  const permSettings = useRef<HTMLInputElement>(null);
-  const permSah = useRef<HTMLInputElement>(null);
-  const permDon = useRef<HTMLInputElement>(null);
-  const permReviewer = useRef<HTMLInputElement>(null);
+
+  const [selectedPerms, setSelectedPerms] = useState<Record<string, boolean>>({});
+  const [isReviewer, setIsReviewer] = useState(false);
+
+  const togglePermission = (key: string) => {
+    setSelectedPerms(prev => ({
+      ...prev,
+      [key]: !prev[key]
+    }));
+  };
 
   const prefix = currentRole === 'super' ? '/super-admin/dashboard' : currentRole === 'admin' ? '/admin/dashboard' : '/member/dashboard';
   if (currentRole !== 'super') {
@@ -71,15 +75,10 @@ export default function Admins() {
       desig: designRef.current?.value || 'President',
       pass: pass || undefined,
       active: editingAdmin ? editingAdmin.active : true,
-      is_approver: permReviewer.current?.checked ?? false,
+      is_approver: isReviewer,
       perms: {
-        loan: permLoan.current?.checked ?? true,
-        member: permMember.current?.checked ?? true,
-        reports: permReports.current?.checked ?? true,
-        settings: permSettings.current?.checked ?? false,
-        sahachari: permSah.current?.checked ?? true,
-        donations: permDon.current?.checked ?? true,
-        isReviewer: permReviewer.current?.checked ?? false,
+        ...selectedPerms,
+        isReviewer
       }
     };
 
@@ -109,6 +108,8 @@ export default function Admins() {
     const fresh = localDb.getUsers().find((u: any) => u.id === admin.id) || admin;
     setEditingAdmin(fresh);
     setAvatar(fresh.avatar || '');
+    setSelectedPerms(fresh.perms || DEFAULT_ADMIN_PERMISSIONS);
+    setIsReviewer(!!fresh.is_approver);
     setShowModal(true);
   };
 
@@ -157,7 +158,14 @@ export default function Admins() {
           <div className="pg-sub">Create and manage admin accounts. Created admins can log in at the Admin Portal.</div>
         </div>
         <div className="pg-acts">
-          <button className="bsm s" onClick={() => { setSaveError(''); setShowModal(true); }}>+ Create Admin</button>
+          <button className="bsm s" onClick={() => { 
+            setSaveError(''); 
+            setEditingAdmin(null);
+            setAvatar('');
+            setSelectedPerms(DEFAULT_ADMIN_PERMISSIONS);
+            setIsReviewer(false);
+            setShowModal(true); 
+          }}>+ Create Admin</button>
         </div>
       </div>
 
@@ -238,8 +246,9 @@ export default function Admins() {
                     <td style={{ fontSize: '12px' }}>{a.phone || '—'}</td>
                     <td style={{ fontSize: '11.5px' }}>
                       {[
+                        a.perms?.['inventory.view'] ? '📦 Inventory' : '',
+                        a.perms?.['members.view'] ? '👥 Members' : '',
                         a.perms?.loan ? '💰 Loan' : '',
-                        a.perms?.member ? '👥 Members' : '',
                       ].filter(Boolean).join(' · ') || 'None'}
                       {a.is_approver && (
                         <span style={{
@@ -341,20 +350,70 @@ export default function Admins() {
               </div>
 
               <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--dark2)', margin: '14px 0 10px' }}>Access Permissions</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '9px' }}>
-                {[
-                  { r: permLoan, lbl: '💰 Loan Approval', key: 'loan', def: true },
-                  { r: permMember, lbl: '👥 Member Management', key: 'member', def: true },
-                  { r: permReports, lbl: '📊 View Reports', key: 'reports', def: true },
-                  { r: permSettings, lbl: '⚙️ Edit Settings', key: 'settings', def: false },
-                  { r: permSah, lbl: '🤝 Sahachari', key: 'sahachari', def: true },
-                  { r: permDon, lbl: '🎁 Donations', key: 'donations', def: true },
-                  { r: permReviewer, lbl: '🛡️ Authorized Reviewer', key: 'isReviewer', def: false },
-                ].map((p, i) => (
-                  <label key={i} className="cb-row" style={{ background: 'var(--bg)', borderRadius: '9px', padding: '10px 12px', cursor: 'pointer' }}>
-                    <input type="checkbox" defaultChecked={editingAdmin ? (p.key === 'isReviewer' ? !!editingAdmin.is_approver : !!editingAdmin.perms?.[p.key]) : p.def} ref={p.r} /> {p.lbl}
-                  </label>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', maxHeight: '350px', overflowY: 'auto', paddingRight: '6px' }}>
+                {PERMISSION_MODULES.map((mod, idx) => (
+                  <div key={idx} style={{ borderBottom: idx < PERMISSION_MODULES.length - 1 ? '1px solid #e2e8f0' : 'none', paddingBottom: '16px' }}>
+                    <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--teal)', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' }}>
+                      <span>{mod.icon}</span> {mod.name}
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '9px' }}>
+                      {mod.items.map((p) => {
+                        const checked = !!selectedPerms[p.key];
+                        return (
+                          <label key={p.key} className="cb-row" style={{ background: 'var(--bg)', borderRadius: '9px', padding: '10px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <input 
+                              type="checkbox" 
+                              checked={checked} 
+                              onChange={() => togglePermission(p.key)}
+                            /> 
+                            <span style={{ fontSize: '12.5px', fontWeight: 600, color: 'var(--dark)' }}>{p.label}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
                 ))}
+                
+                {/* Legacy / Special permissions */}
+                <div style={{ paddingTop: '8px' }}>
+                  <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--teal)', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' }}>
+                    🛡️ Special Role Settings
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '9px' }}>
+                    <label className="cb-row" style={{ background: 'var(--bg)', borderRadius: '9px', padding: '10px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <input 
+                        type="checkbox" 
+                        checked={!!selectedPerms['loan']} 
+                        onChange={() => togglePermission('loan')}
+                      /> 
+                      <span style={{ fontSize: '12.5px', fontWeight: 600, color: 'var(--dark)' }}>💰 Loan Approval</span>
+                    </label>
+                    <label className="cb-row" style={{ background: 'var(--bg)', borderRadius: '9px', padding: '10px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <input 
+                        type="checkbox" 
+                        checked={!!selectedPerms['sahachari']} 
+                        onChange={() => togglePermission('sahachari')}
+                      /> 
+                      <span style={{ fontSize: '12.5px', fontWeight: 600, color: 'var(--dark)' }}>🤝 Sahachari</span>
+                    </label>
+                    <label className="cb-row" style={{ background: 'var(--bg)', borderRadius: '9px', padding: '10px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <input 
+                        type="checkbox" 
+                        checked={!!selectedPerms['donations']} 
+                        onChange={() => togglePermission('donations')}
+                      /> 
+                      <span style={{ fontSize: '12.5px', fontWeight: 600, color: 'var(--dark)' }}>🎁 Donations</span>
+                    </label>
+                    <label className="cb-row" style={{ background: 'var(--bg)', borderRadius: '9px', padding: '10px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <input 
+                        type="checkbox" 
+                        checked={isReviewer} 
+                        onChange={() => setIsReviewer(!isReviewer)}
+                      /> 
+                      <span style={{ fontSize: '12.5px', fontWeight: 600, color: 'var(--dark)' }}>🛡️ Authorized Reviewer</span>
+                    </label>
+                  </div>
+                </div>
               </div>
             </div>
             <div className="modal-foot">

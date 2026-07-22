@@ -181,6 +181,11 @@ export default async function handler(req, res) {
 
   if (profErr || !profile) return res.status(401).json({ error: 'Profile not found' });
 
+  const hasPermission = (perm) => {
+    if (profile.role === 'super') return true;
+    return !!profile.perms?.[perm];
+  };
+
   const resource = req.query.resource || req.body?.resource;
   if (!resource) {
     return res.status(400).json({ error: 'Resource parameter required' });
@@ -198,8 +203,18 @@ export default async function handler(req, res) {
       }
 
       // Mutation auth check
-      if (profile.role !== 'admin' && profile.role !== 'super' && profile.role !== 'member') {
-        return res.status(403).json({ error: 'Forbidden - Admins only' });
+      if (req.method === 'POST') {
+        if (!hasPermission('catalogue.create')) {
+          return res.status(403).json({ error: 'Forbidden - Requires catalogue.create permission' });
+        }
+      } else if (req.method === 'PATCH' || req.method === 'PUT') {
+        if (!hasPermission('catalogue.edit')) {
+          return res.status(403).json({ error: 'Forbidden - Requires catalogue.edit permission' });
+        }
+      } else if (req.method === 'DELETE') {
+        if (!hasPermission('catalogue.delete')) {
+          return res.status(403).json({ error: 'Forbidden - Requires catalogue.delete permission' });
+        }
       }
 
       if (req.method === 'POST') {
@@ -340,8 +355,8 @@ export default async function handler(req, res) {
       }
 
       // Mutation auth check
-      if (profile.role !== 'admin' && profile.role !== 'super' && profile.role !== 'member') {
-        return res.status(403).json({ error: 'Forbidden - Admins only' });
+      if (!hasPermission('catalogue.create')) {
+        return res.status(403).json({ error: 'Forbidden - Requires catalogue.create permission' });
       }
 
       if (req.method === 'POST') {
@@ -452,12 +467,25 @@ export default async function handler(req, res) {
         return res.status(405).json({ error: 'Method not allowed' });
       }
 
-      if (profile.role !== 'admin' && profile.role !== 'super' && profile.role !== 'member') {
-        return res.status(403).json({ error: 'Forbidden - Admins only' });
-      }
-
       const { action, id } = req.body;
       if (!action || !id) return res.status(400).json({ error: 'Action and ID required' });
+
+      // Enforce action-specific permissions
+      if (action === 'edit' || action === 'deactivate') {
+        if (!hasPermission('catalogue.edit')) {
+          return res.status(403).json({ error: 'Forbidden - Requires catalogue.edit permission' });
+        }
+      } else if (action === 'delete') {
+        if (!hasPermission('catalogue.delete')) {
+          return res.status(403).json({ error: 'Forbidden - Requires catalogue.delete permission' });
+        }
+      } else if (action === 'adjust-stock') {
+        if (!hasPermission('inventory.stock.update')) {
+          return res.status(403).json({ error: 'Forbidden - Requires inventory.stock.update permission' });
+        }
+      } else {
+        return res.status(400).json({ error: `Invalid item action: ${action}` });
+      }
 
       // 1. EDIT
       if (action === 'edit') {
@@ -673,8 +701,8 @@ export default async function handler(req, res) {
         }
 
         // Admin/Member checks all
-        if (profile.role !== 'admin' && profile.role !== 'super' && profile.role !== 'member') {
-          return res.status(403).json({ error: 'Forbidden' });
+        if (!hasPermission('checkout.view')) {
+          return res.status(403).json({ error: 'Forbidden - Requires checkout.view permission' });
         }
 
         const buildQuery = (withUnit) => {
@@ -700,6 +728,9 @@ export default async function handler(req, res) {
       }
 
       if (req.method === 'POST') {
+        if (!hasPermission('checkout.create')) {
+          return res.status(403).json({ error: 'Forbidden - Requires checkout.create permission' });
+        }
         const { item_id, quantity, notes, unit_id, member_id, mission_id } = req.body;
         if (!item_id) return res.status(400).json({ error: 'Item ID required' });
         const qty = quantity || 1;
@@ -829,8 +860,14 @@ export default async function handler(req, res) {
 
       // 1. SELF CHECK-IN
       if (action === 'checkin') {
-        if (profile.role !== 'admin' && profile.role !== 'super' && profile.role !== 'member' && checkout.member_id !== profile.id) {
-          return res.status(403).json({ error: 'Unauthorized to check in this item' });
+        if (checkout.member_id === profile.id) {
+          if (!hasPermission('checkout.return')) {
+            return res.status(403).json({ error: 'Forbidden - Requires checkout.return permission' });
+          }
+        } else {
+          if (!hasPermission('checkout.force_return')) {
+            return res.status(403).json({ error: 'Forbidden - Requires checkout.force_return permission to check in other users\' leases' });
+          }
         }
 
         const { return_condition, condition_notes } = req.body;
@@ -881,8 +918,8 @@ export default async function handler(req, res) {
 
       // 2. ADMIN MANUAL OVERRIDE (MARK-RETURNED)
       if (action === 'mark-returned') {
-        if (profile.role !== 'admin' && profile.role !== 'super' && profile.role !== 'member') {
-          return res.status(403).json({ error: 'Forbidden' });
+        if (!hasPermission('checkout.force_return')) {
+          return res.status(403).json({ error: 'Forbidden - Requires checkout.force_return permission' });
         }
 
         const { return_condition, return_date, condition_notes } = req.body;
@@ -1109,9 +1146,26 @@ export default async function handler(req, res) {
         return res.status(200).json({ missions: missionsWithCounts });
       }
 
-      // Admin/super check for mutations
-      if (profile.role !== 'admin' && profile.role !== 'super') {
-        return res.status(403).json({ error: 'Forbidden' });
+      // Permissions check for missions mutations
+      if (req.method === 'POST') {
+        if (!hasPermission('missions.create')) {
+          return res.status(403).json({ error: 'Forbidden - Requires missions.create permission' });
+        }
+      } else if (req.method === 'PATCH') {
+        const { status } = req.body;
+        if (status === 'completed') {
+          if (!hasPermission('missions.complete')) {
+            return res.status(403).json({ error: 'Forbidden - Requires missions.complete permission' });
+          }
+        } else {
+          if (!hasPermission('missions.create') && !hasPermission('missions.assign')) {
+            return res.status(403).json({ error: 'Forbidden - Requires missions.create or missions.assign permission' });
+          }
+        }
+      } else if (req.method === 'DELETE') {
+        if (!hasPermission('missions.create')) {
+          return res.status(403).json({ error: 'Forbidden - Requires missions.create permission to delete missions' });
+        }
       }
 
       if (req.method === 'POST') {
