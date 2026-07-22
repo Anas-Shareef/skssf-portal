@@ -18,9 +18,11 @@ CREATE TABLE IF NOT EXISTS org_settings (
 -- Allow admins to read/write org_settings
 ALTER TABLE org_settings ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "org_settings_select" ON org_settings;
 CREATE POLICY "org_settings_select" ON org_settings
   FOR SELECT TO authenticated USING (TRUE);
 
+DROP POLICY IF EXISTS "org_settings_update" ON org_settings;
 CREATE POLICY "org_settings_update" ON org_settings
   FOR ALL TO authenticated
   USING (

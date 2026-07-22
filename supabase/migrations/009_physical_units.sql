@@ -29,10 +29,12 @@ ALTER TABLE inventory_units
 -- 4. Enable Row Level Security
 ALTER TABLE inventory_units ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "inventory_units_select" ON inventory_units;
 CREATE POLICY "inventory_units_select" ON inventory_units
   FOR SELECT TO authenticated
   USING (TRUE);
 
+DROP POLICY IF EXISTS "inventory_units_all_admin" ON inventory_units;
 CREATE POLICY "inventory_units_all_admin" ON inventory_units
   FOR ALL TO authenticated
   USING (
