@@ -17,14 +17,55 @@ CREATE TABLE IF NOT EXISTS inventory_units (
 
 -- 2. Add unit_id column to inventory_checkouts
 ALTER TABLE inventory_checkouts
-  ADD COLUMN IF NOT EXISTS unit_id UUID REFERENCES inventory_units(id) ON DELETE SET NULL;
+  ADD COLUMN IF NOT EXISTS unit_id UUID;
 
--- 3. Add foreign key to inventory_units for current_checkout_id
-ALTER TABLE inventory_units
-  ADD CONSTRAINT fk_current_checkout
-  FOREIGN KEY (current_checkout_id)
-  REFERENCES inventory_checkouts(id)
-  ON DELETE SET NULL;
+-- Ensure foreign key constraint on inventory_checkouts(unit_id) exists
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 
+    FROM information_schema.table_constraints 
+    WHERE table_name = 'inventory_checkouts' AND constraint_name = 'inventory_checkouts_unit_id_fkey'
+  ) THEN
+    ALTER TABLE inventory_checkouts
+      ADD CONSTRAINT inventory_checkouts_unit_id_fkey
+      FOREIGN KEY (unit_id)
+      REFERENCES inventory_units(id)
+      ON DELETE SET NULL;
+  END IF;
+END $$;
+
+-- 3. Add foreign key to inventory_units for item_id (since table might have already existed without fkey)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 
+    FROM information_schema.table_constraints 
+    WHERE table_name = 'inventory_units' AND constraint_name = 'inventory_units_item_id_fkey'
+  ) THEN
+    ALTER TABLE inventory_units
+      ADD CONSTRAINT inventory_units_item_id_fkey
+      FOREIGN KEY (item_id)
+      REFERENCES inventory_items(id)
+      ON DELETE CASCADE;
+  END IF;
+END $$;
+
+-- Add foreign key to inventory_units for current_checkout_id
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 
+    FROM information_schema.table_constraints 
+    WHERE table_name = 'inventory_units' AND constraint_name = 'fk_current_checkout'
+  ) THEN
+    ALTER TABLE inventory_units
+      ADD CONSTRAINT fk_current_checkout
+      FOREIGN KEY (current_checkout_id)
+      REFERENCES inventory_checkouts(id)
+      ON DELETE SET NULL;
+  END IF;
+END $$;
 
 -- 4. Enable Row Level Security
 ALTER TABLE inventory_units ENABLE ROW LEVEL SECURITY;
