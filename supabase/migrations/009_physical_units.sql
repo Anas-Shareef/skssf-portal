@@ -20,6 +20,9 @@ ALTER TABLE inventory_checkouts
   ADD COLUMN IF NOT EXISTS unit_id UUID;
 
 -- Ensure foreign key constraint on inventory_checkouts(unit_id) exists
+-- Clean up orphaned checkouts pointing to deleted physical units
+UPDATE inventory_checkouts SET unit_id = NULL WHERE unit_id IS NOT NULL AND unit_id NOT IN (SELECT id FROM inventory_units);
+
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -36,6 +39,9 @@ BEGIN
 END $$;
 
 -- 3. Add foreign key to inventory_units for item_id (since table might have already existed without fkey)
+-- Clean up orphaned physical units whose item products were deleted
+DELETE FROM inventory_units WHERE item_id NOT IN (SELECT id FROM inventory_items);
+
 DO $$
 BEGIN
   IF NOT EXISTS (
