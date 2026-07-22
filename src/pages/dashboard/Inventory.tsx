@@ -2032,14 +2032,14 @@ export default function Inventory() {
                         {scannerMode === 'checkout' ? (
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '24px' }}>
                             <div>
-                              <label className="fl2" style={{ color: '#2b2d42', fontWeight: 700 }}>Select Member *</label>
+                              <label className="fl2" style={{ color: '#2b2d42', fontWeight: 700 }}>Distributor *</label>
                               <select 
                                 value={scannerMemberId} 
                                 onChange={e => setScannerMemberId(e.target.value)} 
                                 className="sel2" 
                                 style={{ width: '100%', height: '42px', borderRadius: '10px', border: '1px solid #c3fae8', background: '#fff' }}
                               >
-                                <option value="">Choose member...</option>
+                                <option value="">Choose distributor...</option>
                                 {members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
                               </select>
                             </div>
@@ -3503,9 +3503,10 @@ ON CONFLICT (name) DO NOTHING;`}</pre>
                 </span>
                 <div style={{ fontSize: '13px', color: '#6B7280', marginTop: '4px' }}>
                   {allCheckouts.filter(c => {
+                    if (c.mission_id) return c.mission_id === selectedMissionDetail.id;
                     if (selectedMissionDetail.name === 'Ramadan Welfare 2025' && (c.notes?.includes('Ramadan Welfare') || c.notes?.includes('Ramadan'))) return true;
                     if (selectedMissionDetail.name === 'Student Support Drive 2025' && (c.notes?.includes('Student Support') || c.notes?.includes('Student'))) return true;
-                    if (selectedMissionDetail.name === 'Medical Relief Camp' && (c.notes?.includes('Medical Relief') || c.notes?.includes('Medical'))) return true;
+                    if (selectedMissionDetail.name === 'Medical Relief Camp' && (c.notes?.includes('Medical Relief') || c.notes?.includes('Medical') || c.notes?.toLowerCase().includes('medical'))) return true;
                     if (selectedMissionDetail.name === 'General Distribution' && (!c.notes?.includes('Ramadan') && !c.notes?.includes('Student') && !c.notes?.includes('Medical'))) return true;
                     return c.notes?.includes(selectedMissionDetail.name) || c.notes === selectedMissionDetail.name;
                   }).length} items distributed under this mission
@@ -3529,9 +3530,10 @@ ON CONFLICT (name) DO NOTHING;`}</pre>
                 <tbody>
                   {(() => {
                     const missionCheckouts = allCheckouts.filter(c => {
+                      if (c.mission_id) return c.mission_id === selectedMissionDetail.id;
                       if (selectedMissionDetail.name === 'Ramadan Welfare 2025' && (c.notes?.includes('Ramadan Welfare') || c.notes?.includes('Ramadan'))) return true;
                       if (selectedMissionDetail.name === 'Student Support Drive 2025' && (c.notes?.includes('Student Support') || c.notes?.includes('Student'))) return true;
-                      if (selectedMissionDetail.name === 'Medical Relief Camp' && (c.notes?.includes('Medical Relief') || c.notes?.includes('Medical'))) return true;
+                      if (selectedMissionDetail.name === 'Medical Relief Camp' && (c.notes?.includes('Medical Relief') || c.notes?.includes('Medical') || c.notes?.toLowerCase().includes('medical'))) return true;
                       if (selectedMissionDetail.name === 'General Distribution' && (!c.notes?.includes('Ramadan') && !c.notes?.includes('Student') && !c.notes?.includes('Medical'))) return true;
                       return c.notes?.includes(selectedMissionDetail.name) || c.notes === selectedMissionDetail.name;
                     });
