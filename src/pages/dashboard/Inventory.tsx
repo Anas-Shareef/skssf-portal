@@ -1445,23 +1445,14 @@ export default function Inventory() {
                 marginBottom: '32px'
               }}>
                 {/* Card 1: Total Products */}
-                <div 
-                  onClick={() => setDashboardFilter('all')}
-                  style={{
-                    background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: '18px', padding: '16px',
-                    boxShadow: '0 2px 10px rgba(0,0,0,0.02)', transition: 'all 0.2s', cursor: 'pointer',
-                    display: 'flex', flexDirection: 'column', gap: '8px'
-                  }}
-                  onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.borderColor = 'var(--teal)'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.borderColor = '#e2e8f0'; }}
-                >
+                <div style={{ background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: '18px', padding: '16px', boxShadow: '0 2px 10px rgba(0,0,0,0.02)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>📦</div>
                     <span style={{ fontSize: '11px', fontWeight: 800, background: '#f1f5f9', color: '#475569', padding: '3px 8px', borderRadius: '20px' }}>Products</span>
                   </div>
                   <div>
                     <div style={{ fontSize: '26px', fontWeight: 950, color: '#0f172a', lineHeight: 1.2 }}>{items.length}</div>
-                    <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>Unique catalog entries</div>
+                    <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 600 }}>Unique catalog entries</div>
                   </div>
                 </div>
 
@@ -1511,95 +1502,7 @@ export default function Inventory() {
                     <div style={{ fontSize: '26px', fontWeight: 950, color: '#15803d', lineHeight: 1.2 }}>
                       {allCheckouts.filter(c => c.status === 'returned' && c.actual_return_date && new Date(c.actual_return_date).toDateString() === new Date().toDateString()).reduce((s, c) => s + (c.quantity || 0), 0)}
                     </div>
-                    <div style={{ fontSize: '11.5px', color: '#166534', fontWeight: 600 }}>Today's activity logs</div>
-                  </div>
-                </div>
-
-                {/* Card 6: Low Stock */}
-                <div 
-                  onClick={() => setDashboardFilter(dashboardFilter === 'low' ? 'all' : 'low')}
-                  style={{
-                    background: '#fff7ed', border: dashboardFilter === 'low' ? '2px solid #ea580c' : '1.5px solid #fed7aa', borderRadius: '18px', padding: '16px',
-                    boxShadow: '0 2px 10px rgba(0,0,0,0.02)', transition: 'all 0.2s', cursor: 'pointer',
-                    display: 'flex', flexDirection: 'column', gap: '8px'
-                  }}
-                  onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.transform = 'none'; }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: '#ffedd5', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>⚠️</div>
-                    <span style={{ fontSize: '11px', fontWeight: 800, background: '#ffedd5', color: '#ea580c', padding: '3px 8px', borderRadius: '20px' }}>Low Stock</span>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: '26px', fontWeight: 950, color: '#ea580c', lineHeight: 1.2 }}>
-                      {items.filter(p => p.total_stock > 0 && p.available_stock > 0 && p.available_stock <= 5).length}
-                    </div>
-                    <div style={{ fontSize: '11.5px', color: '#c2410c', fontWeight: 600 }}>Below threshold (Click)</div>
-                  </div>
-                </div>
-
-                {/* Card 7: Out of Stock */}
-                <div 
-                  onClick={() => setDashboardFilter(dashboardFilter === 'out' ? 'all' : 'out')}
-                  style={{
-                    background: '#fef2f2', border: dashboardFilter === 'out' ? '2px solid #dc2626' : '1.5px solid #fecaca', borderRadius: '18px', padding: '16px',
-                    boxShadow: '0 2px 10px rgba(0,0,0,0.02)', transition: 'all 0.2s', cursor: 'pointer',
-                    display: 'flex', flexDirection: 'column', gap: '8px'
-                  }}
-                  onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.transform = 'none'; }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: '#fee2e2', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>❌</div>
-                    <span style={{ fontSize: '11px', fontWeight: 800, background: '#fee2e2', color: '#dc2626', padding: '3px 8px', borderRadius: '20px' }}>Out of Stock</span>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: '26px', fontWeight: 950, color: '#dc2626', lineHeight: 1.2 }}>
-                      {items.filter(p => p.total_stock > 0 && p.available_stock === 0).length}
-                    </div>
-                    <div style={{ fontSize: '11.5px', color: '#b91c1c', fontWeight: 600 }}>Zero availability (Click)</div>
-                  </div>
-                </div>
-
-                {/* Card 8: Active Checkouts */}
-                <div style={{ background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: '18px', padding: '16px', boxShadow: '0 2px 10px rgba(0,0,0,0.02)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>📋</div>
-                    <span style={{ fontSize: '11px', fontWeight: 800, background: '#f1f5f9', color: '#475569', padding: '3px 8px', borderRadius: '20px' }}>Active Logs</span>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: '26px', fontWeight: 950, color: '#0f172a', lineHeight: 1.2 }}>
-                      {allCheckouts.filter(c => c.status === 'active' || c.status === 'overdue').length}
-                    </div>
-                    <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 600 }}>Open checkout records</div>
-                  </div>
-                </div>
-
-                {/* Card 9: Categories */}
-                <div style={{ background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: '18px', padding: '16px', boxShadow: '0 2px 10px rgba(0,0,0,0.02)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>🏷️</div>
-                    <span style={{ fontSize: '11px', fontWeight: 800, background: '#f1f5f9', color: '#475569', padding: '3px 8px', borderRadius: '20px' }}>Categories</span>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: '26px', fontWeight: 950, color: '#0f172a', lineHeight: 1.2 }}>{categories.length}</div>
-                    <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 600 }}>Divisions registered</div>
-                  </div>
-                </div>
-
-                {/* Card 10: Inventory Value */}
-                <div style={{ background: '#fffbeb', border: '1.5px solid #fef3c7', borderRadius: '18px', padding: '16px', boxShadow: '0 2px 10px rgba(0,0,0,0.02)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: '#fef3c7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>💰</div>
-                    <span style={{ fontSize: '11px', fontWeight: 800, background: '#fef3c7', color: '#d97706', padding: '3px 8px', borderRadius: '20px' }}>Value</span>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: '24px', fontWeight: 950, color: '#d97706', lineHeight: 1.2 }}>
-                      {new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(
-                        items.reduce((s, p) => s + ((p.available_stock || 0) * getMockUnitPrice(p.name)), 0)
-                      )}
-                    </div>
-                    <div style={{ fontSize: '11.5px', color: '#b45309', fontWeight: 600 }}>Warehouse stock worth</div>
+                    <div style={{ fontSize: '11.5px', color: '#166534', fontWeight: 600 }}>Currently checked in</div>
                   </div>
                 </div>
               </div>
@@ -3171,41 +3074,141 @@ ON CONFLICT (name) DO NOTHING;`}</pre>
           {activeTab === 'reports' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '28px' }}>
               
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '18px' }} className="inv-grid">
-                <div style={{ background: '#fff', border: '1.5px solid #f1f5f9', borderRadius: '20px', padding: '20px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                    <span style={{ fontSize: '11px', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase' }}>Catalogue Items</span>
-                    <span style={{ fontSize: '20px' }}>📦</span>
+              <div className="reports-dashboard-grid" style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(215px, 1fr))',
+                gap: '16px'
+              }}>
+                {/* Card 1: Total Products */}
+                <div style={{ background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: '18px', padding: '16px', boxShadow: '0 2px 10px rgba(0,0,0,0.02)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>📦</div>
+                    <span style={{ fontSize: '11px', fontWeight: 800, background: '#f1f5f9', color: '#475569', padding: '3px 8px', borderRadius: '20px' }}>Products</span>
                   </div>
-                  <strong style={{ fontSize: '24px', fontWeight: 900, color: '#0f172a' }}>{items.length} Types</strong>
-                  <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>Total products registered</div>
+                  <div>
+                    <div style={{ fontSize: '26px', fontWeight: 950, color: '#0f172a', lineHeight: 1.2 }}>{items.length}</div>
+                    <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>Unique catalog entries</div>
+                  </div>
                 </div>
 
-                <div style={{ background: '#fff', border: '1.5px solid #f1f5f9', borderRadius: '20px', padding: '20px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                    <span style={{ fontSize: '11px', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase' }}>Total Physical Units</span>
-                    <span style={{ fontSize: '20px' }}>🏷️</span>
+                {/* Card 2: Total Units */}
+                <div style={{ background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: '18px', padding: '16px', boxShadow: '0 2px 10px rgba(0,0,0,0.02)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>📦</div>
+                    <span style={{ fontSize: '11px', fontWeight: 800, background: '#f1f5f9', color: '#475569', padding: '3px 8px', borderRadius: '20px' }}>Total Units</span>
                   </div>
-                  <strong style={{ fontSize: '24px', fontWeight: 900, color: '#0f172a' }}>{items.reduce((acc, p) => acc + p.total_stock, 0)} Units</strong>
-                  <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>Barcoded items on catalog</div>
+                  <div>
+                    <div style={{ fontSize: '26px', fontWeight: 950, color: '#0f172a', lineHeight: 1.2 }}>{items.reduce((s, p) => s + (p.total_stock || 0), 0)}</div>
+                    <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 600 }}>Quantity of all items</div>
+                  </div>
                 </div>
 
-                <div style={{ background: '#fff', border: '1.5px solid #f1f5f9', borderRadius: '20px', padding: '20px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                    <span style={{ fontSize: '11px', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase' }}>Active Leases</span>
-                    <span style={{ fontSize: '20px' }}>📤</span>
+                {/* Card 3: Available Now */}
+                <div style={{ background: '#f0fdf4', border: '1.5px solid #bbf7d0', borderRadius: '18px', padding: '16px', boxShadow: '0 2px 10px rgba(0,0,0,0.02)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: '#dcfce7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>✅</div>
+                    <span style={{ fontSize: '11px', fontWeight: 800, background: '#dcfce7', color: '#16a34a', padding: '3px 8px', borderRadius: '20px' }}>In Stock</span>
                   </div>
-                  <strong style={{ fontSize: '24px', fontWeight: 900, color: '#0f172a' }}>{allCheckouts.filter(c => c.status === 'active').length} Out</strong>
-                  <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>Units held by members</div>
+                  <div>
+                    <div style={{ fontSize: '26px', fontWeight: 950, color: '#16a34a', lineHeight: 1.2 }}>{items.reduce((s, p) => s + (p.available_stock || 0), 0)}</div>
+                    <div style={{ fontSize: '11.5px', color: '#15803d', fontWeight: 600 }}>Ready to issue</div>
+                  </div>
                 </div>
 
-                <div style={{ background: '#fff', border: '1.5px solid #f1f5f9', borderRadius: '20px', padding: '20px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                    <span style={{ fontSize: '11px', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase' }}>Damage Resolving</span>
-                    <span style={{ fontSize: '20px' }}>⚠️</span>
+                {/* Card 4: Checked Out */}
+                <div style={{ background: '#eff6ff', border: '1.5px solid #bfdbfe', borderRadius: '18px', padding: '16px', boxShadow: '0 2px 10px rgba(0,0,0,0.02)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: '#dbeafe', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>📤</div>
+                    <span style={{ fontSize: '11px', fontWeight: 800, background: '#dbeafe', color: '#2563eb', padding: '3px 8px', borderRadius: '20px' }}>Issued</span>
                   </div>
-                  <strong style={{ fontSize: '24px', fontWeight: 900, color: '#0f172a' }}>{damageRecords.length} Flagged</strong>
-                  <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>Awaiting resolution reviews</div>
+                  <div>
+                    <div style={{ fontSize: '26px', fontWeight: 950, color: '#2563eb', lineHeight: 1.2 }}>{items.reduce((s, p) => s + Math.max(0, (p.total_stock || 0) - (p.available_stock || 0)), 0)}</div>
+                    <div style={{ fontSize: '11.5px', color: '#1d4ed8', fontWeight: 600 }}>Currently checked out</div>
+                  </div>
+                </div>
+
+                {/* Card 5: Checked In Today */}
+                <div style={{ background: '#f0fdf4', border: '1.5px solid #bbf7d0', borderRadius: '18px', padding: '16px', boxShadow: '0 2px 10px rgba(0,0,0,0.02)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: '#dcfce7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>📥</div>
+                    <span style={{ fontSize: '11px', fontWeight: 800, background: '#dcfce7', color: '#15803d', padding: '3px 8px', borderRadius: '20px' }}>Returned</span>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '26px', fontWeight: 950, color: '#15803d', lineHeight: 1.2 }}>
+                      {allCheckouts.filter(c => c.status === 'returned' && c.actual_return_date && new Date(c.actual_return_date).toDateString() === new Date().toDateString()).reduce((s, c) => s + (c.quantity || 0), 0)}
+                    </div>
+                    <div style={{ fontSize: '11.5px', color: '#166534', fontWeight: 600 }}>Currently checked in</div>
+                  </div>
+                </div>
+
+                {/* Card 6: Low Stock */}
+                <div style={{ background: '#fff7ed', border: '1.5px solid #fed7aa', borderRadius: '18px', padding: '16px', boxShadow: '0 2px 10px rgba(0,0,0,0.02)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: '#ffedd5', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>⚠️</div>
+                    <span style={{ fontSize: '11px', fontWeight: 800, background: '#ffedd5', color: '#ea580c', padding: '3px 8px', borderRadius: '20px' }}>Low Stock</span>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '26px', fontWeight: 950, color: '#ea580c', lineHeight: 1.2 }}>
+                      {items.filter(p => p.total_stock > 0 && p.available_stock > 0 && p.available_stock <= 5).length}
+                    </div>
+                    <div style={{ fontSize: '11.5px', color: '#c2410c', fontWeight: 600 }}>Below threshold</div>
+                  </div>
+                </div>
+
+                {/* Card 7: Out of Stock */}
+                <div style={{ background: '#fef2f2', border: '1.5px solid #fecaca', borderRadius: '18px', padding: '16px', boxShadow: '0 2px 10px rgba(0,0,0,0.02)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: '#fee2e2', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>❌</div>
+                    <span style={{ fontSize: '11px', fontWeight: 800, background: '#fee2e2', color: '#dc2626', padding: '3px 8px', borderRadius: '20px' }}>Out of Stock</span>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '26px', fontWeight: 950, color: '#dc2626', lineHeight: 1.2 }}>
+                      {items.filter(p => p.total_stock > 0 && p.available_stock === 0).length}
+                    </div>
+                    <div style={{ fontSize: '11.5px', color: '#b91c1c', fontWeight: 600 }}>Zero availability</div>
+                  </div>
+                </div>
+
+                {/* Card 8: Active Checkouts */}
+                <div style={{ background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: '18px', padding: '16px', boxShadow: '0 2px 10px rgba(0,0,0,0.02)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>📋</div>
+                    <span style={{ fontSize: '11px', fontWeight: 800, background: '#f1f5f9', color: '#475569', padding: '3px 8px', borderRadius: '20px' }}>Active Logs</span>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '26px', fontWeight: 950, color: '#0f172a', lineHeight: 1.2 }}>
+                      {allCheckouts.filter(c => c.status === 'active' || c.status === 'overdue').length}
+                    </div>
+                    <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 600 }}>Open checkout records</div>
+                  </div>
+                </div>
+
+                {/* Card 9: Categories */}
+                <div style={{ background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: '18px', padding: '16px', boxShadow: '0 2px 10px rgba(0,0,0,0.02)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>🏷️</div>
+                    <span style={{ fontSize: '11px', fontWeight: 800, background: '#f1f5f9', color: '#475569', padding: '3px 8px', borderRadius: '20px' }}>Categories</span>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '26px', fontWeight: 950, color: '#0f172a', lineHeight: 1.2 }}>{categories.length}</div>
+                    <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 600 }}>Divisions registered</div>
+                  </div>
+                </div>
+
+                {/* Card 10: Inventory Value */}
+                <div style={{ background: '#fffbeb', border: '1.5px solid #fef3c7', borderRadius: '18px', padding: '16px', boxShadow: '0 2px 10px rgba(0,0,0,0.02)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: '#fef3c7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>💰</div>
+                    <span style={{ fontSize: '11px', fontWeight: 800, background: '#fef3c7', color: '#d97706', padding: '3px 8px', borderRadius: '20px' }}>Value</span>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '24px', fontWeight: 950, color: '#d97706', lineHeight: 1.2 }}>
+                      {new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(
+                        items.reduce((s, p) => s + ((p.available_stock || 0) * getMockUnitPrice(p.name)), 0)
+                      )}
+                    </div>
+                    <div style={{ fontSize: '11.5px', color: '#b45309', fontWeight: 600 }}>Warehouse stock worth</div>
+                  </div>
                 </div>
               </div>
 
