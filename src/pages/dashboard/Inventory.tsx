@@ -249,6 +249,14 @@ export default function Inventory() {
   const [selectedReportProductTxn, setSelectedReportProductTxn] = useState<InventoryItem | null>(null);
   const [showAllCategoriesInReports, setShowAllCategoriesInReports] = useState(false);
   const [showAllProductsInReports, setShowAllProductsInReports] = useState(false);
+  const [checkoutWizardUnit, setCheckoutWizardUnit] = useState<any | null>(null);
+  const [checkoutWizardMember, setCheckoutWizardMember] = useState('');
+  const [checkoutWizardNotes, setCheckoutWizardNotes] = useState('');
+  const [checkoutWizardDueReturn, setCheckoutWizardDueReturn] = useState('');
+  const [checkoutWizardSubmitting, setCheckoutWizardSubmitting] = useState(false);
+  const [checkoutWizardActive, setCheckoutWizardActive] = useState(false);
+  const [scannerDemoMode, setScannerDemoMode] = useState(false);
+  const [selectedUnitDetail, setSelectedUnitDetail] = useState<any | null>(null);
 
   // Missions & Bundling State
   const [showCreateMissionModal, setShowCreateMissionModal] = useState(false);
@@ -467,6 +475,51 @@ export default function Inventory() {
       setCameraActive(false);
     }
   }, [activeTab]);
+
+  useEffect(() => {
+    let active = true;
+    let frameId: number;
+
+    const detectFrame = async () => {
+      if (!active || !cameraActive) return;
+      try {
+        if ('BarcodeDetector' in window) {
+          const detector = new (window as any).BarcodeDetector({ formats: ['code_128', 'qr_code', 'ean_13'] });
+          if (cameraVideoRef.current && cameraVideoRef.current.readyState >= 2) {
+            const barcodes = await detector.detect(cameraVideoRef.current);
+            if (barcodes.length > 0 && barcodes[0].rawValue) {
+              const detectedCode = barcodes[0].rawValue;
+              if (cameraStreamRef.current) {
+                cameraStreamRef.current.getTracks().forEach(t => t.stop());
+                cameraStreamRef.current = null;
+              }
+              setCameraActive(false);
+              setManualBarcode(detectedCode);
+              handleSelectQuickScan(detectedCode);
+              popToast('s', `Barcode detected: ${detectedCode}`);
+              return;
+            }
+          }
+        }
+      } catch (e) {
+        console.warn("Barcode detection error:", e);
+      }
+      if (cameraActive) {
+        frameId = requestAnimationFrame(detectFrame);
+      }
+    };
+
+    if (cameraActive) {
+      frameId = requestAnimationFrame(detectFrame);
+    }
+
+    return () => {
+      active = false;
+      if (frameId) {
+        cancelAnimationFrame(frameId);
+      }
+    };
+  }, [cameraActive]);
 
   useEffect(() => {
     if (selectedProductDetail) {
@@ -985,6 +1038,111 @@ export default function Inventory() {
     }
   };
 
+  const handleCheckoutWizardSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedProductDetail || !checkoutWizardUnit || !checkoutWizardMember) {
+      popToast('e', 'Please select a unit and a borrower.');
+      return;
+    }
+
+    try {
+      setCheckoutWizardSubmitting(true);
+      const res = await fetch('/api/inventory', {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({
+          resource: 'checkouts',
+          item_id: selectedProductDetail.id,
+          unit_id: checkoutWizardUnit.id,
+          member_id: checkoutWizardMember,
+          quantity: 1,
+          notes: checkoutWizardNotes || 'Checkout from catalog drawer details',
+          due_return_date: checkoutWizardDueReturn || null
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Checkout failed');
+
+      popToast('s', `Unit ${checkoutWizardUnit.barcode_value.split('-').slice(-1)[0]} checked out successfully!`);
+      
+      setCheckoutWizardActive(false);
+      setCheckoutWizardUnit(null);
+      setCheckoutWizardMember('');
+      setCheckoutWizardNotes('');
+      setCheckoutWizardDueReturn('');
+      setSelectedProductDetail(null);
+
+      loadCatalogue(false);
+      loadCheckouts(false);
+    } catch (err: any) {
+      popToast('e', err.message || 'Error processing checkout');
+    } finally {
+      setCheckoutWizardSubmitting(false);
+    }
+  };
+
+  const handleDrawerCheckIn = async (unit: any, returnCondition: 'good' | 'damaged' | 'lost' = 'good', notes: string = 'Check-in from catalog details') => {
+    if (!unit.current_checkout_id) {
+      popToast('e', 'No active checkout found for this unit.');
+      return;
+    }
+    try {
+      setLoading(true);
+      const res = await fetch('/api/inventory', {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({
+          resource: 'checkout-actions',
+          action: 'checkin',
+          id: unit.current_checkout_id,
+          return_condition: returnCondition,
+          condition_notes: notes
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Check-in failed');
+
+      popToast('s', 'Physical unit checked in successfully!');
+      setSelectedUnitDetail(null);
+      setSelectedProductDetail(null);
+      loadCatalogue(false);
+      loadCheckouts(false);
+    } catch (err: any) {
+      popToast('e', err.message || 'Error returning unit');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUpdateUnitStatus = async (unitId: string, newStatus: 'available' | 'damaged' | 'lost' | 'archived') => {
+    try {
+      setLoading(true);
+      const res = await fetch('/api/inventory', {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({
+          resource: 'checkout-actions',
+          action: 'update-unit-condition',
+          unit_id: unitId,
+          status: newStatus
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to update unit condition');
+
+      popToast('s', `Unit status updated to ${newStatus} successfully!`);
+      setSelectedUnitDetail(null);
+      setSelectedProductDetail(null);
+      loadCatalogue(false);
+      loadCheckouts(false);
+    } catch (err: any) {
+      popToast('e', err.message || 'Error updating unit condition');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // SheetJS Excel Report Export
   const handleExportExcel = () => {
     // 1. Catalog sheet
@@ -1366,9 +1524,18 @@ export default function Inventory() {
   });
 
   const reportProductsCount = reportProducts.length;
-  const reportTotalUnits = reportProducts.reduce((sum, p) => sum + (p.total_stock || 0), 0);
-  const reportAvailableUnits = reportProducts.reduce((sum, p) => sum + (p.available_stock || 0), 0);
-  const reportCheckedOutUnits = reportProducts.reduce((sum, p) => sum + Math.max(0, (p.total_stock || 0) - (p.available_stock || 0)), 0);
+  const reportTotalUnits = reportProducts.reduce((sum, p) => {
+    const hasUnits = p.units && p.units.length > 0;
+    return sum + (hasUnits ? p.units.length : (p.total_stock || 0));
+  }, 0);
+  const reportAvailableUnits = reportProducts.reduce((sum, p) => {
+    const hasUnits = p.units && p.units.length > 0;
+    return sum + (hasUnits ? p.units.filter((u: any) => u.status === 'available').length : (p.available_stock || 0));
+  }, 0);
+  const reportCheckedOutUnits = reportProducts.reduce((sum, p) => {
+    const hasUnits = p.units && p.units.length > 0;
+    return sum + (hasUnits ? p.units.filter((u: any) => u.status === 'checked_out' || u.status === 'out').length : Math.max(0, (p.total_stock || 0) - (p.available_stock || 0)));
+  }, 0);
 
   // Checked In during selected period
   const reportCheckedInCount = filteredCheckoutsForReport.filter(c => 
@@ -1391,15 +1558,30 @@ export default function Inventory() {
     return chkIn || retIn;
   }).length;
 
-  const reportLowStockCount = reportProducts.filter(p => p.total_stock > 0 && p.available_stock > 0 && p.available_stock <= 5).length;
-  const reportOutOfStockCount = reportProducts.filter(p => p.total_stock > 0 && p.available_stock === 0).length;
+  const reportLowStockCount = reportProducts.filter(p => {
+    const hasUnits = p.units && p.units.length > 0;
+    const total = hasUnits ? p.units.length : p.total_stock;
+    const available = hasUnits ? p.units.filter((u: any) => u.status === 'available').length : p.available_stock;
+    return total > 0 && available > 0 && available <= 5;
+  }).length;
+  const reportOutOfStockCount = reportProducts.filter(p => {
+    const hasUnits = p.units && p.units.length > 0;
+    const total = hasUnits ? p.units.length : p.total_stock;
+    const available = hasUnits ? p.units.filter((u: any) => u.status === 'available').length : p.available_stock;
+    return total > 0 && available === 0;
+  }).length;
 
   // Filter summary list by reportsQuickFilter
   const summaryFilteredItems = reportProducts.filter(p => {
-    if (reportsQuickFilter === 'healthy') return p.available_stock > 5;
-    if (reportsQuickFilter === 'low') return p.available_stock > 0 && p.available_stock <= 5;
-    if (reportsQuickFilter === 'out') return p.available_stock === 0;
-    if (reportsQuickFilter === 'checked_out') return (p.total_stock - p.available_stock) > 0;
+    const hasUnits = p.units && p.units.length > 0;
+    const total = hasUnits ? p.units.length : p.total_stock;
+    const available = hasUnits ? p.units.filter((u: any) => u.status === 'available').length : p.available_stock;
+    const checkedOut = hasUnits ? p.units.filter((u: any) => u.status === 'checked_out' || u.status === 'out').length : (total - available);
+
+    if (reportsQuickFilter === 'healthy') return available > 5;
+    if (reportsQuickFilter === 'low') return available > 0 && available <= 5;
+    if (reportsQuickFilter === 'out') return available === 0;
+    if (reportsQuickFilter === 'checked_out') return checkedOut > 0;
     return true;
   });
 
@@ -1421,18 +1603,27 @@ export default function Inventory() {
         aVal = (a.categories?.name || '').toLowerCase();
         bVal = (b.categories?.name || '').toLowerCase();
         break;
-      case 'total':
-        aVal = a.total_stock || 0;
-        bVal = b.total_stock || 0;
+      case 'total': {
+        const hasA = a.units && a.units.length > 0;
+        const hasB = b.units && b.units.length > 0;
+        aVal = hasA ? a.units.length : (a.total_stock || 0);
+        bVal = hasB ? b.units.length : (b.total_stock || 0);
         break;
-      case 'available':
-        aVal = a.available_stock || 0;
-        bVal = b.available_stock || 0;
+      }
+      case 'available': {
+        const hasA = a.units && a.units.length > 0;
+        const hasB = b.units && b.units.length > 0;
+        aVal = hasA ? a.units.filter((u: any) => u.status === 'available').length : (a.available_stock || 0);
+        bVal = hasB ? b.units.filter((u: any) => u.status === 'available').length : (b.available_stock || 0);
         break;
-      case 'out':
-        aVal = (a.total_stock || 0) - (a.available_stock || 0);
-        bVal = (b.total_stock || 0) - (b.available_stock || 0);
+      }
+      case 'out': {
+        const hasA = a.units && a.units.length > 0;
+        const hasB = b.units && b.units.length > 0;
+        aVal = hasA ? a.units.filter((u: any) => u.status === 'checked_out' || u.status === 'out').length : Math.max(0, (a.total_stock || 0) - (a.available_stock || 0));
+        bVal = hasB ? b.units.filter((u: any) => u.status === 'checked_out' || u.status === 'out').length : Math.max(0, (b.total_stock || 0) - (b.available_stock || 0));
         break;
+      }
       case 'txns':
         aVal = getProductTransactionsCount(a.id);
         bVal = getProductTransactionsCount(b.id);
@@ -2661,39 +2852,61 @@ export default function Inventory() {
                 </form>
 
                 <div style={{ marginTop: '20px', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '16px' }}>
-                  <div style={{ fontSize: '11px', fontWeight: 800, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', marginBottom: '4px', letterSpacing: '0.5px' }}>Quick Scan — Click to Simulate</div>
-                  <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.25)', marginBottom: '10px' }}>Select any unit barcode to auto-populate the lookup</div>
-                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', maxHeight: '120px', overflowY: 'auto' }}>
-                    {items.flatMap(item => (item.units || []).slice(0, 3).map((unit: any) => ({
-                      barcode: unit.barcode_value,
-                      label: `${item.name.substring(0, 10)} ${unit.barcode_value.split('-').slice(-1)[0] || ''}`,
-                      status: unit.status
-                    }))).slice(0, 18).map((sim, idx) => (
-                      <button 
-                        key={idx} 
-                        onClick={() => { setManualBarcode(sim.barcode); handleSelectQuickScan(sim.barcode); }}
-                        style={{ 
-                          background: sim.status === 'available' ? 'rgba(27,184,154,0.12)' : 'rgba(255,255,255,0.06)', 
-                          border: `1px solid ${sim.status === 'available' ? 'rgba(27,184,154,0.3)' : 'rgba(255,255,255,0.1)'}`, 
-                          color: sim.status === 'available' ? '#1BB89A' : 'rgba(255,255,255,0.7)', 
-                          padding: '6px 12px', 
-                          borderRadius: '8px', 
-                          fontSize: '11px', 
-                          fontFamily: 'monospace', 
-                          cursor: 'pointer', 
-                          display: 'inline-flex', 
-                          alignItems: 'center', 
-                          gap: '4px',
-                          transition: 'all 0.2s'
-                        }}
-                      >
-                        ⚡ {sim.label}
-                      </button>
-                    ))}
-                    {items.flatMap(item => (item.units || [])).length === 0 && (
-                      <div style={{ color: 'rgba(255,255,255,0.3)', fontSize: '11px' }}>No units loaded yet. Add items first.</div>
-                    )}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <div style={{ fontSize: '11px', fontWeight: 800, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      Scanner Mode Options
+                    </div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: '#1BB89A', fontWeight: 800, cursor: 'pointer' }}>
+                      <input 
+                        type="checkbox" 
+                        checked={scannerDemoMode} 
+                        onChange={e => setScannerDemoMode(e.target.checked)} 
+                        style={{ accentColor: '#1BB89A' }} 
+                      />
+                      Enable Demo Simulation
+                    </label>
                   </div>
+                  
+                  {scannerDemoMode ? (
+                    <>
+                      <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.25)', marginBottom: '10px' }}>Select any unit barcode to auto-populate the lookup</div>
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', maxHeight: '120px', overflowY: 'auto' }}>
+                        {items.flatMap(item => (item.units || []).slice(0, 3).map((unit: any) => ({
+                          barcode: unit.barcode_value,
+                          label: `${item.name.substring(0, 10)} ${unit.barcode_value.split('-').slice(-1)[0] || ''}`,
+                          status: unit.status
+                        }))).slice(0, 18).map((sim, idx) => (
+                          <button 
+                            key={idx} 
+                            onClick={() => { setManualBarcode(sim.barcode); handleSelectQuickScan(sim.barcode); }}
+                            style={{ 
+                              background: sim.status === 'available' ? 'rgba(27,184,154,0.12)' : 'rgba(255,255,255,0.06)', 
+                              border: `1px solid ${sim.status === 'available' ? 'rgba(27,184,154,0.3)' : 'rgba(255,255,255,0.1)'}`, 
+                              color: sim.status === 'available' ? '#1BB89A' : 'rgba(255,255,255,0.7)', 
+                              padding: '6px 12px', 
+                              borderRadius: '8px', 
+                              fontSize: '11px', 
+                              fontFamily: 'monospace', 
+                              cursor: 'pointer', 
+                              display: 'inline-flex', 
+                              alignItems: 'center', 
+                              gap: '4px',
+                              transition: 'all 0.2s'
+                            }}
+                          >
+                            ⚡ {sim.label}
+                          </button>
+                        ))}
+                        {items.flatMap(item => (item.units || [])).length === 0 && (
+                          <div style={{ color: 'rgba(255,255,255,0.3)', fontSize: '11px' }}>No units loaded yet. Add items first.</div>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <div style={{ color: 'rgba(255,255,255,0.3)', fontSize: '10.5px', fontStyle: 'italic', textAlign: 'center', padding: '10px' }}>
+                      Demo simulated buttons hidden. Enable demo mode option above to simulate physical barcodes without camera.
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -2712,63 +2925,90 @@ export default function Inventory() {
                     const item = scanLookupResult.item;
                     const isUnit = scanLookupResult.type === 'unit';
                     const unit = scanLookupResult.unit;
-                    const totalStock = item.total_stock || 0;
-                    const availableStock = item.available_stock || 0;
+                    
+                    const totalStock = item.units ? item.units.length : (item.total_stock || 0);
+                    const availableStock = item.units 
+                      ? item.units.filter((u: any) => u.status === 'available').length 
+                      : (item.available_stock || 0);
                     const outStock = totalStock - availableStock;
                     const emoji = getProductEmoji(item.name, item.categories?.name || '');
 
                     return (
-                      <div style={{ background: '#E6FCF5', border: '1.5px solid #c3fae8', borderRadius: '20px', padding: '24px', position: 'relative' }}>
+                      <div style={{ background: '#F8FAF6', border: '1.5px solid #E2DED6', borderRadius: '24px', padding: '24px', position: 'relative' }}>
                         
                         {/* Header info */}
                         <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '20px', justifyContent: 'space-between' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                             <span style={{ fontSize: '32px' }}>{emoji}</span>
                             <div>
-                              <h4 style={{ margin: 0, fontSize: '18px', fontWeight: 900, color: '#0CA678' }}>
+                              <h4 style={{ margin: 0, fontSize: '18px', fontWeight: 900, color: '#1A1F2E', fontFamily: 'Playfair Display, serif' }}>
                                 {item.name}
                               </h4>
                               <div style={{ fontSize: '11px', fontFamily: 'monospace', color: '#64748b', marginTop: '2px' }}>
                                 SKU: {item.barcode_value}
                                 {isUnit && (
                                   <span style={{ color: 'var(--teal)', fontWeight: 800, marginLeft: '6px' }}>
-                                    • Unit: {unit.barcode_value}
+                                    • Unit No: #{String(unit.unit_number).padStart(2, '0')}
                                   </span>
                                 )}
                               </div>
                             </div>
                           </div>
-                          
-                          <span style={{ 
-                            padding: '4px 10px', 
-                            borderRadius: '50px', 
-                            background: '#C3FAE8', 
-                            color: '#0CA678', 
-                            fontSize: '11px', 
-                            fontWeight: 900 
-                          }}>
-                            {availableStock} available
-                          </span>
                         </div>
 
-                        {/* Stats grid */}
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginBottom: '24px' }}>
-                          <div style={{ background: 'rgba(0,0,0,0.03)', borderRadius: '12px', padding: '12px', textAlign: 'center' }}>
-                            <div style={{ fontSize: '20px', fontWeight: 900, fontFamily: 'Playfair Display, serif', color: '#1e293b' }}>{totalStock}</div>
-                            <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px', fontWeight: 700 }}>Total</div>
-                          </div>
-                          <div style={{ background: '#d3f9d8', borderRadius: '12px', padding: '12px', textAlign: 'center' }}>
-                            <div style={{ fontSize: '20px', fontWeight: 900, fontFamily: 'Playfair Display, serif', color: '#2b8a3e' }}>{availableStock}</div>
-                            <div style={{ fontSize: '11px', color: '#2b8a3e', marginTop: '2px', fontWeight: 700 }}>Available</div>
-                          </div>
-                          <div style={{ background: '#e7f5ff', borderRadius: '12px', padding: '12px', textAlign: 'center' }}>
-                            <div style={{ fontSize: '20px', fontWeight: 900, fontFamily: 'Playfair Display, serif', color: '#1c7ed6' }}>{outStock}</div>
-                            <div style={{ fontSize: '11px', color: '#1c7ed6', marginTop: '2px', fontWeight: 700 }}>Out</div>
-                          </div>
-                        </div>
+                        {/* If specific unit scanned, show unit details */}
+                        {isUnit ? (
+                          <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '16px', marginBottom: '20px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 800, textTransform: 'uppercase' }}>Physical Unit status</span>
+                              <span style={{ 
+                                padding: '3px 8px', borderRadius: '6px', fontSize: '10px', fontWeight: 900, textTransform: 'uppercase',
+                                background: unit.status === 'available' ? '#F0FDF4' : unit.status === 'checked_out' ? '#EFF6FF' : '#FFF7ED',
+                                color: unit.status === 'available' ? '#16A34A' : unit.status === 'checked_out' ? '#2563EB' : '#EA580C'
+                              }}>
+                                {unit.status}
+                              </span>
+                            </div>
 
-                        {/* Processing form fields */}
-                        {scannerMode === 'checkout' ? (
+                            <div style={{ marginTop: '12px', fontSize: '12.5px', color: '#334155' }}>
+                              <div>Barcode: <code style={{ fontFamily: 'monospace', fontWeight: 700 }}>{unit.barcode_value}</code></div>
+                              <div style={{ marginTop: '4px' }}>Condition: <strong>{unit.status === 'damaged' ? '🔴 Damaged' : unit.status === 'lost' ? '❌ Lost' : '🟢 Good'}</strong></div>
+                            </div>
+
+                            {/* Current active lease borrower details */}
+                            {unit.status === 'checked_out' && unit.current_checkout && (
+                              <div style={{ marginTop: '14px', borderTop: '1px solid #f1f5f9', paddingTop: '12px' }}>
+                                <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 800, textTransform: 'uppercase' }}>Borrower / Distributor</div>
+                                <div style={{ fontWeight: 800, color: '#0f172a', marginTop: '2px' }}>
+                                  {unit.current_checkout.member?.name || 'Unknown User'}
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '8px', fontSize: '11.5px', color: '#475569' }}>
+                                  <div>Checkout Date: <strong>{unit.current_checkout.checkout_date}</strong></div>
+                                  <div>Expected Return: <strong>{unit.current_checkout.due_return_date || 'Permanent'}</strong></div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          /* If general product SKU scanned */
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginBottom: '20px' }}>
+                            <div style={{ background: '#f8fafc', borderRadius: '12px', padding: '12px', textAlign: 'center' }}>
+                              <div style={{ fontSize: '18px', fontWeight: 900, color: '#1e293b' }}>{totalStock}</div>
+                              <div style={{ fontSize: '10px', color: '#64748b', marginTop: '2px', fontWeight: 700 }}>Total Units</div>
+                            </div>
+                            <div style={{ background: '#f0fdf4', borderRadius: '12px', padding: '12px', textAlign: 'center' }}>
+                              <div style={{ fontSize: '18px', fontWeight: 900, color: '#16a34a' }}>{availableStock}</div>
+                              <div style={{ fontSize: '10px', color: '#15803d', marginTop: '2px', fontWeight: 700 }}>Available</div>
+                            </div>
+                            <div style={{ background: '#eff6ff', borderRadius: '12px', padding: '12px', textAlign: 'center' }}>
+                              <div style={{ fontSize: '18px', fontWeight: 900, color: '#2563eb' }}>{outStock}</div>
+                              <div style={{ fontSize: '10px', color: '#1d4ed8', marginTop: '2px', fontWeight: 700 }}>Out</div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Processing form fields: Checkout details for available items */}
+                        {((isUnit && unit.status === 'available') || (!isUnit && availableStock > 0)) && scannerMode === 'checkout' && (
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '24px' }}>
                             <div>
                               <label className="fl2" style={{ color: '#2b2d42', fontWeight: 700 }}>Welfare Mission Package *</label>
@@ -2800,20 +3040,16 @@ export default function Inventory() {
                               />
                             </div>
                           </div>
-                        ) : (
+                        )}
+
+                        {/* Action details for checked out / damaged units */}
+                        {isUnit && unit.status === 'checked_out' && (
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '24px' }}>
                             <div style={{ background: 'rgba(12, 166, 120, 0.08)', padding: '12px 16px', borderRadius: '12px', border: '1px solid rgba(12, 166, 120, 0.2)', fontSize: '13px', color: '#0ca678' }}>
-                              <strong>Check In Return Match</strong>: Mark unit barcode <code>{unit?.barcode_value}</code> as returned and available.
+                              <strong>Check In Return Match</strong>: Return unit barcode <code>{unit.barcode_value}</code> to available stock.
                             </div>
-                            
-                            {unit?.current_checkout?.member && (
-                              <div style={{ fontSize: '13px', color: '#334155' }}>
-                                Borrowed by: <strong>{unit.current_checkout.member.name}</strong> ({unit.current_checkout.member.membership_no || 'No Member No'})
-                              </div>
-                            )}
-
                             <div>
-                              <label className="fl2" style={{ color: '#2b2d42', fontWeight: 700 }}>Notes / Return Condition (Optional)</label>
+                              <label className="fl2" style={{ color: '#2b2d42', fontWeight: 700 }}>Return condition condition notes</label>
                               <input 
                                 type="text" 
                                 placeholder="E.g., returned in good condition..." 
@@ -2826,68 +3062,99 @@ export default function Inventory() {
                           </div>
                         )}
 
-                        {/* Actions */}
+                        {isUnit && (unit.status === 'damaged' || unit.status === 'lost') && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '24px' }}>
+                            <div style={{ background: '#fff7ed', padding: '12px 16px', borderRadius: '12px', border: '1px solid #ffedd5', fontSize: '13px', color: '#ea580c' }}>
+                              <strong>Flagged Condition</strong>: This physical unit is currently marked as <strong>{unit.status}</strong>. Update status below to resolve.
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Actions buttons */}
                         <div style={{ display: 'flex', gap: '10px' }}>
                           <button 
                             onClick={() => setScanLookupResult(null)} 
                             style={{ 
                               flex: 1, 
                               height: '44px', 
-                              border: '1.5px solid #c3fae8', 
+                              border: '1.5px solid #e2e8f0', 
                               background: '#fff', 
-                              color: '#0ca678', 
+                              color: '#475569', 
                               borderRadius: '50px', 
-                              fontSize: '12px', 
+                              fontSize: '12.5px', 
                               fontWeight: 800,
                               cursor: 'pointer' 
                             }}
                           >
                             Cancel
                           </button>
-                          <button 
-                            onClick={handleConfirmScannerAction} 
-                            disabled={scanSubmitting}
-                            className="bsm s" 
-                            style={{ 
-                              flex: 2, 
-                              height: '44px', 
-                              borderRadius: '50px', 
-                              fontSize: '12px', 
-                              background: 'var(--teal)', 
-                              color: '#fff',
-                              border: 'none',
-                              fontWeight: 800,
-                              cursor: 'pointer',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              gap: '6px'
-                            }}
-                          >
-                            {scanSubmitting ? (
-                              'Confirming...'
-                            ) : scannerMode === 'checkout' ? (
-                              <>📤 Confirm Check Out</>
-                            ) : (
-                              <>📥 Confirm Check In</>
-                            )}
-                          </button>
+                          
+                          {/* Unit Checkout / Check-in trigger */}
+                          {(!isUnit || unit.status === 'available' || unit.status === 'checked_out') && (
+                            <button 
+                              onClick={handleConfirmScannerAction} 
+                              disabled={scanSubmitting}
+                              className="bsm s" 
+                              style={{ 
+                                flex: 2, 
+                                height: '44px', 
+                                borderRadius: '50px', 
+                                fontSize: '12.5px', 
+                                background: 'var(--teal)', 
+                                color: '#fff',
+                                border: 'none',
+                                fontWeight: 800,
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '6px'
+                              }}
+                            >
+                              {scanSubmitting ? (
+                                'Confirming...'
+                              ) : (isUnit && unit.status === 'checked_out') ? (
+                                <>📥 Confirm Return Check In</>
+                              ) : (
+                                <>📤 Confirm Lease Check Out</>
+                              )}
+                            </button>
+                          )}
+
+                          {/* Unit repair / writeoff trigger */}
+                          {isUnit && (unit.status === 'damaged' || unit.status === 'lost') && (
+                            <>
+                              <button
+                                onClick={() => handleUpdateUnitStatus(unit.id, 'available')}
+                                style={{ flex: 1.5, height: '44px', background: '#10b981', color: '#fff', border: 'none', borderRadius: '50px', fontSize: '12px', fontWeight: 800, cursor: 'pointer' }}
+                              >
+                                🔧 Repair
+                              </button>
+                              <button
+                                onClick={() => handleUpdateUnitStatus(unit.id, 'archived')}
+                                style={{ flex: 1.5, height: '44px', background: '#fee2e2', color: '#ef4444', border: 'none', borderRadius: '50px', fontSize: '12px', fontWeight: 800, cursor: 'pointer' }}
+                              >
+                                ❌ Write Off
+                              </button>
+                            </>
+                          )}
+
                           <button
                             type="button"
                             onClick={() => setSelectedProductDetail(item)}
                             style={{
                               height: '44px',
                               padding: '0 16px',
-                              border: '1.5px solid #c3fae8',
+                              border: '1.5px solid #e2e8f0',
                               background: '#fff',
-                              color: '#0ca678',
+                              color: '#475569',
                               borderRadius: '50px',
-                              fontSize: '12px',
+                              fontSize: '12.5px',
                               fontWeight: 800,
                               cursor: 'pointer'
                             }}
                           >
-                            View Details
+                            Details
                           </button>
                         </div>
                       </div>
@@ -4063,230 +4330,461 @@ ON CONFLICT (name) DO NOTHING;`}</pre>
         );
       })()}
 
-      {/* Product Detail Modal */}
+      {/* Product Detail Modal/Drawer */}
       {selectedProductDetail && (() => {
         const unitsList = selectedProductDetail.units || [];
-        // If physical units are tracked, count by unit status; otherwise fall back to item-level stock fields
         const hasPhysicalUnits = unitsList.length > 0;
+        
+        // Dynamic counts computed from unit arrays
+        const totalCount = hasPhysicalUnits ? unitsList.length : selectedProductDetail.total_stock;
         const availableCount = hasPhysicalUnits
           ? unitsList.filter((u: any) => u.status === 'available').length
-          : (selectedProductDetail.available_stock ?? 0);
+          : selectedProductDetail.available_stock;
         const checkedOutCount = hasPhysicalUnits
           ? unitsList.filter((u: any) => u.status === 'checked_out' || u.status === 'out').length
           : Math.max(0, (selectedProductDetail.total_stock ?? 0) - (selectedProductDetail.available_stock ?? 0));
-        const itemCheckouts = allCheckouts.filter(c => c.item_id === selectedProductDetail.id);
-        const reviewsList = (selectedProductDetail as any).reviews || [];
+        
+        const damagedCount = unitsList.filter((u: any) => u.status === 'damaged').length;
+        const lostCount = unitsList.filter((u: any) => u.status === 'lost').length;
+        const goodCount = totalCount - damagedCount - lostCount;
 
+        const itemCheckouts = allCheckouts.filter(c => c.item_id === selectedProductDetail.id);
+        
         return (
-          <div className="ov" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, background: 'rgba(15, 23, 42, 0.4)' }}>
-            <div className="modal inv-modal" style={{ maxWidth: '850px', width: '95%', borderRadius: '24px', padding: '28px', maxHeight: '90vh', overflowY: 'auto' }}>
+          <div className="drawer-overlay" onClick={(e) => { if (e.target === e.currentTarget) setSelectedProductDetail(null); }}>
+            <style>{`
+              @keyframes slideInRight {
+                from { transform: translateX(100%); }
+                to { transform: translateX(0); }
+              }
+              @keyframes fadeIn {
+                from { opacity: 0; }
+                to { opacity: 1; }
+              }
+              @media (min-width: 769px) {
+                .drawer-container {
+                  position: fixed;
+                  right: 0;
+                  top: 0;
+                  bottom: 0;
+                  width: 600px;
+                  max-width: 100%;
+                  height: 100vh;
+                  max-height: 100vh;
+                  border-radius: 24px 0 0 24px;
+                  animation: slideInRight 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+                  display: flex;
+                  flex-direction: column;
+                  background: #fff;
+                  box-shadow: -10px 0 30px rgba(15, 23, 42, 0.15);
+                  z-index: 1010;
+                  padding: 28px;
+                  overflow-y: auto;
+                  border-left: 1.5px solid #E2DED6;
+                }
+                .drawer-overlay {
+                  position: fixed;
+                  inset: 0;
+                  background: rgba(15, 23, 42, 0.4);
+                  display: flex;
+                  justify-content: flex-end;
+                  align-items: stretch;
+                  z-index: 1000;
+                  animation: fadeIn 0.2s ease-out;
+                }
+              }
+              @media (max-width: 768px) {
+                .drawer-container {
+                  position: fixed;
+                  inset: 0;
+                  width: 100%;
+                  height: 100vh;
+                  background: #fff;
+                  z-index: 1010;
+                  padding: 20px;
+                  overflow-y: auto;
+                }
+                .drawer-overlay {
+                  position: fixed;
+                  inset: 0;
+                  background: #fff;
+                  z-index: 1000;
+                }
+              }
+            `}</style>
+
+            <div className="drawer-container">
               
-              {/* Modal Head */}
-              <div className="modal-head" style={{ border: 'none', padding: '0 0 16px 0', marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontFamily: 'Playfair Display, serif', fontSize: '24px', fontWeight: 900, color: '#1A1F2E' }}>
-                  {selectedProductDetail.name}
-                </span>
+              {/* Header */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f1f5f9', paddingBottom: '16px', marginBottom: '20px' }}>
+                <div>
+                  <h3 style={{ margin: 0, fontFamily: 'Playfair Display, serif', fontSize: '22px', fontWeight: 900, color: '#1a1f2e' }}>
+                    {checkoutWizardActive ? 'Confirm Unit Checkout' : selectedUnitDetail ? 'Unit Status Details' : 'Product Inventory details'}
+                  </h3>
+                  <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 700 }}>
+                    {selectedProductDetail.name} • SKU: {selectedProductDetail.barcode_value || '—'}
+                  </span>
+                </div>
                 <button 
-                  onClick={() => setSelectedProductDetail(null)} 
+                  onClick={() => {
+                    if (selectedUnitDetail) {
+                      setSelectedUnitDetail(null);
+                    } else if (checkoutWizardActive) {
+                      setCheckoutWizardActive(false);
+                      setCheckoutWizardUnit(null);
+                    } else {
+                      setSelectedProductDetail(null);
+                    }
+                  }} 
                   style={{ border: '1px solid #E2DED6', background: 'transparent', width: '32px', height: '32px', borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                 >
                   <X size={18} />
                 </button>
               </div>
 
-              {/* 2-Column Info block */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '24px', marginBottom: '24px' }} className="inv-2col">
-                {/* Left side: Photo or emoji container */}
-                <div style={{ height: '180px', background: '#F4F1EB', borderRadius: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '64px', border: '1px solid #E2DED6', overflow: 'hidden' }}>
-                  {selectedProductDetail.photo_url ? (
-                    <img src={selectedProductDetail.photo_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                  ) : (
-                    <span style={{ fontSize: '72px' }}>{getProductEmoji(selectedProductDetail.name, selectedProductDetail.categories?.name || '')}</span>
-                  )}
-                </div>
+              {/* VIEW 1: CHECKOUT WIZARD FLOW */}
+              {checkoutWizardActive ? (() => {
+                const defaultDays = selectedProductDetail.lease_duration_days || 30;
+                const calculatedDate = new Date();
+                calculatedDate.setDate(calculatedDate.getDate() + defaultDays);
+                const defaultReturnDate = calculatedDate.toISOString().split('T')[0];
 
-                {/* Right side: Stats summary + barcode and action buttons */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  {/* Stats summary cards */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
-                    <div style={{ background: '#F9F8F6', border: '1.5px solid #E2DED6', borderRadius: '12px', padding: '12px', textAlign: 'center' }}>
-                      <div style={{ fontSize: '18px', fontWeight: 900, color: '#1A1F2E' }}>{selectedProductDetail.total_stock}</div>
-                      <div style={{ fontSize: '11px', color: '#6B7280', fontWeight: 700 }}>Total Units</div>
+                return (
+                  <form onSubmit={handleCheckoutWizardSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                    <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '16px' }}>
+                      <div style={{ fontSize: '11px', fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>Selected Unit for Lease</div>
+                      <div style={{ fontSize: '15px', fontWeight: 900, color: '#0f172a', marginTop: '4px', fontFamily: 'monospace' }}>
+                        {checkoutWizardUnit ? checkoutWizardUnit.barcode_value : 'First Available Unit'}
+                      </div>
                     </div>
-                    <div style={{ background: '#F0FDF4', border: '1.5px solid #DCFCE7', borderRadius: '12px', padding: '12px', textAlign: 'center' }}>
-                      <div style={{ fontSize: '18px', fontWeight: 900, color: '#16A34A' }}>{availableCount}</div>
-                      <div style={{ fontSize: '11px', color: '#15803D', fontWeight: 700 }}>Available</div>
+
+                    <div>
+                      <label style={{ fontSize: '12px', fontWeight: 850, color: '#475569', textTransform: 'uppercase', display: 'block', marginBottom: '6px' }}>
+                        Borrowing Member *
+                      </label>
+                      <select 
+                        value={checkoutWizardMember} 
+                        onChange={e => setCheckoutWizardMember(e.target.value)} 
+                        className="sel2" 
+                        style={{ width: '100%', height: '42px', borderRadius: '10px', border: '1.5px solid #c3fae8', background: '#fff', fontSize: '13px', fontWeight: 700 }}
+                        required
+                      >
+                        <option value="">-- Choose Member --</option>
+                        {members.map(m => (
+                          <option key={m.id} value={m.id}>{m.name} ({m.membership_no || 'No Member No'})</option>
+                        ))}
+                      </select>
                     </div>
-                    <div style={{ background: '#EFF6FF', border: '1.5px solid #DBEAFE', borderRadius: '12px', padding: '12px', textAlign: 'center' }}>
-                      <div style={{ fontSize: '18px', fontWeight: 900, color: '#2563EB' }}>{checkedOutCount}</div>
-                      <div style={{ fontSize: '11px', color: '#1D4ED8', fontWeight: 700 }}>Checked Out</div>
+
+                    {selectedProductDetail.item_type === 'lease' && (
+                      <div>
+                        <label style={{ fontSize: '12px', fontWeight: 850, color: '#475569', textTransform: 'uppercase', display: 'block', marginBottom: '6px' }}>
+                          Expected Return Date
+                        </label>
+                        <input 
+                          type="date" 
+                          value={checkoutWizardDueReturn || defaultReturnDate} 
+                          onChange={e => setCheckoutWizardDueReturn(e.target.value)} 
+                          className="fi2" 
+                          style={{ border: '1.5px solid #c3fae8', background: '#fff', fontSize: '13.5px', height: '42px', borderRadius: '10px' }} 
+                        />
+                      </div>
+                    )}
+
+                    <div>
+                      <label style={{ fontSize: '12px', fontWeight: 850, color: '#475569', textTransform: 'uppercase', display: 'block', marginBottom: '6px' }}>
+                        Remarks &amp; Notes
+                      </label>
+                      <textarea 
+                        placeholder="Provide details about condition or comments..." 
+                        value={checkoutWizardNotes} 
+                        onChange={e => setCheckoutWizardNotes(e.target.value)} 
+                        className="fi2" 
+                        style={{ border: '1.5px solid #c3fae8', background: '#fff', fontSize: '13px', minHeight: '80px', borderRadius: '10px', padding: '10px' }} 
+                      />
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
+                      <button 
+                        type="button" 
+                        onClick={() => { setCheckoutWizardActive(false); setCheckoutWizardUnit(null); }} 
+                        style={{ flex: 1, height: '44px', border: '1.5px solid #e2e8f0', background: '#fff', color: '#475569', borderRadius: '12px', fontWeight: 800, cursor: 'pointer' }}
+                      >
+                        Back
+                      </button>
+                      <button 
+                        type="submit" 
+                        disabled={checkoutWizardSubmitting}
+                        className="bsm s" 
+                        style={{ flex: 2, height: '44px', background: 'var(--teal)', color: '#fff', borderRadius: '12px', border: 'none', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                      >
+                        {checkoutWizardSubmitting ? 'Processing...' : 'Confirm Checkout'}
+                      </button>
+                    </div>
+                  </form>
+                );
+              })() : selectedUnitDetail ? (() => {
+                
+                // VIEW 2: INDIVIDUAL UNIT DETAILS DISPLAY
+                const u = selectedUnitDetail;
+                const co = allCheckouts.find(c => c.unit_id === u.id && c.status === 'active');
+                
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                    <div style={{ display: 'flex', gap: '16px', alignItems: 'center', background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: '18px', padding: '20px' }}>
+                      <div style={{ fontSize: '36px' }}>
+                        {u.status === 'available' ? '🟢' : u.status === 'checked_out' ? '🔵' : u.status === 'damaged' ? '🟠' : '🔴'}
+                      </div>
+                      <div>
+                        <strong style={{ fontSize: '16px', color: '#0f172a' }}>Unit #{String(u.unit_number).padStart(2, '0')}</strong>
+                        <div style={{ fontSize: '12px', fontFamily: 'monospace', color: '#64748b', marginTop: '2px' }}>SKU Code: {u.barcode_value}</div>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                      <div>
+                        <span style={{ fontSize: '10px', color: '#64748b', fontWeight: 800, textTransform: 'uppercase' }}>Current Status</span>
+                        <div style={{ marginTop: '4px' }}>
+                          <span style={{ 
+                            padding: '4px 10px', borderRadius: '50px', fontSize: '11px', fontWeight: 900, textTransform: 'uppercase',
+                            background: u.status === 'available' ? '#f0fdf4' : u.status === 'checked_out' ? '#eff6ff' : '#fff7ed',
+                            color: u.status === 'available' ? '#16a34a' : u.status === 'checked_out' ? '#2563eb' : '#ea580c'
+                          }}>
+                            {u.status}
+                          </span>
+                        </div>
+                      </div>
+                      <div>
+                        <span style={{ fontSize: '10px', color: '#64748b', fontWeight: 800, textTransform: 'uppercase' }}>Physical Condition</span>
+                        <div style={{ marginTop: '4px', fontSize: '13.5px', fontWeight: 800, color: '#334155' }}>
+                          {u.status === 'damaged' ? '🔴 Damaged' : u.status === 'lost' ? '❌ Lost' : '🟢 Good'}
+                        </div>
+                      </div>
+                    </div>
+
+                    {co && (
+                      <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '16px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        <div style={{ fontSize: '11px', fontWeight: 800, color: '#1d4ed8', textTransform: 'uppercase' }}>Current Lease Holder</div>
+                        <div style={{ fontSize: '13.5px', fontWeight: 900, color: '#1e3a8a' }}>{co.member?.name || 'Distributor'}</div>
+                        
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginTop: '4px' }}>
+                          <div>
+                            <span style={{ fontSize: '10px', color: '#64748b', fontWeight: 700 }}>Issued Date</span>
+                            <div style={{ fontSize: '12px', fontWeight: 800, color: '#334155' }}>{co.checkout_date}</div>
+                          </div>
+                          <div>
+                            <span style={{ fontSize: '10px', color: '#64748b', fontWeight: 700 }}>Due Return Date</span>
+                            <div style={{ fontSize: '12px', fontWeight: 800, color: '#334155' }}>{co.due_return_date || 'N/A'}</div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Operational Action Buttons based on status */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '20px' }}>
+                      {u.status === 'available' && hasPermission('checkout.create') && (
+                        <button
+                          onClick={() => { setCheckoutWizardUnit(u); setCheckoutWizardActive(true); }}
+                          style={{ height: '44px', background: 'var(--teal)', color: '#fff', border: 'none', borderRadius: '12px', fontSize: '13px', fontWeight: 800, cursor: 'pointer' }}
+                        >
+                          📤 Check Out Unit
+                        </button>
+                      )}
+                      
+                      {u.status === 'checked_out' && co && hasPermission('checkout.return') && (
+                        <button
+                          onClick={() => handleDrawerCheckIn(u, 'good', 'Scanned returned from details drawer')}
+                          style={{ height: '44px', background: '#10b981', color: '#fff', border: 'none', borderRadius: '12px', fontSize: '13px', fontWeight: 800, cursor: 'pointer' }}
+                        >
+                          📥 Return &amp; Check In
+                        </button>
+                      )}
+
+                      {u.status === 'checked_out' && co && hasPermission('checkout.return') && (
+                        <button
+                          onClick={() => handleDrawerCheckIn(u, 'damaged', 'Marked returned in damaged condition')}
+                          style={{ height: '44px', background: '#f97316', color: '#fff', border: 'none', borderRadius: '12px', fontSize: '13px', fontWeight: 800, cursor: 'pointer' }}
+                        >
+                          ⚠️ Return as Damaged
+                        </button>
+                      )}
+
+                      {(u.status === 'damaged' || u.status === 'lost') && hasPermission('checkout.force_return') && (
+                        <button
+                          onClick={() => handleUpdateUnitStatus(u.id, 'available')}
+                          style={{ height: '44px', background: '#10b981', color: '#fff', border: 'none', borderRadius: '12px', fontSize: '13px', fontWeight: 800, cursor: 'pointer' }}
+                        >
+                          🔧 Repaired &amp; Restock to Available
+                        </button>
+                      )}
+
+                      {(u.status === 'damaged' || u.status === 'lost') && hasPermission('checkout.force_return') && (
+                        <button
+                          onClick={() => handleUpdateUnitStatus(u.id, 'archived')}
+                          style={{ height: '44px', background: '#fee2e2', color: '#ef4444', border: 'none', borderRadius: '12px', fontSize: '13px', fontWeight: 800, cursor: 'pointer' }}
+                        >
+                          ❌ Write Off / Archive Asset
+                        </button>
+                      )}
+
+                      <button
+                        onClick={() => setSelectedUnitDetail(null)}
+                        style={{ height: '44px', border: '1.5px solid #e2e8f0', background: '#fff', color: '#475569', borderRadius: '12px', fontWeight: 800, cursor: 'pointer' }}
+                      >
+                        Back to Product Info
+                      </button>
+                    </div>
+                  </div>
+                );
+              })() : (
+                
+                // VIEW 3: STANDARD PRODUCT INFO & STATS & UNITS TABLE
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                  
+                  {/* Photo or emoji block */}
+                  <div style={{ height: '200px', background: '#F4F1EB', borderRadius: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '72px', border: '1px solid #E2DED6', overflow: 'hidden' }}>
+                    {selectedProductDetail.photo_url ? (
+                      <img src={selectedProductDetail.photo_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    ) : (
+                      <span>{getProductEmoji(selectedProductDetail.name, selectedProductDetail.categories?.name || '')}</span>
+                    )}
+                  </div>
+
+                  {/* Info Metadata */}
+                  <div>
+                    <span style={{ fontSize: '10px', background: '#f1f5f9', color: '#475569', padding: '3px 8px', borderRadius: '10px', fontWeight: 800, textTransform: 'uppercase' }}>
+                      {selectedProductDetail.item_type} asset
+                    </span>
+                    <p style={{ fontSize: '13px', color: '#475569', marginTop: '8px', lineHeight: 1.5 }}>
+                      {selectedProductDetail.description || 'No description provided.'}
+                    </p>
+                  </div>
+
+                  {/* KPI stock indicators */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
+                    <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '12px', textAlign: 'center' }}>
+                      <div style={{ fontSize: '20px', fontWeight: 950, color: '#0f172a' }}>{totalCount}</div>
+                      <div style={{ fontSize: '10.5px', color: '#64748b', fontWeight: 700, marginTop: '2px' }}>Total Units</div>
+                    </div>
+                    <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '12px', padding: '12px', textAlign: 'center' }}>
+                      <div style={{ fontSize: '20px', fontWeight: 950, color: '#16a34a' }}>{availableCount}</div>
+                      <div style={{ fontSize: '10.5px', color: '#15803d', fontWeight: 700, marginTop: '2px' }}>Available</div>
+                    </div>
+                    <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '12px', padding: '12px', textAlign: 'center' }}>
+                      <div style={{ fontSize: '20px', fontWeight: 950, color: '#2563eb' }}>{checkedOutCount}</div>
+                      <div style={{ fontSize: '10.5px', color: '#1d4ed8', fontWeight: 700, marginTop: '2px' }}>Checked Out</div>
                     </div>
                   </div>
 
+                  {/* Dynamic stock quality breakdown */}
+                  {hasPhysicalUnits && (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', background: '#fafafa', padding: '12px', borderRadius: '14px', border: '1px solid #f1f5f9' }}>
+                      <div style={{ textAlign: 'center', fontSize: '11px', color: '#16a34a', fontWeight: 800 }}>🟢 {goodCount} Good</div>
+                      <div style={{ textAlign: 'center', fontSize: '11px', color: '#ea580c', fontWeight: 800 }}>🟠 {damagedCount} Damaged</div>
+                      <div style={{ textAlign: 'center', fontSize: '11px', color: '#dc2626', fontWeight: 800 }}>🔴 {lostCount} Lost</div>
+                    </div>
+                  )}
+
                   {/* Actions buttons */}
                   <div style={{ display: 'flex', gap: '10px' }}>
-                    {selectedProductDetail.item_type === 'lease' && (
+                    {hasPermission('scanner.use') && (
                       <button 
                         type="button" 
                         onClick={() => {
                           setSelectedProductDetail(null);
                           setScannerMode('checkout');
-                          setManualBarcode(selectedProductDetail.units?.[0]?.barcode_value || selectedProductDetail.barcode_value || '');
+                          setManualBarcode(unitsList[0]?.barcode_value || selectedProductDetail.barcode_value || '');
                           setActiveTab('scanner');
-                          handleSelectQuickScan(selectedProductDetail.units?.[0]?.barcode_value || selectedProductDetail.barcode_value || '');
-                        }} 
-                        style={{ height: '38px', padding: '0 16px', background: '#FEF3C7', color: '#D97706', borderRadius: '50px', border: 'none', fontWeight: 800, fontSize: '12.5px', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}
+                          handleSelectQuickScan(unitsList[0]?.barcode_value || selectedProductDetail.barcode_value || '');
+                        }}
+                        style={{ flex: 1, height: '40px', background: '#fff', color: 'var(--teal)', border: '1.5px solid var(--teal)', borderRadius: '12px', fontWeight: 800, fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'center', cursor: 'pointer' }}
                       >
-                        📤 Check Out
+                        📷 Scan Unit
                       </button>
                     )}
-                    <button 
-                      type="button" 
-                      onClick={() => { setEditingItem(selectedProductDetail); setSelectedProductDetail(null); }} 
-                      style={{ height: '38px', padding: '0 16px', background: '#fff', color: '#4B5563', borderRadius: '50px', border: '1.5px solid #E2DED6', fontWeight: 800, fontSize: '12.5px', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}
-                    >
-                      ✏️ Edit
-                    </button>
+
+                    {selectedProductDetail.item_type === 'lease' && hasPermission('checkout.create') && availableCount > 0 && (
+                      <button 
+                        type="button" 
+                        onClick={() => { setCheckoutWizardActive(true); }}
+                        style={{ flex: 1.5, height: '40px', background: 'var(--teal)', color: '#fff', border: 'none', borderRadius: '12px', fontWeight: 800, fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'center', cursor: 'pointer' }}
+                      >
+                        📤 Lease Checkout
+                      </button>
+                    )}
                   </div>
-                </div>
-              </div>
 
-              {/* Sub-tabs Nav bar */}
-              <div style={{ display: 'flex', gap: '12px', borderBottom: '2px solid #F3F4F6', marginBottom: '16px', paddingBottom: '2px' }}>
-                <button
-                  type="button"
-                  onClick={() => setSelectedDetailTab('units')}
-                  style={{
-                    padding: '8px 16px', fontWeight: 800, fontSize: '13.5px', border: 'none', background: 'none',
-                    borderBottom: selectedDetailTab === 'units' ? '3px solid var(--teal)' : '3px solid transparent',
-                    color: selectedDetailTab === 'units' ? 'var(--teal)' : '#6B7280', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
-                  }}
-                >
-                  📦 Units ({unitsList.length})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSelectedDetailTab('distribution')}
-                  style={{
-                    padding: '8px 16px', fontWeight: 800, fontSize: '13.5px', border: 'none', background: 'none',
-                    borderBottom: selectedDetailTab === 'distribution' ? '3px solid var(--teal)' : '3px solid transparent',
-                    color: selectedDetailTab === 'distribution' ? 'var(--teal)' : '#6B7280', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
-                  }}
-                >
-                  📋 Distribution ({itemCheckouts.length})
-                </button>
-              </div>
-
-              {/* Tab contents */}
-              {selectedDetailTab === 'units' && (
-                <div style={{ maxHeight: '250px', overflowY: 'auto', border: '1.5px solid #E2DED6', borderRadius: '12px' }}>
-                  {unitsList.length === 0 ? (
-                    <div style={{ padding: '20px', textAlign: 'center', color: '#9B9B9B' }}>No physical units tracked for this item.</div>
-                  ) : (
-                    <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '12.5px' }}>
-                      <thead>
-                        <tr style={{ background: '#F9F8F6', borderBottom: '1px solid #E2DED6' }}>
-                          <th style={{ padding: '8px 12px', fontWeight: 800 }}>Unit No</th>
-                          <th style={{ padding: '8px 12px', fontWeight: 800 }}>Unit barcode SKU</th>
-                          <th style={{ padding: '8px 12px', fontWeight: 800 }}>Status</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {unitsList.map((u: any) => {
-                          let statusColor = '#16A34A';
-                          let statusBg = '#F0FDF4';
-                          if (u.status === 'checked_out' || u.status === 'out') { statusColor = '#2563EB'; statusBg = '#EFF6FF'; }
-                          else if (u.status === 'damaged') { statusColor = '#EA580C'; statusBg = '#FFF7ED'; }
-                          else if (u.status === 'lost') { statusColor = '#DC2626'; statusBg = '#FEF2F2'; }
-
-                          return (
-                            <tr key={u.id} style={{ borderBottom: '1px solid #F3F4F6' }}>
-                              <td style={{ padding: '10px 12px', fontWeight: 800 }}>#{String(u.unit_number).padStart(2, '0')}</td>
-                              <td style={{ padding: '10px 12px', fontFamily: 'monospace', fontWeight: 600 }}>{u.barcode_value}</td>
-                              <td style={{ padding: '10px 12px' }}>
-                                <span style={{ padding: '3px 8px', borderRadius: '6px', fontSize: '10px', fontWeight: 900, textTransform: 'uppercase', background: statusBg, color: statusColor }}>
-                                  {u.status}
-                                </span>
-                              </td>
+                  {/* Units lists */}
+                  <div>
+                    <h4 style={{ fontSize: '14px', fontWeight: 900, color: '#1a1f2e', margin: '0 0 10px 0' }}>Quick Scan / Units List</h4>
+                    <p style={{ fontSize: '11.5px', color: '#64748b', margin: '0 0 12px 0' }}>Select any physical instance to inspect status or trigger leases.</p>
+                    
+                    <div style={{ border: '1px solid #e2e8f0', borderRadius: '16px', overflow: 'hidden' }}>
+                      {unitsList.length === 0 ? (
+                        <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8', fontSize: '12px' }}>
+                          No physical unit assets mapped to this SKU catalog entry.
+                        </div>
+                      ) : (
+                        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '12.5px' }}>
+                          <thead>
+                            <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                              <th style={{ padding: '10px 12px', fontWeight: 800, color: '#475569' }}>UNIT</th>
+                              <th style={{ padding: '10px 12px', fontWeight: 800, color: '#475569' }}>BARCODE</th>
+                              <th style={{ padding: '10px 12px', fontWeight: 800, color: '#475569' }}>STATUS</th>
+                              <th style={{ padding: '10px 12px', fontWeight: 800, color: '#475569', textAlign: 'right' }}>ACTION</th>
                             </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  )}
+                          </thead>
+                          <tbody>
+                            {unitsList.map((u: any) => {
+                              const isOut = u.status === 'checked_out' || u.status === 'out';
+                              const isDmg = u.status === 'damaged' || u.status === 'lost';
+                              
+                              return (
+                                <tr key={u.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                  <td style={{ padding: '10px 12px', fontWeight: 800 }}>U{String(u.unit_number).padStart(2, '0')}</td>
+                                  <td style={{ padding: '10px 12px', fontFamily: 'monospace', color: '#475569' }}>
+                                    {u.barcode_value.split('-').slice(-2).join('-')}
+                                  </td>
+                                  <td style={{ padding: '10px 12px' }}>
+                                    <span style={{ 
+                                      padding: '3px 8px', borderRadius: '6px', fontSize: '9.5px', fontWeight: 900, textTransform: 'uppercase',
+                                      background: isOut ? '#EFF6FF' : isDmg ? '#FFF7ED' : '#F0FDF4',
+                                      color: isOut ? '#2563EB' : isDmg ? '#EA580C' : '#16A34A'
+                                    }}>
+                                      {u.status}
+                                    </span>
+                                  </td>
+                                  <td style={{ padding: '10px 12px', textAlign: 'right' }}>
+                                    {u.status === 'available' ? (
+                                      <button 
+                                        type="button"
+                                        onClick={() => { setCheckoutWizardUnit(u); setCheckoutWizardActive(true); }}
+                                        style={{ background: '#F0FDF4', border: 'none', color: '#16A34A', padding: '4px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 900, cursor: 'pointer' }}
+                                      >
+                                        Scan
+                                      </button>
+                                    ) : (
+                                      <button 
+                                        type="button"
+                                        onClick={() => { setSelectedUnitDetail(u); }}
+                                        style={{ background: '#f1f5f9', border: 'none', color: '#475569', padding: '4px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 900, cursor: 'pointer' }}
+                                      >
+                                        View
+                                      </button>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      )}
+                    </div>
+                  </div>
+
                 </div>
               )}
 
-              {selectedDetailTab === 'distribution' && (
-                <div style={{ maxHeight: '250px', overflowY: 'auto', border: '1.5px solid #E2DED6', borderRadius: '12px' }}>
-                  {itemCheckouts.length === 0 ? (
-                    <div style={{ padding: '20px', textAlign: 'center', color: '#9B9B9B' }}>No checkout history recorded for this product.</div>
-                  ) : (
-                    <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '12.5px' }}>
-                      <thead>
-                        <tr style={{ background: '#F9F8F6', borderBottom: '1px solid #E2DED6' }}>
-                          <th style={{ padding: '10px 12px', fontWeight: 800 }}>UNIT ID</th>
-                          <th style={{ padding: '10px 12px', fontWeight: 800 }}>DISTRIBUTOR</th>
-                          <th style={{ padding: '10px 12px', fontWeight: 800 }}>MISSION</th>
-                          <th style={{ padding: '10px 12px', fontWeight: 800 }}>CHECKOUT</th>
-                          <th style={{ padding: '10px 12px', fontWeight: 800 }}>DAYS OUT</th>
-                          <th style={{ padding: '10px 12px', fontWeight: 800 }}>CHECK-IN</th>
-                          <th style={{ padding: '10px 12px', fontWeight: 800 }}>STATUS</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {itemCheckouts.map((c: any) => {
-                          const unitBar = c.unit?.barcode_value || '—';
-                          const unitShort = unitBar.includes('-U') ? unitBar.split('-').slice(-2).join('-') : unitBar;
-                          const isOut = c.status === 'active';
-
-                          const start = new Date(c.checkout_date);
-                          const end = c.actual_return_date ? new Date(c.actual_return_date) : new Date();
-                          start.setHours(0,0,0,0);
-                          end.setHours(0,0,0,0);
-                          const diffTime = end.getTime() - start.getTime();
-                          const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-                          const daysOutText = `${Math.max(0, diffDays)}d`;
-
-                          return (
-                            <tr key={c.id} style={{ borderBottom: '1px solid #F3F4F6' }}>
-                              <td style={{ padding: '12px' }}>
-                                <span style={{ background: '#1E293B', color: '#fff', fontSize: '10.5px', fontWeight: 700, padding: '3px 8px', borderRadius: '6px', fontFamily: 'monospace' }}>
-                                  {unitShort}
-                                </span>
-                              </td>
-                              <td style={{ padding: '12px' }}>
-                                <div style={{ fontWeight: 800, color: '#1E293B' }}>{c.member?.name || 'Unknown Distributor'}</div>
-                                <div style={{ fontSize: '10.5px', color: '#9CA3AF' }}>{c.member?.membership_no || 'SKSSF-MEMB'}</div>
-                              </td>
-                              <td style={{ padding: '12px', color: '#4B5563' }}>
-                                {c.notes?.includes('Ramadan') ? 'Ramadan Welfare' : c.notes?.includes('Student') ? 'Student Support' : c.notes?.includes('Medical') ? 'Medical Relief' : 'General Distribution'}
-                              </td>
-                              <td style={{ padding: '12px', color: '#4B5563' }}>{c.checkout_date}</td>
-                              <td style={{ padding: '12px', color: '#4B5563', fontWeight: 800 }}>{daysOutText}</td>
-                              <td style={{ padding: '12px', color: '#4B5563' }}>{c.actual_return_date ? c.actual_return_date.split('T')[0] : '—'}</td>
-                              <td style={{ padding: '12px' }}>
-                                <span style={{ 
-                                  padding: '4px 8px', borderRadius: '50px', fontSize: '10px', fontWeight: 900,
-                                  background: isOut ? '#EFF6FF' : '#F0FDF4',
-                                  color: isOut ? '#2563EB' : '#16A34A',
-                                  display: 'inline-flex', alignItems: 'center', gap: '3px'
-                                }}>
-                                  {isOut ? '📤 Out' : '📥 In'}
-                                </span>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  )}
-                </div>
-              )}
-
-              <div style={{ display: 'flex', gap: '10px', marginTop: '20px', justifyContent: 'flex-end' }}>
-                <button type="button" onClick={() => setSelectedProductDetail(null)} className="bsm s" style={{ height: '40px', borderRadius: '10px', padding: '0 24px', background: 'var(--teal)', color: '#fff' }}>Close</button>
-              </div>
             </div>
           </div>
         );

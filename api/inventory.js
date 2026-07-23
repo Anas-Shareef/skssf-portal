@@ -969,6 +969,51 @@ export default async function handler(req, res) {
 
         return res.status(200).json({ success: true });
       }
+
+      // 3. UPDATE PHYSICAL UNIT STATUS/CONDITION
+      if (action === 'update-unit-condition') {
+        if (!hasPermission('checkout.force_return')) {
+          return res.status(403).json({ error: 'Forbidden - Requires admin permissions' });
+        }
+        const { unit_id, status } = req.body;
+        if (!unit_id || !status) return res.status(400).json({ error: 'Unit ID and Status required' });
+
+        const { data: unit } = await supabase.from('inventory_units').select('*').eq('id', unit_id).single();
+        if (!unit) return res.status(404).json({ error: 'Unit not found' });
+
+        const { error: unitErr } = await supabase
+          .from('inventory_units')
+          .update({ status })
+          .eq('id', unit_id);
+        if (unitErr) throw unitErr;
+
+        const wasDamagedOrLost = unit.status === 'damaged' || unit.status === 'lost';
+        const isNowAvailable = status === 'available';
+        if (wasDamagedOrLost && isNowAvailable) {
+          const { data: item } = await supabase.from('inventory_items').select('available_stock').eq('id', unit.item_id).single();
+          if (item) {
+            await supabase
+              .from('inventory_items')
+              .update({ available_stock: item.available_stock + 1 })
+              .eq('id', unit.item_id);
+          }
+        }
+        
+        const wasAvailable = unit.status === 'available';
+        const isNowDamagedOrLost = status === 'damaged' || status === 'lost' || status === 'archived';
+        if (wasAvailable && isNowDamagedOrLost) {
+          const { data: item } = await supabase.from('inventory_items').select('available_stock').eq('id', unit.item_id).single();
+          if (item && item.available_stock > 0) {
+            await supabase
+              .from('inventory_items')
+              .update({ available_stock: item.available_stock - 1 })
+              .eq('id', unit.item_id);
+          }
+        }
+
+        await logInventoryAudit(profile.id, 'update-unit-condition', 'unit', unit_id, { old_status: unit.status, new_status: status });
+        return res.status(200).json({ success: true });
+      }
     }
 
     // ==========================================
@@ -990,13 +1035,24 @@ export default async function handler(req, res) {
         .maybeSingle();
 
       if (unit) {
+        let currentCheckout = null;
+        if (unit.status === 'checked_out' && unit.current_checkout_id) {
+          const { data: co } = await supabase
+            .from('inventory_checkouts')
+            .select('*, member:member_id(id, name, membership_no)')
+            .eq('id', unit.current_checkout_id)
+            .maybeSingle();
+          currentCheckout = co;
+        }
+
         const { data: units } = await supabase
           .from('inventory_units')
           .select('id, unit_number, barcode_value, status')
           .eq('item_id', unit.items.id)
           .order('unit_number');
         const itemWithUnits = { ...unit.items, units: units || [] };
-        return res.status(200).json({ type: 'unit', unit, item: itemWithUnits });
+        const unitWithCheckout = { ...unit, current_checkout: currentCheckout };
+        return res.status(200).json({ type: 'unit', unit: unitWithCheckout, item: itemWithUnits });
       }
 
       // Check if barcode matches a product SKU
