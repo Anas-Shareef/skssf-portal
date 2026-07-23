@@ -5431,20 +5431,31 @@ ON CONFLICT (name) DO NOTHING;`}</pre>
 
       <style dangerouslySetInnerHTML={{ __html: `
         @media print {
-          #root, .ov, .modal {
-            display: none !important;
-          }
-          #print-section-root {
-            display: block !important;
+          body {
+            visibility: hidden;
             background: white !important;
             color: black !important;
-            width: 100% !important;
+          }
+          #print-section-root, #print-section-root * {
+            visibility: visible;
+          }
+          #print-section-root {
+            display: grid !important;
+            grid-template-columns: repeat(3, 1fr) !important;
+            gap: 15px !important;
             position: absolute !important;
             left: 0 !important;
             top: 0 !important;
+            width: 100% !important;
+            background: white !important;
           }
           .bc-label-print {
             page-break-inside: avoid !important;
+            border: 1px solid #ddd !important;
+            padding: 12px !important;
+            text-align: center !important;
+            background: #fff !important;
+            border-radius: 8px !important;
           }
         }
         @media screen {
