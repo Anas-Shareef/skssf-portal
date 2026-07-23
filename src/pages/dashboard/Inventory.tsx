@@ -289,7 +289,7 @@ export default function Inventory() {
   const [manualBarcode, setManualBarcode] = useState('');
   const [scanLookupResult, setScanLookupResult] = useState<any | null>(null);
   const [scanNotes, setScanNotes] = useState('');
-  const [scannerMemberId, setScannerMemberId] = useState('');
+  const [scannerMemberId, setScannerMemberId] = useState(profile?.id || '');
   const [scannerMission, setScannerMission] = useState('');
   const [scanError, setScanError] = useState('');
   const [scanSubmitting, setScanSubmitting] = useState(false);
@@ -418,9 +418,6 @@ export default function Inventory() {
       if (res.ok) {
         const data = await res.json();
         setMembers(data.members || []);
-        if (data.members?.length > 0) {
-          setScannerMemberId(data.members[0].id);
-        }
       }
     } catch (e) {
       console.warn("Failed to load profiles list:", e);
@@ -2484,19 +2481,6 @@ export default function Inventory() {
                         {scannerMode === 'checkout' ? (
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '24px' }}>
                             <div>
-                              <label className="fl2" style={{ color: '#2b2d42', fontWeight: 700 }}>Distributor *</label>
-                              <select 
-                                value={scannerMemberId} 
-                                onChange={e => setScannerMemberId(e.target.value)} 
-                                className="sel2" 
-                                style={{ width: '100%', height: '42px', borderRadius: '10px', border: '1px solid #c3fae8', background: '#fff' }}
-                              >
-                                <option value="">Choose distributor...</option>
-                                {members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-                              </select>
-                            </div>
-
-                            <div>
                               <label className="fl2" style={{ color: '#2b2d42', fontWeight: 700 }}>Welfare Mission Package *</label>
                               <select 
                                 value={scannerMission} 
@@ -2572,7 +2556,7 @@ export default function Inventory() {
                           </button>
                           <button 
                             onClick={handleConfirmScannerAction} 
-                            disabled={scanSubmitting || (scannerMode === 'checkout' && !scannerMemberId)}
+                            disabled={scanSubmitting}
                             className="bsm s" 
                             style={{ 
                               flex: 2, 
@@ -3560,11 +3544,11 @@ ON CONFLICT (name) DO NOTHING;`}</pre>
                       <thead>
                         <tr style={{ background: '#F9F8F6', borderBottom: '1px solid #E2DED6' }}>
                           <th style={{ padding: '10px 12px', fontWeight: 800 }}>UNIT ID</th>
-                          <th style={{ padding: '10px 12px', fontWeight: 800 }}>MEMBER</th>
+                          <th style={{ padding: '10px 12px', fontWeight: 800 }}>DISTRIBUTOR</th>
                           <th style={{ padding: '10px 12px', fontWeight: 800 }}>MISSION</th>
                           <th style={{ padding: '10px 12px', fontWeight: 800 }}>CHECKOUT</th>
+                          <th style={{ padding: '10px 12px', fontWeight: 800 }}>DAYS OUT</th>
                           <th style={{ padding: '10px 12px', fontWeight: 800 }}>CHECK-IN</th>
-                          <th style={{ padding: '10px 12px', fontWeight: 800 }}>ADMIN</th>
                           <th style={{ padding: '10px 12px', fontWeight: 800 }}>STATUS</th>
                         </tr>
                       </thead>
@@ -3574,6 +3558,14 @@ ON CONFLICT (name) DO NOTHING;`}</pre>
                           const unitShort = unitBar.includes('-U') ? unitBar.split('-').slice(-2).join('-') : unitBar;
                           const isOut = c.status === 'active';
 
+                          const start = new Date(c.checkout_date);
+                          const end = c.actual_return_date ? new Date(c.actual_return_date) : new Date();
+                          start.setHours(0,0,0,0);
+                          end.setHours(0,0,0,0);
+                          const diffTime = end.getTime() - start.getTime();
+                          const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+                          const daysOutText = `${Math.max(0, diffDays)}d`;
+
                           return (
                             <tr key={c.id} style={{ borderBottom: '1px solid #F3F4F6' }}>
                               <td style={{ padding: '12px' }}>
@@ -3582,15 +3574,15 @@ ON CONFLICT (name) DO NOTHING;`}</pre>
                                 </span>
                               </td>
                               <td style={{ padding: '12px' }}>
-                                <div style={{ fontWeight: 800, color: '#1E293B' }}>{c.member?.name || 'Unknown Member'}</div>
+                                <div style={{ fontWeight: 800, color: '#1E293B' }}>{c.member?.name || 'Unknown Distributor'}</div>
                                 <div style={{ fontSize: '10.5px', color: '#9CA3AF' }}>{c.member?.membership_no || 'SKSSF-MEMB'}</div>
                               </td>
                               <td style={{ padding: '12px', color: '#4B5563' }}>
                                 {c.notes?.includes('Ramadan') ? 'Ramadan Welfare' : c.notes?.includes('Student') ? 'Student Support' : c.notes?.includes('Medical') ? 'Medical Relief' : 'General Distribution'}
                               </td>
                               <td style={{ padding: '12px', color: '#4B5563' }}>{c.checkout_date}</td>
-                              <td style={{ padding: '12px', color: '#4B5563' }}>{c.actual_return_date || '—'}</td>
-                              <td style={{ padding: '12px', color: '#4B5563' }}>{c.admin?.name || 'Mohammed Ashraf'}</td>
+                              <td style={{ padding: '12px', color: '#4B5563', fontWeight: 800 }}>{daysOutText}</td>
+                              <td style={{ padding: '12px', color: '#4B5563' }}>{c.actual_return_date ? c.actual_return_date.split('T')[0] : '—'}</td>
                               <td style={{ padding: '12px' }}>
                                 <span style={{ 
                                   padding: '4px 8px', borderRadius: '50px', fontSize: '10px', fontWeight: 900,

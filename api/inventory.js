@@ -883,6 +883,7 @@ export default async function handler(req, res) {
             return_condition,
             condition_flag: conditionFlag,
             condition_notes,
+            manually_returned_by: profile.id,
             updated_at: new Date().toISOString()
           })
           .eq('id', id);
@@ -989,7 +990,13 @@ export default async function handler(req, res) {
         .maybeSingle();
 
       if (unit) {
-        return res.status(200).json({ type: 'unit', unit, item: unit.items });
+        const { data: units } = await supabase
+          .from('inventory_units')
+          .select('id, unit_number, barcode_value, status')
+          .eq('item_id', unit.items.id)
+          .order('unit_number');
+        const itemWithUnits = { ...unit.items, units: units || [] };
+        return res.status(200).json({ type: 'unit', unit, item: itemWithUnits });
       }
 
       // Check if barcode matches a product SKU
@@ -1001,7 +1008,13 @@ export default async function handler(req, res) {
         .maybeSingle();
 
       if (item) {
-        return res.status(200).json({ type: 'product', item });
+        const { data: units } = await supabase
+          .from('inventory_units')
+          .select('id, unit_number, barcode_value, status')
+          .eq('item_id', item.id)
+          .order('unit_number');
+        const itemWithUnits = { ...item, units: units || [] };
+        return res.status(200).json({ type: 'product', item: itemWithUnits });
       }
 
       return res.status(404).json({ error: 'No product or physical unit matches this barcode' });
