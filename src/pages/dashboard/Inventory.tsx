@@ -247,6 +247,8 @@ export default function Inventory() {
   const [reportsSortOrder, setReportsSortOrder] = useState<'asc' | 'desc'>('asc');
   const [reportsQuickFilter, setReportsQuickFilter] = useState<'all' | 'healthy' | 'low' | 'out' | 'checked_out'>('all');
   const [selectedReportProductTxn, setSelectedReportProductTxn] = useState<InventoryItem | null>(null);
+  const [showAllCategoriesInReports, setShowAllCategoriesInReports] = useState(false);
+  const [showAllProductsInReports, setShowAllProductsInReports] = useState(false);
 
   // Missions & Bundling State
   const [showCreateMissionModal, setShowCreateMissionModal] = useState(false);
@@ -1444,6 +1446,8 @@ export default function Inventory() {
     if (aVal > bVal) return reportsSortOrder === 'asc' ? 1 : -1;
     return 0;
   });
+
+  const displayedSummaryItems = showAllProductsInReports ? sortedSummaryItems : sortedSummaryItems.slice(0, 5);
 
   const handlePrintReport = () => {
     const printWindow = window.open('', '_blank');
@@ -3359,11 +3363,13 @@ ON CONFLICT (name) DO NOTHING;`}</pre>
             const availPercent = Math.round((reportAvailableUnits / stockTotal) * 100);
             const outPercent = Math.round((reportCheckedOutUnits / stockTotal) * 100);
 
-            const categoryShares = categories.map(cat => {
+            const categorySharesAll = categories.map(cat => {
               const catItems = items.filter(p => p.category_id === cat.id);
               const catUnits = catItems.reduce((sum, p) => sum + (p.total_stock || 0), 0);
               return { name: cat.name, units: catUnits };
-            }).filter(cs => cs.units > 0).sort((a,b) => b.units - a.units).slice(0, 4);
+            }).filter(cs => cs.units > 0).sort((a,b) => b.units - a.units);
+
+            const categoryShares = showAllCategoriesInReports ? categorySharesAll : categorySharesAll.slice(0, 4);
 
             return (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '28px' }}>
@@ -3603,20 +3609,36 @@ ON CONFLICT (name) DO NOTHING;`}</pre>
                       {categoryShares.length === 0 ? (
                         <div style={{ textAlign: 'center', color: '#94a3b8', fontSize: '12.5px', padding: '10px' }}>No category summary data found.</div>
                       ) : (
-                        categoryShares.map(cs => {
-                          const catPct = reportTotalUnits > 0 ? Math.round((cs.units / reportTotalUnits) * 100) : 0;
-                          return (
-                            <div key={cs.name}>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', fontWeight: 800, color: '#475569' }}>
-                                <span>{cs.name}</span>
-                                <span>{cs.units} Units ({catPct}%)</span>
+                        <>
+                          {categoryShares.map(cs => {
+                            const catPct = reportTotalUnits > 0 ? Math.round((cs.units / reportTotalUnits) * 100) : 0;
+                            return (
+                              <div key={cs.name}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', fontWeight: 800, color: '#475569' }}>
+                                  <span>{cs.name}</span>
+                                  <span>{cs.units} Units ({catPct}%)</span>
+                                </div>
+                                <div style={{ height: '6px', background: '#f1f5f9', borderRadius: '3px', marginTop: '4px', overflow: 'hidden' }}>
+                                  <div style={{ height: '100%', background: 'var(--teal)', width: `${catPct}%` }} />
+                                </div>
                               </div>
-                              <div style={{ height: '6px', background: '#f1f5f9', borderRadius: '3px', marginTop: '4px', overflow: 'hidden' }}>
-                                <div style={{ height: '100%', background: 'var(--teal)', width: `${catPct}%` }} />
-                              </div>
-                            </div>
-                          );
-                        })
+                            );
+                          })}
+
+                          {categorySharesAll.length > 4 && (
+                            <button
+                              type="button"
+                              onClick={() => setShowAllCategoriesInReports(!showAllCategoriesInReports)}
+                              style={{ 
+                                background: 'none', border: 'none', padding: '8px 0 0 0', color: 'var(--teal)', 
+                                fontWeight: 800, fontSize: '12px', cursor: 'pointer', textAlign: 'left',
+                                display: 'flex', alignItems: 'center', gap: '4px'
+                              }}
+                            >
+                              {showAllCategoriesInReports ? 'Show Less Categories ▲' : `View More Categories (${categorySharesAll.length - 4} more) ▼`}
+                            </button>
+                          )}
+                        </>
                       )}
                     </div>
                   </div>
@@ -3726,7 +3748,7 @@ ON CONFLICT (name) DO NOTHING;`}</pre>
                             </td>
                           </tr>
                         ) : (
-                          sortedSummaryItems.map(p => {
+                          displayedSummaryItems.map(p => {
                             const isOut = p.available_stock === 0;
                             const isLow = p.available_stock > 0 && p.available_stock <= 5;
                             const outCount = (p.total_stock || 0) - (p.available_stock || 0);
@@ -3795,7 +3817,19 @@ ON CONFLICT (name) DO NOTHING;`}</pre>
                   </div>
 
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '16px', fontSize: '12.5px', color: '#64748b' }}>
-                    <span>Showing 1–{sortedSummaryItems.length} of {sortedSummaryItems.length} products</span>
+                    <span>Showing 1–{displayedSummaryItems.length} of {sortedSummaryItems.length} products</span>
+                    {sortedSummaryItems.length > 5 && (
+                      <button
+                        type="button"
+                        onClick={() => setShowAllProductsInReports(!showAllProductsInReports)}
+                        style={{
+                          background: 'none', border: 'none', color: 'var(--teal)', fontWeight: 800,
+                          fontSize: '12.5px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px'
+                        }}
+                      >
+                        {showAllProductsInReports ? 'Show Less Products ▲' : `Show All Products (${sortedSummaryItems.length - 5} more) ▼`}
+                      </button>
+                    )}
                   </div>
                 </div>
 
