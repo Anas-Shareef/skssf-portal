@@ -234,7 +234,7 @@ export default function Inventory() {
   const [overrideCheckout, setOverrideCheckout] = useState<CheckoutRecord | null>(null);
   const [selectedProductDetail, setSelectedProductDetail] = useState<InventoryItem | null>(null);
   const [selectedMissionDetail, setSelectedMissionDetail] = useState<any | null>(null);
-  const [printJob, setPrintJob] = useState<{ type: 'single' | 'all'; item?: InventoryItem } | null>(null);
+  const [printJob, setPrintJob] = useState<{ type: 'single' | 'all' | 'selected'; item?: InventoryItem; selectedIds?: string[] } | null>(null);
 
   // Reports Page State
   const [reportsDateRange, setReportsDateRange] = useState<'today' | 'yesterday' | 'last7' | 'last30' | 'last3m' | 'thisyear' | 'custom'>('last30');
@@ -2517,7 +2517,7 @@ export default function Inventory() {
                           <h3 style={{ fontSize: '16px', fontWeight: 900, color: '#0f172a' }}>All Product SKU Barcodes</h3>
                           <p style={{ fontSize: '12px', color: '#64748b' }}>Ready-to-print SKU sheets for product catalog shelves.</p>
                         </div>
-                        <button onClick={() => window.print()} className="bsm dark" style={{ height: '38px', borderRadius: '10px' }}>
+                        <button onClick={() => setPrintJob({ type: 'selected', selectedIds: sortedCatalogue.map(i => i.id) })} className="bsm dark" style={{ height: '38px', borderRadius: '10px' }}>
                           <Printer size={13} /> Print Barcode Sheet
                         </button>
                       </div>
@@ -2557,7 +2557,7 @@ export default function Inventory() {
                       <span style={{ fontWeight: 800, fontSize: '13.5px' }}>{selectedItemIds.length} items selected</span>
                       <div style={{ height: '20px', width: '1px', background: 'rgba(255,255,255,0.3)' }} />
                       <button onClick={handleBulkCheckout} style={{ background: 'transparent', border: 'none', color: '#fff', fontWeight: 800, fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px' }}>📤 Checkout</button>
-                      <button onClick={() => setViewMode('barcodes')} style={{ background: 'transparent', border: 'none', color: '#fff', fontWeight: 800, fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px' }}>🖨️ Print Barcode</button>
+                      <button onClick={() => setPrintJob({ type: 'selected', selectedIds: selectedItemIds })} style={{ background: 'transparent', border: 'none', color: '#fff', fontWeight: 800, fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px' }}>🖨️ Print Barcode</button>
                       <button onClick={handleExportExcel} style={{ background: 'transparent', border: 'none', color: '#fff', fontWeight: 800, fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px' }}>📥 Export Selected</button>
                       <button onClick={() => { setSelectedItemIds([]); }} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: '#fff', padding: '4px 10px', borderRadius: '20px', fontWeight: 800, fontSize: '10.5px', cursor: 'pointer' }}>Clear</button>
                     </div>
@@ -5408,20 +5408,53 @@ ON CONFLICT (name) DO NOTHING;`}</pre>
                 });
               }
             });
+          } else if (printJob.type === 'selected' && printJob.selectedIds) {
+            const selectedItems = items.filter(item => printJob.selectedIds?.includes(item.id));
+            selectedItems.forEach((item) => {
+              if (item.barcode_value) {
+                labels.push({ barcode: item.barcode_value, name: item.name, category: item.categories?.name });
+              }
+              if (item.units) {
+                item.units.forEach((u: any) => {
+                  if (u.barcode_value) {
+                    labels.push({ barcode: u.barcode_value, name: `${item.name} (Unit)`, category: item.categories?.name });
+                  }
+                });
+              }
+            });
           }
 
+          // Group labels by category name
+          const categoriesMap: { [key: string]: typeof labels } = {};
+          labels.forEach(lbl => {
+            const catName = lbl.category || 'General';
+            if (!categoriesMap[catName]) {
+              categoriesMap[catName] = [];
+            }
+            categoriesMap[catName].push(lbl);
+          });
+
           return (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '15px', background: '#fff', padding: '10px' }}>
-              {labels.map((lbl, idx) => (
-                <div key={idx} className="bc-label-print" style={{ border: '1px solid #ddd', padding: '12px', textAlign: 'center', background: '#fff', borderRadius: '8px' }}>
-                  <div style={{ fontSize: '9px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: '4px' }}>
-                    SKSSF eGov • {lbl.category || 'General'}
+            <div style={{ width: '100%', background: '#fff' }}>
+              {Object.entries(categoriesMap).map(([catName, catLabels]) => (
+                <div key={catName} className="print-category-section" style={{ pageBreakInside: 'avoid', marginBottom: '35px' }}>
+                  <h3 style={{ fontSize: '12px', fontWeight: 900, borderBottom: '2px solid #334155', paddingBottom: '6px', marginBottom: '14px', textTransform: 'uppercase', color: '#1e293b', fontFamily: 'sans-serif', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    📦 Category: {catName} ({catLabels.length} Barcodes)
+                  </h3>
+                  <div className="print-category-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '15px' }}>
+                    {catLabels.map((lbl, idx) => (
+                      <div key={idx} className="bc-label-print" style={{ border: '1px solid #ddd', padding: '12px', textAlign: 'center', background: '#fff', borderRadius: '8px' }}>
+                        <div style={{ fontSize: '9px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: '4px' }}>
+                          SKSSF eGov • {lbl.category || 'General'}
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'center', margin: '4px 0' }}>
+                          <BarcodeSVG value={lbl.barcode} />
+                        </div>
+                        <div style={{ fontFamily: 'monospace', fontSize: '9px', color: '#0f172a', fontWeight: 'bold' }}>{lbl.barcode}</div>
+                        <div style={{ fontSize: '10px', fontWeight: 600, color: '#334155', marginTop: '2px' }}>{lbl.name}</div>
+                      </div>
+                    ))}
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'center', margin: '4px 0' }}>
-                    <BarcodeSVG value={lbl.barcode} />
-                  </div>
-                  <div style={{ fontFamily: 'monospace', fontSize: '9px', color: '#0f172a', fontWeight: 'bold' }}>{lbl.barcode}</div>
-                  <div style={{ fontSize: '10px', fontWeight: 600, color: '#334155', marginTop: '2px' }}>{lbl.name}</div>
                 </div>
               ))}
             </div>
@@ -5440,14 +5473,21 @@ ON CONFLICT (name) DO NOTHING;`}</pre>
             visibility: visible;
           }
           #print-section-root {
-            display: grid !important;
-            grid-template-columns: repeat(3, 1fr) !important;
-            gap: 15px !important;
+            display: block !important;
             position: absolute !important;
             left: 0 !important;
             top: 0 !important;
             width: 100% !important;
             background: white !important;
+          }
+          .print-category-section {
+            page-break-inside: avoid !important;
+            margin-bottom: 35px !important;
+          }
+          .print-category-grid {
+            display: grid !important;
+            grid-template-columns: repeat(3, 1fr) !important;
+            gap: 15px !important;
           }
           .bc-label-print {
             page-break-inside: avoid !important;
