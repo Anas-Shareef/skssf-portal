@@ -234,7 +234,7 @@ export default function Inventory() {
   const [overrideCheckout, setOverrideCheckout] = useState<CheckoutRecord | null>(null);
   const [selectedProductDetail, setSelectedProductDetail] = useState<InventoryItem | null>(null);
   const [selectedMissionDetail, setSelectedMissionDetail] = useState<any | null>(null);
-  const [printJob, setPrintJob] = useState<{ type: 'single' | 'all' | 'selected'; item?: InventoryItem; selectedIds?: string[] } | null>(null);
+  const [printJob, setPrintJob] = useState<{ labels: { barcode: string; name: string; category?: string; productName: string }[]; groupMode: 'category' | 'product' | 'none' } | null>(null);
 
   // Reports Page State
   const [reportsDateRange, setReportsDateRange] = useState<'today' | 'yesterday' | 'last7' | 'last30' | 'last3m' | 'thisyear' | 'custom'>('last30');
@@ -257,6 +257,11 @@ export default function Inventory() {
   const [checkoutWizardActive, setCheckoutWizardActive] = useState(false);
   const [scannerDemoMode, setScannerDemoMode] = useState(false);
   const [selectedUnitDetail, setSelectedUnitDetail] = useState<any | null>(null);
+  const [showPrintOptionsModal, setShowPrintOptionsModal] = useState(false);
+  const [printFilterTarget, setPrintFilterTarget] = useState<'both' | 'product_sku' | 'units_only'>('both');
+  const [printFilterCategory, setPrintFilterCategory] = useState('all');
+  const [printGroupMode, setPrintGroupMode] = useState<'category' | 'product'>('category');
+  const [printJobSource, setPrintJobSource] = useState<{ type: 'all' | 'selected' | 'single'; selectedIds?: string[]; item?: InventoryItem } | null>(null);
 
   // Missions & Bundling State
   const [showCreateMissionModal, setShowCreateMissionModal] = useState(false);
@@ -1141,6 +1146,66 @@ export default function Inventory() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleGeneratePrintJob = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!printJobSource) return;
+
+    let targetItems: InventoryItem[] = [];
+    if (printJobSource.type === 'single' && printJobSource.item) {
+      targetItems = [printJobSource.item];
+    } else if (printJobSource.type === 'selected' && printJobSource.selectedIds) {
+      targetItems = items.filter(item => printJobSource.selectedIds?.includes(item.id));
+    } else {
+      targetItems = items;
+    }
+
+    if (printFilterCategory !== 'all') {
+      targetItems = targetItems.filter(item => item.category_id === printFilterCategory);
+    }
+
+    let labels: { barcode: string; name: string; category?: string; productName: string }[] = [];
+
+    targetItems.forEach(item => {
+      if (printFilterTarget === 'both' || printFilterTarget === 'product_sku') {
+        if (item.barcode_value) {
+          labels.push({
+            barcode: item.barcode_value,
+            name: item.name,
+            category: item.categories?.name || 'General',
+            productName: item.name
+          });
+        }
+      }
+
+      if (printFilterTarget === 'both' || printFilterTarget === 'units_only') {
+        if (item.units) {
+          item.units.forEach((u: any) => {
+            if (u.barcode_value) {
+              labels.push({
+                barcode: u.barcode_value,
+                name: `${item.name} (Unit U${String(u.unit_number).padStart(2, '0')})`,
+                category: item.categories?.name || 'General',
+                productName: item.name
+              });
+            }
+          });
+        }
+      }
+    });
+
+    if (labels.length === 0) {
+      popToast('e', 'No barcodes matched your selected filters.');
+      return;
+    }
+
+    setPrintJob({
+      labels,
+      groupMode: printGroupMode
+    });
+
+    setShowPrintOptionsModal(false);
   };
 
   // SheetJS Excel Report Export
@@ -2580,7 +2645,7 @@ export default function Inventory() {
                 </div>
                 <button 
                   type="button" 
-                  onClick={() => setPrintJob({ type: 'all' })} 
+                  onClick={() => { setPrintJobSource({ type: 'all' }); setShowPrintOptionsModal(true); }} 
                   style={{ height: '42px', padding: '0 20px', background: '#1A1F2E', color: '#fff', borderRadius: '50px', border: 'none', fontWeight: 800, fontSize: '13.5px', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}
                 >
                   <Printer size={16} /> Print All
@@ -2624,7 +2689,7 @@ export default function Inventory() {
                         </button>
                         <button 
                           type="button" 
-                          onClick={() => setPrintJob({ type: 'single', item })}
+                          onClick={() => { setPrintJobSource({ type: 'single', item }); setShowPrintOptionsModal(true); }}
                           style={{ height: '36px', padding: '0 16px', background: 'var(--teal)', color: '#fff', borderRadius: '50px', border: 'none', fontWeight: 800, fontSize: '12px', cursor: 'pointer' }}
                         >
                           🖨️ Print Labels
@@ -5379,70 +5444,137 @@ ON CONFLICT (name) DO NOTHING;`}</pre>
           </div>
         </div>
       )}
+      {/* Barcode Print Options Modal */}
+      {showPrintOptionsModal && (
+        <div className="ov" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1100, background: 'rgba(15, 23, 42, 0.4)' }}>
+          <div className="modal inv-modal" style={{ maxWidth: '480px', width: '90%', borderRadius: '24px', padding: '28px', animation: 'slideUp 0.25s ease' }}>
+            <div className="modal-head" style={{ border: 'none', padding: '0 0 16px 0', marginBottom: '8px' }}>
+              <span className="modal-title" style={{ fontSize: '18px', fontWeight: 900, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                🖨️ Barcode Print Options
+              </span>
+              <button onClick={() => setShowPrintOptionsModal(false)} className="modal-close"><X size={20} /></button>
+            </div>
+            
+            <form onSubmit={handleGeneratePrintJob} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              
+              {/* Target items type */}
+              <div>
+                <label className="fl2" style={{ fontWeight: 800, fontSize: '13px', color: '#1e293b', marginBottom: '8px', display: 'block' }}>Barcodes Target Filter</label>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', color: '#475569' }}>
+                    <input 
+                      type="radio" 
+                      name="printTarget" 
+                      checked={printFilterTarget === 'both'} 
+                      onChange={() => setPrintFilterTarget('both')}
+                      style={{ cursor: 'pointer', width: '16px', height: '16px' }}
+                    />
+                    <span>Print Both (Product SKUs &amp; Unit Codes)</span>
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', color: '#475569' }}>
+                    <input 
+                      type="radio" 
+                      name="printTarget" 
+                      checked={printFilterTarget === 'product_sku'} 
+                      onChange={() => setPrintFilterTarget('product_sku')}
+                      style={{ cursor: 'pointer', width: '16px', height: '16px' }}
+                    />
+                    <span>Product SKU Barcodes Only (for shelves)</span>
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', color: '#475569' }}>
+                    <input 
+                      type="radio" 
+                      name="printTarget" 
+                      checked={printFilterTarget === 'units_only'} 
+                      onChange={() => setPrintFilterTarget('units_only')}
+                      style={{ cursor: 'pointer', width: '16px', height: '16px' }}
+                    />
+                    <span>Individual Unit Barcodes Only (for items)</span>
+                  </label>
+                </div>
+              </div>
+
+              {/* Category Filter Dropdown (only show if not single item print) */}
+              {printJobSource?.type !== 'single' && (
+                <div>
+                  <label className="fl2" style={{ fontWeight: 800, fontSize: '13px', color: '#1e293b', marginBottom: '6px', display: 'block' }}>Category Filter</label>
+                  <select 
+                    value={printFilterCategory} 
+                    onChange={e => setPrintFilterCategory(e.target.value)} 
+                    className="sel2" 
+                    style={{ width: '100%', height: '42px', borderRadius: '12px' }}
+                  >
+                    <option value="all">All Categories</option>
+                    {categories.map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Grouping Style */}
+              <div>
+                <label className="fl2" style={{ fontWeight: 800, fontSize: '13px', color: '#1e293b', marginBottom: '8px', display: 'block' }}>Grouping &amp; Separation Style</label>
+                <div style={{ display: 'flex', gap: '16px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', color: '#475569' }}>
+                    <input 
+                      type="radio" 
+                      name="printGroupMode" 
+                      checked={printGroupMode === 'category'} 
+                      onChange={() => setPrintGroupMode('category')}
+                      style={{ cursor: 'pointer', width: '16px', height: '16px' }}
+                    />
+                    <span>Group by Category</span>
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', color: '#475569' }}>
+                    <input 
+                      type="radio" 
+                      name="printGroupMode" 
+                      checked={printGroupMode === 'product'} 
+                      onChange={() => setPrintGroupMode('product')}
+                      style={{ cursor: 'pointer', width: '16px', height: '16px' }}
+                    />
+                    <span>Group by Product</span>
+                  </label>
+                </div>
+              </div>
+
+              {/* Buttons */}
+              <div style={{ display: 'flex', gap: '10px', marginTop: '12px' }}>
+                <button type="button" onClick={() => setShowPrintOptionsModal(false)} style={{ flex: 1, height: '44px', border: '1.5px solid #e2e8f0', background: '#fff', borderRadius: '12px', fontWeight: 800 }}>Cancel</button>
+                <button type="submit" className="bsm s" style={{ flex: 1, height: '44px', borderRadius: '12px', background: 'var(--teal)', color: '#fff', border: 'none', fontWeight: 800, cursor: 'pointer' }}>
+                  🖨️ Generate &amp; Print
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Dynamic printable area for barcode labels */}
       <div id="print-section-root">
         {printJob && (() => {
-          let labels: { barcode: string; name: string; category?: string }[] = [];
-          if (printJob.type === 'single' && printJob.item) {
-            const item = printJob.item;
-            if (item.barcode_value) {
-              labels.push({ barcode: item.barcode_value, name: item.name, category: item.categories?.name });
+          // Group labels by selected groupMode
+          const groupsMap: { [key: string]: typeof printJob.labels } = {};
+          printJob.labels.forEach(lbl => {
+            const groupName = printJob.groupMode === 'category' 
+              ? (lbl.category || 'General') 
+              : (lbl.productName || 'General');
+            if (!groupsMap[groupName]) {
+              groupsMap[groupName] = [];
             }
-            if (item.units) {
-              item.units.forEach((u: any) => {
-                if (u.barcode_value) {
-                  labels.push({ barcode: u.barcode_value, name: `${item.name} (Unit)`, category: item.categories?.name });
-                }
-              });
-            }
-          } else if (printJob.type === 'all') {
-            items.forEach((item) => {
-              if (item.barcode_value) {
-                labels.push({ barcode: item.barcode_value, name: item.name, category: item.categories?.name });
-              }
-              if (item.units) {
-                item.units.forEach((u: any) => {
-                  if (u.barcode_value) {
-                    labels.push({ barcode: u.barcode_value, name: `${item.name} (Unit)`, category: item.categories?.name });
-                  }
-                });
-              }
-            });
-          } else if (printJob.type === 'selected' && printJob.selectedIds) {
-            const selectedItems = items.filter(item => printJob.selectedIds?.includes(item.id));
-            selectedItems.forEach((item) => {
-              if (item.barcode_value) {
-                labels.push({ barcode: item.barcode_value, name: item.name, category: item.categories?.name });
-              }
-              if (item.units) {
-                item.units.forEach((u: any) => {
-                  if (u.barcode_value) {
-                    labels.push({ barcode: u.barcode_value, name: `${item.name} (Unit)`, category: item.categories?.name });
-                  }
-                });
-              }
-            });
-          }
-
-          // Group labels by category name
-          const categoriesMap: { [key: string]: typeof labels } = {};
-          labels.forEach(lbl => {
-            const catName = lbl.category || 'General';
-            if (!categoriesMap[catName]) {
-              categoriesMap[catName] = [];
-            }
-            categoriesMap[catName].push(lbl);
+            groupsMap[groupName].push(lbl);
           });
 
           return (
             <div style={{ width: '100%', background: '#fff' }}>
-              {Object.entries(categoriesMap).map(([catName, catLabels]) => (
-                <div key={catName} className="print-category-section" style={{ pageBreakInside: 'avoid', marginBottom: '35px' }}>
+              {Object.entries(groupsMap).map(([groupName, groupLabels]) => (
+                <div key={groupName} className="print-category-section" style={{ pageBreakInside: 'avoid', marginBottom: '35px' }}>
                   <h3 style={{ fontSize: '12px', fontWeight: 900, borderBottom: '2px solid #334155', paddingBottom: '6px', marginBottom: '14px', textTransform: 'uppercase', color: '#1e293b', fontFamily: 'sans-serif', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    📦 Category: {catName} ({catLabels.length} Barcodes)
+                    📦 {printJob.groupMode === 'category' ? 'Category' : 'Product'}: {groupName} ({groupLabels.length} Barcodes)
                   </h3>
                   <div className="print-category-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '15px' }}>
-                    {catLabels.map((lbl, idx) => (
+                    {groupLabels.map((lbl, idx) => (
                       <div key={idx} className="bc-label-print" style={{ border: '1px solid #ddd', padding: '12px', textAlign: 'center', background: '#fff', borderRadius: '8px' }}>
                         <div style={{ fontSize: '9px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: '4px' }}>
                           SKSSF eGov • {lbl.category || 'General'}
