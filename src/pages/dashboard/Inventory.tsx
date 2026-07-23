@@ -236,6 +236,18 @@ export default function Inventory() {
   const [selectedMissionDetail, setSelectedMissionDetail] = useState<any | null>(null);
   const [printJob, setPrintJob] = useState<{ type: 'single' | 'all'; item?: InventoryItem } | null>(null);
 
+  // Reports Page State
+  const [reportsDateRange, setReportsDateRange] = useState<'today' | 'yesterday' | 'last7' | 'last30' | 'last3m' | 'thisyear' | 'custom'>('last30');
+  const [reportsCustomStart, setReportsCustomStart] = useState('');
+  const [reportsCustomEnd, setReportsCustomEnd] = useState('');
+  const [reportsBranch, setReportsBranch] = useState<string>('all');
+  const [reportsCategory, setReportsCategory] = useState<string>('all');
+  const [reportsSearch, setReportsSearch] = useState('');
+  const [reportsSortField, setReportsSortField] = useState<'name' | 'sku' | 'category' | 'total' | 'available' | 'out' | 'txns'>('name');
+  const [reportsSortOrder, setReportsSortOrder] = useState<'asc' | 'desc'>('asc');
+  const [reportsQuickFilter, setReportsQuickFilter] = useState<'all' | 'healthy' | 'low' | 'out' | 'checked_out'>('all');
+  const [selectedReportProductTxn, setSelectedReportProductTxn] = useState<InventoryItem | null>(null);
+
   // Missions & Bundling State
   const [showCreateMissionModal, setShowCreateMissionModal] = useState(false);
   const [newMissionName, setNewMissionName] = useState('');
@@ -974,21 +986,38 @@ export default function Inventory() {
   // SheetJS Excel Report Export
   const handleExportExcel = () => {
     // 1. Catalog sheet
-    const catalogData = items.map(p => ({
-      'Item Name': p.name,
-      'SKU Code': p.barcode_value || 'N/A',
-      'Category': p.categories?.name || 'Uncategorized',
-      'Type': p.item_type === 'lease' ? 'Lease' : 'Permanent',
-      'Total Stock': p.total_stock,
-      'Available': p.available_stock,
-      'Checked Out': p.total_stock - p.available_stock,
-      'Lease Duration (Days)': p.lease_duration_days || 'Permanent',
-      'Public Visible': p.public_visible ? 'Yes' : 'No'
-    }));
+    const finalItems = items.filter(p => {
+      const catMatch = reportsCategory === 'all' || p.category_id === reportsCategory;
+      const searchMatch = !reportsSearch || 
+        p.name.toLowerCase().includes(reportsSearch.toLowerCase()) || 
+        (p.barcode_value && p.barcode_value.toLowerCase().includes(reportsSearch.toLowerCase()));
+      return catMatch && searchMatch;
+    });
+
+    const catalogData = finalItems.map(p => {
+      const branchStr = reportsBranch === 'all' ? 'All Branches' : reportsBranch === 'poyanad' ? 'Poyanad Central' : reportsBranch === 'brancha' ? 'Branch A' : reportsBranch === 'branchb' ? 'Branch B' : 'Branch C';
+      return {
+        'Item Name': p.name,
+        'SKU Code': p.barcode_value || 'N/A',
+        'Category': p.categories?.name || 'Uncategorized',
+        'Type': p.item_type === 'lease' ? 'Lease' : 'Permanent',
+        'Total Stock': p.total_stock,
+        'Available': p.available_stock,
+        'Checked Out': p.total_stock - p.available_stock,
+        'Stock Status': p.available_stock === 0 ? 'Out of Stock' : p.available_stock <= 5 ? 'Low Stock' : 'Healthy',
+        'Transactions (Period)': getProductTransactionsCount(p.id),
+        'Branch Scope': branchStr
+      };
+    });
 
     // 2. Active Leases sheet
     const activeLeases = allCheckouts
-      .filter(c => c.status === 'active')
+      .filter(c => {
+        if (reportsBranch !== 'all' && getBranchName(c) !== reportsBranch) return false;
+        if (reportsCategory !== 'all' && c.items?.category_id !== reportsCategory) return false;
+        if (!isDateInReportsRange(c.checkout_date)) return false;
+        return true;
+      })
       .map(c => ({
         'Distributor': c.member?.name || 'N/A',
         'Item Name': c.items?.name || 'N/A',
@@ -996,6 +1025,7 @@ export default function Inventory() {
         'Qty': c.quantity,
         'Checkout Date': c.checkout_date,
         'Due Return Date': c.due_return_date || 'Permanent',
+        'Status': c.status,
         'Notes': c.notes || ''
       }));
 
@@ -1003,11 +1033,11 @@ export default function Inventory() {
     const wsCatalog = XLSX.utils.json_to_sheet(catalogData);
     const wsLeases = XLSX.utils.json_to_sheet(activeLeases);
 
-    XLSX.utils.book_append_sheet(wb, wsCatalog, 'Welfare Inventory');
-    XLSX.utils.book_append_sheet(wb, wsLeases, 'Active Checkouts Ledger');
+    XLSX.utils.book_append_sheet(wb, wsCatalog, 'Filtered Inventory Summary');
+    XLSX.utils.book_append_sheet(wb, wsLeases, 'Filtered Leases Ledger');
 
-    XLSX.writeFile(wb, `SKSSF_Inventory_Report_${new Date().toISOString().split('T')[0]}.xlsx`);
-    popToast('s', 'Excel inventory report exported successfully!');
+    XLSX.writeFile(wb, `SKSSF_Inventory_Filtered_Report_${new Date().toISOString().split('T')[0]}.xlsx`);
+    popToast('s', 'Filtered Excel inventory report exported successfully!');
   };
 
   // Helper for mock unit price
@@ -1237,6 +1267,262 @@ export default function Inventory() {
       setActiveTab('scanner');
       handleSelectQuickScan(item.units?.[0]?.barcode_value || item.barcode_value || '');
     }
+  };
+
+  // 1. Helper to resolve checkout records by branch
+  const getBranchName = (checkout: any) => {
+    const memberName = checkout.member?.name || '';
+    if (memberName.includes('Anas') || memberName.includes('Super')) return 'poyanad';
+    if (memberName.toLowerCase().includes('ameer') || memberName.toLowerCase().includes('ashraf')) return 'brancha';
+    if (memberName.toLowerCase().includes('rizwan')) return 'branchb';
+    return 'branchc';
+  };
+
+  // 2. Helper to check if a date falls within selected reporting period
+  const isDateInReportsRange = (dateStr: string | null) => {
+    if (!dateStr) return false;
+    const date = new Date(dateStr);
+    const today = new Date();
+    today.setHours(0,0,0,0);
+    
+    const checkDate = new Date(dateStr);
+    checkDate.setHours(0,0,0,0);
+
+    switch (reportsDateRange) {
+      case 'today':
+        return checkDate.getTime() === today.getTime();
+      case 'yesterday': {
+        const yesterday = new Date(today);
+        yesterday.setDate(yesterday.getDate() - 1);
+        return checkDate.getTime() === yesterday.getTime();
+      }
+      case 'last7': {
+        const sevenDaysAgo = new Date(today);
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+        return checkDate.getTime() >= sevenDaysAgo.getTime() && checkDate.getTime() <= today.getTime();
+      }
+      case 'last30': {
+        const thirtyDaysAgo = new Date(today);
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        return checkDate.getTime() >= thirtyDaysAgo.getTime() && checkDate.getTime() <= today.getTime();
+      }
+      case 'last3m': {
+        const threeMonthsAgo = new Date(today);
+        threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+        return checkDate.getTime() >= threeMonthsAgo.getTime() && checkDate.getTime() <= today.getTime();
+      }
+      case 'thisyear': {
+        const startOfYear = new Date(today.getFullYear(), 0, 1);
+        return checkDate.getTime() >= startOfYear.getTime() && checkDate.getTime() <= today.getTime();
+      }
+      case 'custom': {
+        const start = reportsCustomStart ? new Date(reportsCustomStart) : null;
+        const end = reportsCustomEnd ? new Date(reportsCustomEnd) : null;
+        if (start) start.setHours(0,0,0,0);
+        if (end) end.setHours(23,59,59,999);
+        
+        const time = date.getTime();
+        if (start && end) {
+          return time >= start.getTime() && time <= end.getTime();
+        } else if (start) {
+          return time >= start.getTime();
+        } else if (end) {
+          return time <= end.getTime();
+        }
+        return true;
+      }
+      default:
+        return true;
+    }
+  };
+
+  // 3. Transactions count in the period for a specific product
+  const getProductTransactionsCount = (productId: string) => {
+    return allCheckouts.filter(c => {
+      if (c.item_id !== productId) return false;
+      if (reportsBranch !== 'all' && getBranchName(c) !== reportsBranch) return false;
+      const chkIn = isDateInReportsRange(c.checkout_date);
+      const retIn = c.status === 'returned' && c.actual_return_date && isDateInReportsRange(c.actual_return_date);
+      return chkIn || retIn;
+    }).length;
+  };
+
+  // Filtered checkouts list based on branch/category
+  const filteredCheckoutsForReport = allCheckouts.filter(c => {
+    if (reportsBranch !== 'all' && getBranchName(c) !== reportsBranch) return false;
+    if (reportsCategory !== 'all' && c.items?.category_id !== reportsCategory) return false;
+    return true;
+  });
+
+  // Calculate report metrics
+  const reportProducts = items.filter(p => {
+    const catMatch = reportsCategory === 'all' || p.category_id === reportsCategory;
+    const searchMatch = !reportsSearch || 
+      p.name.toLowerCase().includes(reportsSearch.toLowerCase()) || 
+      (p.barcode_value && p.barcode_value.toLowerCase().includes(reportsSearch.toLowerCase()));
+    return catMatch && searchMatch;
+  });
+
+  const reportProductsCount = reportProducts.length;
+  const reportTotalUnits = reportProducts.reduce((sum, p) => sum + (p.total_stock || 0), 0);
+  const reportAvailableUnits = reportProducts.reduce((sum, p) => sum + (p.available_stock || 0), 0);
+  const reportCheckedOutUnits = reportProducts.reduce((sum, p) => sum + Math.max(0, (p.total_stock || 0) - (p.available_stock || 0)), 0);
+
+  // Checked In during selected period
+  const reportCheckedInCount = filteredCheckoutsForReport.filter(c => 
+    c.status === 'returned' && 
+    c.actual_return_date && 
+    isDateInReportsRange(c.actual_return_date) &&
+    reportProducts.some(p => p.id === c.item_id)
+  ).reduce((sum, c) => sum + (c.quantity || 1), 0);
+
+  // Checkouts during selected period
+  const reportCheckedOutInPeriod = filteredCheckoutsForReport.filter(c => 
+    isDateInReportsRange(c.checkout_date) &&
+    reportProducts.some(p => p.id === c.item_id)
+  ).reduce((sum, c) => sum + (c.quantity || 1), 0);
+
+  const reportTransactionsCount = filteredCheckoutsForReport.filter(c => {
+    if (!reportProducts.some(p => p.id === c.item_id)) return false;
+    const chkIn = isDateInReportsRange(c.checkout_date);
+    const retIn = c.status === 'returned' && c.actual_return_date && isDateInReportsRange(c.actual_return_date);
+    return chkIn || retIn;
+  }).length;
+
+  const reportLowStockCount = reportProducts.filter(p => p.total_stock > 0 && p.available_stock > 0 && p.available_stock <= 5).length;
+  const reportOutOfStockCount = reportProducts.filter(p => p.total_stock > 0 && p.available_stock === 0).length;
+
+  // Filter summary list by reportsQuickFilter
+  const summaryFilteredItems = reportProducts.filter(p => {
+    if (reportsQuickFilter === 'healthy') return p.available_stock > 5;
+    if (reportsQuickFilter === 'low') return p.available_stock > 0 && p.available_stock <= 5;
+    if (reportsQuickFilter === 'out') return p.available_stock === 0;
+    if (reportsQuickFilter === 'checked_out') return (p.total_stock - p.available_stock) > 0;
+    return true;
+  });
+
+  // Sort summary items
+  const sortedSummaryItems = [...summaryFilteredItems].sort((a, b) => {
+    let aVal: any = '';
+    let bVal: any = '';
+
+    switch (reportsSortField) {
+      case 'name':
+        aVal = a.name.toLowerCase();
+        bVal = b.name.toLowerCase();
+        break;
+      case 'sku':
+        aVal = (a.barcode_value || '').toLowerCase();
+        bVal = (b.barcode_value || '').toLowerCase();
+        break;
+      case 'category':
+        aVal = (a.categories?.name || '').toLowerCase();
+        bVal = (b.categories?.name || '').toLowerCase();
+        break;
+      case 'total':
+        aVal = a.total_stock || 0;
+        bVal = b.total_stock || 0;
+        break;
+      case 'available':
+        aVal = a.available_stock || 0;
+        bVal = b.available_stock || 0;
+        break;
+      case 'out':
+        aVal = (a.total_stock || 0) - (a.available_stock || 0);
+        bVal = (b.total_stock || 0) - (b.available_stock || 0);
+        break;
+      case 'txns':
+        aVal = getProductTransactionsCount(a.id);
+        bVal = getProductTransactionsCount(b.id);
+        break;
+      default:
+        aVal = a.name.toLowerCase();
+        bVal = b.name.toLowerCase();
+    }
+
+    if (aVal < bVal) return reportsSortOrder === 'asc' ? -1 : 1;
+    if (aVal > bVal) return reportsSortOrder === 'asc' ? 1 : -1;
+    return 0;
+  });
+
+  const handlePrintReport = () => {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+    
+    const branchText = reportsBranch === 'all' ? 'All Branches' : reportsBranch === 'poyanad' ? 'Poyanad Central' : reportsBranch === 'brancha' ? 'Branch A' : reportsBranch === 'branchb' ? 'Branch B' : 'Branch C';
+    const dateText = reportsDateRange === 'last30' ? 'Last 30 Days' : reportsDateRange === 'today' ? 'Today' : reportsDateRange === 'yesterday' ? 'Yesterday' : reportsDateRange === 'last7' ? 'Last 7 Days' : reportsDateRange === 'last3m' ? 'Last 3 Months' : reportsDateRange === 'thisyear' ? 'This Year' : `Custom (${reportsCustomStart} to ${reportsCustomEnd})`;
+
+    const content = `
+      <html>
+      <head>
+        <title>Inventory Report - SKSSF Portal</title>
+        <style>
+          body { font-family: 'DM Sans', sans-serif; padding: 40px; color: #1e293b; }
+          h1 { margin-bottom: 5px; }
+          .subtitle { color: #64748b; font-size: 14px; margin-bottom: 30px; }
+          .meta { margin-bottom: 30px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; background: #f8fafc; padding: 15px; border-radius: 12px; }
+          .meta-item { font-size: 13px; }
+          .meta-label { font-weight: 800; color: #475569; }
+          table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+          th, td { border-bottom: 1px solid #e2e8f0; padding: 12px 10px; text-align: left; font-size: 13px; }
+          th { background: #f1f5f9; font-weight: 800; color: #334155; }
+          .status { font-weight: 800; }
+          .status-healthy { color: #16a34a; }
+          .status-low { color: #d97706; }
+          .status-out { color: #dc2626; }
+        </style>
+      </head>
+      <body>
+        <h1>Inventory Stock Summary</h1>
+        <div class="subtitle">Generated on ${new Date().toLocaleDateString()} • Period: ${dateText} • Branch: ${branchText}</div>
+        
+        <div class="meta">
+          <div class="meta-item"><span class="meta-label">Total Products:</span> ${reportProductsCount}</div>
+          <div class="meta-item"><span class="meta-label">Total Units:</span> ${reportTotalUnits}</div>
+          <div class="meta-item"><span class="meta-label">Available Now:</span> ${reportAvailableUnits}</div>
+          <div class="meta-item"><span class="meta-label">Checked Out:</span> ${reportCheckedOutUnits}</div>
+          <div class="meta-item"><span class="meta-label">Checked In (Period):</span> ${reportCheckedInCount}</div>
+          <div class="meta-item"><span class="meta-label">Total Transactions:</span> ${reportTransactionsCount}</div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Product Name</th>
+              <th>SKU</th>
+              <th>Category</th>
+              <th>Total Units</th>
+              <th>Available</th>
+              <th>Checked Out</th>
+              <th>Status</th>
+              <th>Txns</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${sortedSummaryItems.map((p: any) => {
+              const statusClass = p.available_stock === 0 ? 'status-out' : p.available_stock <= 5 ? 'status-low' : 'status-healthy';
+              const statusText = p.available_stock === 0 ? 'Out of Stock' : p.available_stock <= 5 ? 'Low Stock' : 'Healthy';
+              return `
+                <tr>
+                  <td><strong>${p.name}</strong></td>
+                  <td><code>${p.barcode_value || '—'}</code></td>
+                  <td>${p.categories?.name || 'Uncategorized'}</td>
+                  <td>${p.total_stock}</td>
+                  <td style="color:#16a34a;font-weight:700;">${p.available_stock}</td>
+                  <td style="color:#2563eb;font-weight:700;">${p.total_stock - p.available_stock}</td>
+                  <td class="status \${statusClass}">${statusText}</td>
+                  <td>\${getProductTransactionsCount(p.id)}</td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      </body>
+      </html>
+    `;
+    printWindow.document.write(content);
+    printWindow.document.close();
+    printWindow.print();
   };
 
   return (
@@ -3055,204 +3341,467 @@ ON CONFLICT (name) DO NOTHING;`}</pre>
           )}
 
           {/* ⑤ REPORTS TAB */}
-          {activeTab === 'reports' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '28px' }}>
-              
-              <div className="reports-dashboard-grid" style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, minmax(215px, 1fr))',
-                gap: '16px'
-              }}>
-                {/* Card 1: Total Products */}
-                <div style={{ background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: '18px', padding: '16px', boxShadow: '0 2px 10px rgba(0,0,0,0.02)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>📦</div>
-                    <span style={{ fontSize: '11px', fontWeight: 800, background: '#f1f5f9', color: '#475569', padding: '3px 8px', borderRadius: '20px' }}>Products</span>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: '26px', fontWeight: 950, color: '#0f172a', lineHeight: 1.2 }}>{items.length}</div>
-                    <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>Unique catalog entries</div>
-                  </div>
-                </div>
+          {activeTab === 'reports' && (() => {
+            const canView = profile?.role === 'super' || hasPermission('reports.view');
+            const canExport = profile?.role === 'super' || hasPermission('reports.export');
 
-                {/* Card 2: Total Units */}
-                <div style={{ background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: '18px', padding: '16px', boxShadow: '0 2px 10px rgba(0,0,0,0.02)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>📦</div>
-                    <span style={{ fontSize: '11px', fontWeight: 800, background: '#f1f5f9', color: '#475569', padding: '3px 8px', borderRadius: '20px' }}>Total Units</span>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: '26px', fontWeight: 950, color: '#0f172a', lineHeight: 1.2 }}>{items.reduce((s, p) => s + (p.total_stock || 0), 0)}</div>
-                    <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 600 }}>Quantity of all items</div>
-                  </div>
+            if (!canView) {
+              return (
+                <div style={{ padding: '40px', textAlign: 'center', background: '#fff', border: '1.5px solid #fee2e2', borderRadius: '24px' }}>
+                  <AlertTriangle size={48} color="#dc2626" style={{ margin: '0 auto 16px auto' }} />
+                  <h3 style={{ fontSize: '18px', fontWeight: 900, color: '#991b1b', margin: 0 }}>Access Denied</h3>
+                  <p style={{ fontSize: '13px', color: '#b91c1c', marginTop: '8px' }}>You do not have the required permissions (`reports.view`) to view inventory analytics reports.</p>
                 </div>
+              );
+            }
 
-                {/* Card 3: Available Now */}
-                <div style={{ background: '#f0fdf4', border: '1.5px solid #bbf7d0', borderRadius: '18px', padding: '16px', boxShadow: '0 2px 10px rgba(0,0,0,0.02)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: '#dcfce7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>✅</div>
-                    <span style={{ fontSize: '11px', fontWeight: 800, background: '#dcfce7', color: '#16a34a', padding: '3px 8px', borderRadius: '20px' }}>In Stock</span>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: '26px', fontWeight: 950, color: '#16a34a', lineHeight: 1.2 }}>{items.reduce((s, p) => s + (p.available_stock || 0), 0)}</div>
-                    <div style={{ fontSize: '11.5px', color: '#15803d', fontWeight: 600 }}>Ready to issue</div>
-                  </div>
-                </div>
+            const stockTotal = reportTotalUnits || 1;
+            const availPercent = Math.round((reportAvailableUnits / stockTotal) * 100);
+            const outPercent = Math.round((reportCheckedOutUnits / stockTotal) * 100);
 
-                {/* Card 4: Checked Out */}
-                <div style={{ background: '#eff6ff', border: '1.5px solid #bfdbfe', borderRadius: '18px', padding: '16px', boxShadow: '0 2px 10px rgba(0,0,0,0.02)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: '#dbeafe', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>📤</div>
-                    <span style={{ fontSize: '11px', fontWeight: 800, background: '#dbeafe', color: '#2563eb', padding: '3px 8px', borderRadius: '20px' }}>Issued</span>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: '26px', fontWeight: 950, color: '#2563eb', lineHeight: 1.2 }}>{items.reduce((s, p) => s + Math.max(0, (p.total_stock || 0) - (p.available_stock || 0)), 0)}</div>
-                    <div style={{ fontSize: '11.5px', color: '#1d4ed8', fontWeight: 600 }}>Currently checked out</div>
-                  </div>
-                </div>
+            const categoryShares = categories.map(cat => {
+              const catItems = items.filter(p => p.category_id === cat.id);
+              const catUnits = catItems.reduce((sum, p) => sum + (p.total_stock || 0), 0);
+              return { name: cat.name, units: catUnits };
+            }).filter(cs => cs.units > 0).sort((a,b) => b.units - a.units).slice(0, 4);
 
-                {/* Card 5: Checked In Today */}
-                <div style={{ background: '#f0fdf4', border: '1.5px solid #bbf7d0', borderRadius: '18px', padding: '16px', boxShadow: '0 2px 10px rgba(0,0,0,0.02)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: '#dcfce7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>📥</div>
-                    <span style={{ fontSize: '11px', fontWeight: 800, background: '#dcfce7', color: '#15803d', padding: '3px 8px', borderRadius: '20px' }}>Returned</span>
-                  </div>
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '28px' }}>
+                
+                {/* Reports Header and Filters Row */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '20px', alignItems: 'flex-start', flexWrap: 'wrap', background: '#fff', border: '1.5px solid #E2DED6', borderRadius: '24px', padding: '24px', boxShadow: '0 2px 10px rgba(0,0,0,0.01)' }}>
                   <div>
-                    <div style={{ fontSize: '26px', fontWeight: 950, color: '#15803d', lineHeight: 1.2 }}>
-                      {allCheckouts.filter(c => c.status === 'returned' && c.actual_return_date && new Date(c.actual_return_date).toDateString() === new Date().toDateString()).reduce((s, c) => s + (c.quantity || 0), 0)}
+                    <h2 style={{ fontSize: '22px', fontWeight: 900, color: '#1a1f2e', fontFamily: 'Playfair Display, serif', margin: 0 }}>Inventory Reports</h2>
+                    <p style={{ fontSize: '12.5px', color: '#64748b', marginTop: '4px', maxWidth: '600px', lineHeight: 1.4 }}>
+                      Monitor inventory levels, stock availability, product usage, and transaction activity across the organization.
+                    </p>
+                  </div>
+                  
+                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                    {/* Date filter */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <span style={{ fontSize: '11px', fontWeight: 800, color: '#64748b' }}>Date Range</span>
+                      <select 
+                        value={reportsDateRange} 
+                        onChange={e => setReportsDateRange(e.target.value as any)} 
+                        className="sel2" 
+                        style={{ height: '38px', borderRadius: '10px', padding: '0 12px', border: '1px solid #c3fae8', background: '#fff', fontSize: '12.5px', fontWeight: 700 }}
+                      >
+                        <option value="today">Today</option>
+                        <option value="yesterday">Yesterday</option>
+                        <option value="last7">Last 7 Days</option>
+                        <option value="last30">Last 30 Days</option>
+                        <option value="last3m">Last 3 Months</option>
+                        <option value="thisyear">This Year</option>
+                        <option value="custom">Custom Range</option>
+                      </select>
                     </div>
-                    <div style={{ fontSize: '11.5px', color: '#166534', fontWeight: 600 }}>Currently checked in</div>
-                  </div>
-                </div>
 
-                {/* Card 6: Low Stock */}
-                <div style={{ background: '#fff7ed', border: '1.5px solid #fed7aa', borderRadius: '18px', padding: '16px', boxShadow: '0 2px 10px rgba(0,0,0,0.02)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: '#ffedd5', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>⚠️</div>
-                    <span style={{ fontSize: '11px', fontWeight: 800, background: '#ffedd5', color: '#ea580c', padding: '3px 8px', borderRadius: '20px' }}>Low Stock</span>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: '26px', fontWeight: 950, color: '#ea580c', lineHeight: 1.2 }}>
-                      {items.filter(p => p.total_stock > 0 && p.available_stock > 0 && p.available_stock <= 5).length}
-                    </div>
-                    <div style={{ fontSize: '11.5px', color: '#c2410c', fontWeight: 600 }}>Below threshold</div>
-                  </div>
-                </div>
-
-                {/* Card 7: Out of Stock */}
-                <div style={{ background: '#fef2f2', border: '1.5px solid #fecaca', borderRadius: '18px', padding: '16px', boxShadow: '0 2px 10px rgba(0,0,0,0.02)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: '#fee2e2', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>❌</div>
-                    <span style={{ fontSize: '11px', fontWeight: 800, background: '#fee2e2', color: '#dc2626', padding: '3px 8px', borderRadius: '20px' }}>Out of Stock</span>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: '26px', fontWeight: 950, color: '#dc2626', lineHeight: 1.2 }}>
-                      {items.filter(p => p.total_stock > 0 && p.available_stock === 0).length}
-                    </div>
-                    <div style={{ fontSize: '11.5px', color: '#b91c1c', fontWeight: 600 }}>Zero availability</div>
-                  </div>
-                </div>
-
-                {/* Card 8: Active Checkouts */}
-                <div style={{ background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: '18px', padding: '16px', boxShadow: '0 2px 10px rgba(0,0,0,0.02)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>📋</div>
-                    <span style={{ fontSize: '11px', fontWeight: 800, background: '#f1f5f9', color: '#475569', padding: '3px 8px', borderRadius: '20px' }}>Active Logs</span>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: '26px', fontWeight: 950, color: '#0f172a', lineHeight: 1.2 }}>
-                      {allCheckouts.filter(c => c.status === 'active' || c.status === 'overdue').length}
-                    </div>
-                    <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 600 }}>Open checkout records</div>
-                  </div>
-                </div>
-
-                {/* Card 9: Categories */}
-                <div style={{ background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: '18px', padding: '16px', boxShadow: '0 2px 10px rgba(0,0,0,0.02)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>🏷️</div>
-                    <span style={{ fontSize: '11px', fontWeight: 800, background: '#f1f5f9', color: '#475569', padding: '3px 8px', borderRadius: '20px' }}>Categories</span>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: '26px', fontWeight: 950, color: '#0f172a', lineHeight: 1.2 }}>{categories.length}</div>
-                    <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 600 }}>Divisions registered</div>
-                  </div>
-                </div>
-
-                {/* Card 10: Inventory Value */}
-                <div style={{ background: '#fffbeb', border: '1.5px solid #fef3c7', borderRadius: '18px', padding: '16px', boxShadow: '0 2px 10px rgba(0,0,0,0.02)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: '#fef3c7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>💰</div>
-                    <span style={{ fontSize: '11px', fontWeight: 800, background: '#fef3c7', color: '#d97706', padding: '3px 8px', borderRadius: '20px' }}>Value</span>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: '24px', fontWeight: 950, color: '#d97706', lineHeight: 1.2 }}>
-                      {new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(
-                        items.reduce((s, p) => s + ((p.available_stock || 0) * getMockUnitPrice(p.name)), 0)
-                      )}
-                    </div>
-                    <div style={{ fontSize: '11.5px', color: '#b45309', fontWeight: 600 }}>Warehouse stock worth</div>
-                  </div>
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fff', border: '1.5px solid #f1f5f9', borderRadius: '20px', padding: '20px 28px' }}>
-                <div>
-                  <h3 style={{ fontSize: '16px', fontWeight: 900 }}>Compile Workbook Reports</h3>
-                  <p style={{ fontSize: '12px', color: '#64748b' }}>Generate consolidated spreadsheet reports of all items, stock levels, and active checkout ledgers.</p>
-                </div>
-                <button onClick={handleExportExcel} className="bsm s" style={{ height: '44px', borderRadius: '12px', background: '#059669', border: 'none', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <FileSpreadsheet size={15} /> Export Reports to Excel
-                </button>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }} className="inv-2col">
-                <div className="card" style={{ background: '#fff', border: '1.5px solid #f1f5f9', borderRadius: '24px', padding: '24px' }}>
-                  <h3 style={{ fontSize: '16px', fontWeight: 900, marginBottom: '16px', color: '#dc2626' }}>⚠️ Low Stock Warnings</h3>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    {items.filter(item => item.available_stock <= 1).length === 0 ? (
-                      <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>All catalog stock levels are adequate.</div>
-                    ) : (
-                      items.filter(item => item.available_stock <= 1).map(item => (
-                        <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fff5f5', border: '1px solid #fee2e2', borderRadius: '12px', padding: '12px 16px' }}>
-                          <div>
-                            <strong style={{ fontSize: '13.5px', color: '#991b1b' }}>{item.name}</strong>
-                            <div style={{ fontSize: '11px', color: '#b91c1t', marginTop: '2px' }}>{item.categories?.name || 'General'}</div>
-                          </div>
-                          <span style={{ fontSize: '13px', fontWeight: 900, color: '#dc2626' }}>{item.available_stock} Left</span>
+                    {reportsDateRange === 'custom' && (
+                      <div style={{ display: 'flex', gap: '6px', alignItems: 'flex-end' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          <span style={{ fontSize: '11px', fontWeight: 800, color: '#64748b' }}>Start Date</span>
+                          <input type="date" value={reportsCustomStart} onChange={e => setReportsCustomStart(e.target.value)} className="fi2" style={{ height: '38px', border: '1px solid #c3fae8', fontSize: '12px', width: '130px', padding: '0 8px' }} />
                         </div>
-                      ))
+                        <span style={{ fontSize: '12px', color: '#64748b', marginBottom: '10px' }}>to</span>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          <span style={{ fontSize: '11px', fontWeight: 800, color: '#64748b' }}>End Date</span>
+                          <input type="date" value={reportsCustomEnd} onChange={e => setReportsCustomEnd(e.target.value)} className="fi2" style={{ height: '38px', border: '1px solid #c3fae8', fontSize: '12px', width: '130px', padding: '0 8px' }} />
+                        </div>
+                      </div>
                     )}
+
+                    {/* Branch Filter */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <span style={{ fontSize: '11px', fontWeight: 800, color: '#64748b' }}>Branch</span>
+                      <select 
+                        value={reportsBranch} 
+                        onChange={e => setReportsBranch(e.target.value)} 
+                        className="sel2" 
+                        style={{ height: '38px', borderRadius: '10px', padding: '0 12px', border: '1px solid #c3fae8', background: '#fff', fontSize: '12.5px', fontWeight: 700 }}
+                        disabled={profile?.role !== 'super'}
+                      >
+                        <option value="all">All Branches</option>
+                        <option value="poyanad">Poyanad Central</option>
+                        <option value="brancha">Branch A</option>
+                        <option value="branchb">Branch B</option>
+                        <option value="branchc">Branch C</option>
+                      </select>
+                    </div>
+
+                    {/* Category Filter */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <span style={{ fontSize: '11px', fontWeight: 800, color: '#64748b' }}>Category</span>
+                      <select 
+                        value={reportsCategory} 
+                        onChange={e => setReportsCategory(e.target.value)} 
+                        className="sel2" 
+                        style={{ height: '38px', borderRadius: '10px', padding: '0 12px', border: '1px solid #c3fae8', background: '#fff', fontSize: '12.5px', fontWeight: 700 }}
+                      >
+                        <option value="all">All Categories</option>
+                        {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      </select>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '8px', alignSelf: 'flex-end' }}>
+                      <button onClick={handlePrintReport} disabled={!canExport} className="bsm s" style={{ height: '38px', borderRadius: '10px', display: 'flex', alignItems: 'center', gap: '6px', background: '#475569', color: '#fff', opacity: canExport ? 1 : 0.6, cursor: canExport ? 'pointer' : 'not-allowed', border: 'none', fontSize: '12px', fontWeight: 800 }}>
+                        <Printer size={14} /> Print PDF
+                      </button>
+                      <button onClick={handleExportExcel} disabled={!canExport} className="bsm s" style={{ height: '38px', borderRadius: '10px', display: 'flex', alignItems: 'center', gap: '6px', background: '#059669', color: '#fff', opacity: canExport ? 1 : 0.6, cursor: canExport ? 'pointer' : 'not-allowed', border: 'none', fontSize: '12px', fontWeight: 800 }}>
+                        <FileSpreadsheet size={14} /> Export Excel
+                      </button>
+                    </div>
                   </div>
                 </div>
 
-                <div className="card" style={{ background: '#fff', border: '1.5px solid #f1f5f9', borderRadius: '24px', padding: '24px' }}>
-                  <h3 style={{ fontSize: '16px', fontWeight: 900, marginBottom: '16px' }}>👤 Member Holdings Summary</h3>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    {allCheckouts.filter(c => c.status === 'active').length === 0 ? (
-                      <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>No items are currently checked out by members.</div>
-                    ) : (
-                      Array.from(new Map(allCheckouts.filter(c => c.status === 'active' && c.member).map(c => [c.member_id, c.member])).values())
-                        .slice(0, 5)
-                        .map((mem: any) => {
-                          const holdCount = allCheckouts.filter(c => c.status === 'active' && c.member_id === mem.id).length;
+                {/* Overview KPI Cards */}
+                <div className="reports-dashboard-grid" style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
+                  gap: '16px'
+                }}>
+                  {/* Total Products */}
+                  <div style={{ background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: '18px', padding: '18px', display: 'flex', flexDirection: 'column', gap: '8px', boxShadow: '0 2px 10px rgba(0,0,0,0.01)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>📦</div>
+                      <span style={{ fontSize: '11px', fontWeight: 800, background: '#f1f5f9', color: '#475569', padding: '3px 8px', borderRadius: '20px' }}>Total Products</span>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '28px', fontWeight: 950, color: '#0f172a', lineHeight: 1.2 }}>{reportProductsCount}</div>
+                      <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 600 }}>Unique registered items</div>
+                    </div>
+                  </div>
+
+                  {/* Total Units */}
+                  <div style={{ background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: '18px', padding: '18px', display: 'flex', flexDirection: 'column', gap: '8px', boxShadow: '0 2px 10px rgba(0,0,0,0.01)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>🗃️</div>
+                      <span style={{ fontSize: '11px', fontWeight: 800, background: '#f1f5f9', color: '#475569', padding: '3px 8px', borderRadius: '20px' }}>Total Units</span>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '28px', fontWeight: 950, color: '#0f172a', lineHeight: 1.2 }}>{reportTotalUnits}</div>
+                      <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 600 }}>Combined catalog quantity</div>
+                    </div>
+                  </div>
+
+                  {/* Available Now */}
+                  <div style={{ background: '#f0fdf4', border: '1.5px solid #bbf7d0', borderRadius: '18px', padding: '18px', display: 'flex', flexDirection: 'column', gap: '8px', boxShadow: '0 2px 10px rgba(0,0,0,0.01)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: '#dcfce7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>✅</div>
+                      <span style={{ fontSize: '11px', fontWeight: 800, background: '#dcfce7', color: '#16a34a', padding: '3px 8px', borderRadius: '20px' }}>Available Now</span>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '28px', fontWeight: 950, color: '#16a34a', lineHeight: 1.2 }}>{reportAvailableUnits}</div>
+                      <div style={{ fontSize: '11.5px', color: '#15803d', fontWeight: 600 }}>Ready to issue in stock</div>
+                    </div>
+                  </div>
+
+                  {/* Checked Out */}
+                  <div 
+                    onClick={() => setReportsQuickFilter('checked_out')}
+                    style={{ background: '#eff6ff', border: reportsQuickFilter === 'checked_out' ? '1.5px solid #2563eb' : '1.5px solid #bfdbfe', borderRadius: '18px', padding: '18px', display: 'flex', flexDirection: 'column', gap: '8px', cursor: 'pointer', transition: 'all 0.2s', boxShadow: '0 2px 10px rgba(0,0,0,0.01)' }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: '#dbeafe', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>📤</div>
+                      <span style={{ fontSize: '11px', fontWeight: 800, background: '#dbeafe', color: '#2563eb', padding: '3px 8px', borderRadius: '20px' }}>Checked Out</span>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '28px', fontWeight: 950, color: '#2563eb', lineHeight: 1.2 }}>{reportCheckedOutUnits}</div>
+                      <div style={{ fontSize: '11.5px', color: '#1d4ed8', fontWeight: 600 }}>Currently issued units (Click to Filter)</div>
+                    </div>
+                  </div>
+
+                  {/* Checked In Period */}
+                  <div style={{ background: '#f0fdf4', border: '1.5px solid #bbf7d0', borderRadius: '18px', padding: '18px', display: 'flex', flexDirection: 'column', gap: '8px', boxShadow: '0 2px 10px rgba(0,0,0,0.01)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: '#dcfce7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>📥</div>
+                      <span style={{ fontSize: '11px', fontWeight: 800, background: '#dcfce7', color: '#15803d', padding: '3px 8px', borderRadius: '20px' }}>Checked In</span>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '28px', fontWeight: 950, color: '#15803d', lineHeight: 1.2 }}>{reportCheckedInCount}</div>
+                      <div style={{ fontSize: '11.5px', color: '#166534', fontWeight: 600 }}>Returned during period</div>
+                    </div>
+                  </div>
+
+                  {/* Transactions count */}
+                  <div style={{ background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: '18px', padding: '18px', display: 'flex', flexDirection: 'column', gap: '8px', boxShadow: '0 2px 10px rgba(0,0,0,0.01)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>🔄</div>
+                      <span style={{ fontSize: '11px', fontWeight: 800, background: '#f1f5f9', color: '#475569', padding: '3px 8px', borderRadius: '20px' }}>Transactions</span>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '28px', fontWeight: 950, color: '#0f172a', lineHeight: 1.2 }}>{reportTransactionsCount}</div>
+                      <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 600 }}>Checkout &amp; check-in events</div>
+                    </div>
+                  </div>
+
+                  {/* Low Stock count card */}
+                  <div 
+                    onClick={() => setReportsQuickFilter(reportsQuickFilter === 'low' ? 'all' : 'low')}
+                    style={{ background: '#fff7ed', border: reportsQuickFilter === 'low' ? '1.5px solid #ea580c' : '1.5px solid #fed7aa', borderRadius: '18px', padding: '18px', display: 'flex', flexDirection: 'column', gap: '8px', cursor: 'pointer', transition: 'all 0.2s', boxShadow: '0 2px 10px rgba(0,0,0,0.01)' }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: '#ffedd5', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>⚠️</div>
+                      <span style={{ fontSize: '11px', fontWeight: 800, background: '#ffedd5', color: '#ea580c', padding: '3px 8px', borderRadius: '20px' }}>Low Stock</span>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '28px', fontWeight: 950, color: '#ea580c', lineHeight: 1.2 }}>{reportLowStockCount}</div>
+                      <div style={{ fontSize: '11.5px', color: '#c2410c', fontWeight: 600 }}>Quantity &le; 5 (Click to Filter)</div>
+                    </div>
+                  </div>
+
+                  {/* Out of Stock card */}
+                  <div 
+                    onClick={() => setReportsQuickFilter(reportsQuickFilter === 'out' ? 'all' : 'out')}
+                    style={{ background: '#fef2f2', border: reportsQuickFilter === 'out' ? '1.5px solid #dc2626' : '1.5px solid #fecaca', borderRadius: '18px', padding: '18px', display: 'flex', flexDirection: 'column', gap: '8px', cursor: 'pointer', transition: 'all 0.2s', boxShadow: '0 2px 10px rgba(0,0,0,0.01)' }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: '#fee2e2', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>❌</div>
+                      <span style={{ fontSize: '11px', fontWeight: 800, background: '#fee2e2', color: '#dc2626', padding: '3px 8px', borderRadius: '20px' }}>Out of Stock</span>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '28px', fontWeight: 950, color: '#dc2626', lineHeight: 1.2 }}>{reportOutOfStockCount}</div>
+                      <div style={{ fontSize: '11.5px', color: '#b91c1c', fontWeight: 600 }}>Zero availability (Click to Filter)</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Inventory Analytics block */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '24px' }}>
+                  {/* Stock Distribution */}
+                  <div style={{ background: '#fff', border: '1.5px solid #E2DED6', borderRadius: '24px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px', boxShadow: '0 2px 12px rgba(0,0,0,0.01)' }}>
+                    <h4 style={{ fontSize: '15px', fontWeight: 900, color: '#1A1F2E', margin: 0 }}>Stock Distribution</h4>
+                    <p style={{ fontSize: '12px', color: '#6B7280', margin: 0 }}>Total units allocation breakdown</p>
+                    
+                    <div style={{ display: 'flex', height: '24px', borderRadius: '12px', overflow: 'hidden', background: '#f1f5f9', marginTop: '10px' }}>
+                      <div style={{ width: `${availPercent}%`, background: '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '11px', fontWeight: 900 }}>
+                        {availPercent > 12 ? `${availPercent}% Available` : ''}
+                      </div>
+                      <div style={{ width: `${outPercent}%`, background: '#3b82f6', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '11px', fontWeight: 900 }}>
+                        {outPercent > 12 ? `${outPercent}% Out` : ''}
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginTop: '10px' }}>
+                      <div>
+                        <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 700 }}>AVAILABLE STOCK</div>
+                        <div style={{ fontSize: '16px', fontWeight: 900, color: '#10b981' }}>{reportAvailableUnits} Units ({availPercent}%)</div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 700 }}>CHECKED OUT</div>
+                        <div style={{ fontSize: '16px', fontWeight: 900, color: '#3b82f6' }}>{reportCheckedOutUnits} Units ({outPercent}%)</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Inventory by Category */}
+                  <div style={{ background: '#fff', border: '1.5px solid #E2DED6', borderRadius: '24px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px', boxShadow: '0 2px 12px rgba(0,0,0,0.01)' }}>
+                    <h4 style={{ fontSize: '15px', fontWeight: 900, color: '#1A1F2E', margin: 0 }}>Inventory by Category</h4>
+                    <p style={{ fontSize: '12px', color: '#6B7280', margin: 0 }}>Registered units per division (Top 4)</p>
+                    
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '4px' }}>
+                      {categoryShares.length === 0 ? (
+                        <div style={{ textAlign: 'center', color: '#94a3b8', fontSize: '12.5px', padding: '10px' }}>No category summary data found.</div>
+                      ) : (
+                        categoryShares.map(cs => {
+                          const catPct = reportTotalUnits > 0 ? Math.round((cs.units / reportTotalUnits) * 100) : 0;
                           return (
-                            <div key={mem.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '12px 16px' }}>
-                              <div>
-                                <strong style={{ fontSize: '13.5px', color: '#0f172a' }}>{mem.name}</strong>
-                                <div style={{ fontSize: '11px', color: '#64748b' }}>{mem.membership_no || 'No Member No'}</div>
+                            <div key={cs.name}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', fontWeight: 800, color: '#475569' }}>
+                                <span>{cs.name}</span>
+                                <span>{cs.units} Units ({catPct}%)</span>
                               </div>
-                              <span style={{ fontSize: '12.5px', fontWeight: 800, color: 'var(--teal)', background: '#e6fcf5', padding: '4px 10px', borderRadius: '8px' }}>{holdCount} items</span>
+                              <div style={{ height: '6px', background: '#f1f5f9', borderRadius: '3px', marginTop: '4px', overflow: 'hidden' }}>
+                                <div style={{ height: '100%', background: 'var(--teal)', width: `${catPct}%` }} />
+                              </div>
                             </div>
                           );
                         })
-                    )}
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Checkout Activity */}
+                  <div style={{ background: '#fff', border: '1.5px solid #E2DED6', borderRadius: '24px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px', boxShadow: '0 2px 12px rgba(0,0,0,0.01)' }}>
+                    <h4 style={{ fontSize: '15px', fontWeight: 900, color: '#1A1F2E', margin: 0 }}>Checkout Activity</h4>
+                    <p style={{ fontSize: '12px', color: '#6B7280', margin: 0 }}>Movements inside the reporting window</p>
+                    
+                    <div style={{ display: 'flex', alignItems: 'flex-end', height: '56px', gap: '12px', margin: '8px 0' }}>
+                      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                        <div style={{ height: `${Math.max(6, Math.min(56, (reportCheckedOutInPeriod / (reportTransactionsCount || 1)) * 56))}px`, width: '100%', background: '#3b82f6', borderRadius: '4px' }} />
+                        <span style={{ fontSize: '10px', color: '#64748b', fontWeight: 700 }}>Out ({reportCheckedOutInPeriod})</span>
+                      </div>
+                      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                        <div style={{ height: `${Math.max(6, Math.min(56, (reportCheckedInCount / (reportTransactionsCount || 1)) * 56))}px`, width: '100%', background: '#10b981', borderRadius: '4px' }} />
+                        <span style={{ fontSize: '10px', color: '#64748b', fontWeight: 700 }}>In ({reportCheckedInCount})</span>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '10px', borderTop: '1px solid #f1f5f9' }}>
+                      <span style={{ fontSize: '12px', fontWeight: 700, color: '#475569' }}>Net Stock Movement</span>
+                      <strong style={{ fontSize: '14px', color: (reportCheckedOutInPeriod - reportCheckedInCount) >= 0 ? '#ef4444' : '#10b981' }}>
+                        {(reportCheckedOutInPeriod - reportCheckedInCount) > 0 ? `+${reportCheckedOutInPeriod - reportCheckedInCount} Out` : `${reportCheckedOutInPeriod - reportCheckedInCount} Out`}
+                      </strong>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-            </div>
-          )}
+                {/* Product Inventory Summary Table Container */}
+                <div style={{ background: '#fff', border: '1.5px solid #E2DED6', borderRadius: '24px', padding: '24px', boxShadow: '0 2px 10px rgba(0,0,0,0.01)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '16px' }}>
+                    <div>
+                      <h3 style={{ fontSize: '18px', fontWeight: 900, color: '#1a1f2e', margin: 0 }}>Product Inventory Summary</h3>
+                      <p style={{ fontSize: '12.5px', color: '#64748b', marginTop: '4px' }}>A detailed overview of inventory quantities, current availability, and product transaction activity.</p>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+                      {/* Search box inside Reports */}
+                      <div style={{ position: 'relative', width: '280px' }}>
+                        <input 
+                          type="text" 
+                          placeholder="Search product or SKU..." 
+                          value={reportsSearch} 
+                          onChange={e => setReportsSearch(e.target.value)} 
+                          className="fi2" 
+                          style={{ height: '38px', borderRadius: '10px', border: '1px solid #c3fae8', background: '#fff', paddingLeft: '36px', fontSize: '12.5px' }} 
+                        />
+                        <Search size={14} style={{ position: 'absolute', left: '12px', top: '12px', color: '#868e96' }} />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Quick Filters Tab bar */}
+                  <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' }}>
+                    <button onClick={() => setReportsQuickFilter('all')} style={{ padding: '6px 14px', borderRadius: '8px', border: 'none', fontSize: '12px', fontWeight: 800, cursor: 'pointer', background: reportsQuickFilter === 'all' ? 'var(--teal)' : '#f1f5f9', color: reportsQuickFilter === 'all' ? '#fff' : '#475569' }}>
+                      All ({reportProducts.length})
+                    </button>
+                    <button onClick={() => setReportsQuickFilter('healthy')} style={{ padding: '6px 14px', borderRadius: '8px', border: 'none', fontSize: '12px', fontWeight: 800, cursor: 'pointer', background: reportsQuickFilter === 'healthy' ? 'var(--teal)' : '#f1f5f9', color: reportsQuickFilter === 'healthy' ? '#fff' : '#475569' }}>
+                      🟢 Healthy ({reportProducts.filter(p => p.available_stock > 5).length})
+                    </button>
+                    <button onClick={() => setReportsQuickFilter('low')} style={{ padding: '6px 14px', borderRadius: '8px', border: 'none', fontSize: '12px', fontWeight: 800, cursor: 'pointer', background: reportsQuickFilter === 'low' ? 'var(--teal)' : '#f1f5f9', color: reportsQuickFilter === 'low' ? '#fff' : '#475569' }}>
+                      🟡 Low Stock ({reportLowStockCount})
+                    </button>
+                    <button onClick={() => setReportsQuickFilter('out')} style={{ padding: '6px 14px', borderRadius: '8px', border: 'none', fontSize: '12px', fontWeight: 800, cursor: 'pointer', background: reportsQuickFilter === 'out' ? 'var(--teal)' : '#f1f5f9', color: reportsQuickFilter === 'out' ? '#fff' : '#475569' }}>
+                      🔴 Out of Stock ({reportOutOfStockCount})
+                    </button>
+                    <button onClick={() => setReportsQuickFilter('checked_out')} style={{ padding: '6px 14px', borderRadius: '8px', border: 'none', fontSize: '12px', fontWeight: 800, cursor: 'pointer', background: reportsQuickFilter === 'checked_out' ? 'var(--teal)' : '#f1f5f9', color: reportsQuickFilter === 'checked_out' ? '#fff' : '#475569' }}>
+                      📤 Checked Out ({reportProducts.filter(p => (p.total_stock - p.available_stock) > 0).length})
+                    </button>
+                  </div>
+
+                  {/* Summary Table */}
+                  <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
+                      <thead>
+                        <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                          <th onClick={() => { setReportsSortField('name'); setReportsSortOrder(reportsSortOrder === 'asc' ? 'desc' : 'asc'); }} style={{ padding: '14px', fontWeight: 800, color: '#334155', cursor: 'pointer' }}>
+                            PRODUCT {reportsSortField === 'name' ? (reportsSortOrder === 'asc' ? '▲' : '▼') : ''}
+                          </th>
+                          <th onClick={() => { setReportsSortField('sku'); setReportsSortOrder(reportsSortOrder === 'asc' ? 'desc' : 'asc'); }} style={{ padding: '14px', fontWeight: 800, color: '#334155', cursor: 'pointer' }}>
+                            SKU {reportsSortField === 'sku' ? (reportsSortOrder === 'asc' ? '▲' : '▼') : ''}
+                          </th>
+                          <th onClick={() => { setReportsSortField('category'); setReportsSortOrder(reportsSortOrder === 'asc' ? 'desc' : 'asc'); }} style={{ padding: '14px', fontWeight: 800, color: '#334155', cursor: 'pointer' }}>
+                            CATEGORY {reportsSortField === 'category' ? (reportsSortOrder === 'asc' ? '▲' : '▼') : ''}
+                          </th>
+                          <th onClick={() => { setReportsSortField('total'); setReportsSortOrder(reportsSortOrder === 'asc' ? 'desc' : 'asc'); }} style={{ padding: '14px', fontWeight: 800, color: '#334155', cursor: 'pointer', textAlign: 'center' }}>
+                            TOTAL {reportsSortField === 'total' ? (reportsSortOrder === 'asc' ? '▲' : '▼') : ''}
+                          </th>
+                          <th onClick={() => { setReportsSortField('available'); setReportsSortOrder(reportsSortOrder === 'asc' ? 'desc' : 'asc'); }} style={{ padding: '14px', fontWeight: 800, color: '#334155', cursor: 'pointer', textAlign: 'center' }}>
+                            AVAILABLE {reportsSortField === 'available' ? (reportsSortOrder === 'asc' ? '▲' : '▼') : ''}
+                          </th>
+                          <th onClick={() => { setReportsSortField('out'); setReportsSortOrder(reportsSortOrder === 'asc' ? 'desc' : 'asc'); }} style={{ padding: '14px', fontWeight: 800, color: '#334155', cursor: 'pointer', textAlign: 'center' }}>
+                            OUT {reportsSortField === 'out' ? (reportsSortOrder === 'asc' ? '▲' : '▼') : ''}
+                          </th>
+                          <th style={{ padding: '14px', fontWeight: 800, color: '#334155' }}>STATUS</th>
+                          <th onClick={() => { setReportsSortField('txns'); setReportsSortOrder(reportsSortOrder === 'asc' ? 'desc' : 'asc'); }} style={{ padding: '14px', fontWeight: 800, color: '#334155', cursor: 'pointer', textAlign: 'center' }}>
+                            TRANSACTIONS {reportsSortField === 'txns' ? (reportsSortOrder === 'asc' ? '▲' : '▼') : ''}
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sortedSummaryItems.length === 0 ? (
+                          <tr>
+                            <td colSpan={8} style={{ padding: '30px', textAlign: 'center', color: '#94a3b8' }}>
+                              No products match the selected criteria.
+                            </td>
+                          </tr>
+                        ) : (
+                          sortedSummaryItems.map(p => {
+                            const isOut = p.available_stock === 0;
+                            const isLow = p.available_stock > 0 && p.available_stock <= 5;
+                            const outCount = (p.total_stock || 0) - (p.available_stock || 0);
+                            const txnsCount = getProductTransactionsCount(p.id);
+
+                            return (
+                              <tr key={p.id} style={{ borderBottom: '1px solid #e2e8f0' }} className="tr-hover">
+                                <td style={{ padding: '14px' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                    <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: '#F4F1EB', border: '1px solid #E2DED6', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px' }}>
+                                      {getProductEmoji(p.name, p.categories?.name || '')}
+                                    </div>
+                                    <button 
+                                      type="button" 
+                                      onClick={() => setSelectedProductDetail(p)} 
+                                      style={{ background: 'none', border: 'none', padding: 0, color: '#1e293b', fontWeight: 900, textAlign: 'left', cursor: 'pointer', textDecoration: 'underline' }}
+                                    >
+                                      {p.name}
+                                    </button>
+                                  </div>
+                                </td>
+                                <td style={{ padding: '14px' }}>
+                                  <span 
+                                    onClick={() => handleCopySku(p.barcode_value || '')}
+                                    title="Click to copy SKU"
+                                    style={{ background: '#f1f5f9', color: '#475569', fontSize: '11px', fontWeight: 700, padding: '3px 8px', borderRadius: '6px', fontFamily: 'monospace', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                                  >
+                                    {p.barcode_value || '—'}
+                                  </span>
+                                </td>
+                                <td style={{ padding: '14px' }}>
+                                  <span 
+                                    onClick={() => setReportsCategory(p.category_id)}
+                                    style={{ background: '#e6fcf5', color: '#0ca678', fontSize: '11px', fontWeight: 800, padding: '3px 8px', borderRadius: '6px', cursor: 'pointer' }}
+                                  >
+                                    {p.categories?.name || 'General'}
+                                  </span>
+                                </td>
+                                <td style={{ padding: '14px', textAlign: 'center', fontWeight: 700 }}>{p.total_stock}</td>
+                                <td style={{ padding: '14px', textAlign: 'center', color: '#10b981', fontWeight: 800 }}>{p.available_stock}</td>
+                                <td style={{ padding: '14px', textAlign: 'center', color: '#3b82f6', fontWeight: 800 }}>{outCount}</td>
+                                <td style={{ padding: '14px' }}>
+                                  {isOut ? (
+                                    <span style={{ padding: '3px 8px', borderRadius: '20px', fontSize: '10.5px', fontWeight: 900, background: '#fef2f2', color: '#dc2626' }}>🔴 Out of Stock</span>
+                                  ) : isLow ? (
+                                    <span style={{ padding: '3px 8px', borderRadius: '20px', fontSize: '10.5px', fontWeight: 900, background: '#fff7ed', color: '#ca8a04' }}>🟡 Low Stock</span>
+                                  ) : (
+                                    <span style={{ padding: '3px 8px', borderRadius: '20px', fontSize: '10.5px', fontWeight: 900, background: '#f0fdf4', color: '#16a34a' }}>🟢 Healthy</span>
+                                  )}
+                                </td>
+                                <td style={{ padding: '14px', textAlign: 'center' }}>
+                                  <button 
+                                    onClick={() => setSelectedReportProductTxn(p)}
+                                    style={{ background: '#f1f5f9', border: 'none', padding: '4px 10px', borderRadius: '8px', fontSize: '12px', fontWeight: 800, color: 'var(--teal)', cursor: 'pointer' }}
+                                    title="View transactions history log"
+                                  >
+                                    {txnsCount} {txnsCount === 1 ? 'Txn' : 'Txns'}
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '16px', fontSize: '12.5px', color: '#64748b' }}>
+                    <span>Showing 1–{sortedSummaryItems.length} of {sortedSummaryItems.length} products</span>
+                  </div>
+                </div>
+
+              </div>
+            );
+          })()}
 
           {/* ⑥.B SETTINGS TAB */}
           {activeTab === 'settings' && (
@@ -3380,6 +3929,105 @@ ON CONFLICT (name) DO NOTHING;`}</pre>
           )}
         </>
       )}
+
+      {/* Product Transactions History Drawer Modal */}
+      {selectedReportProductTxn && (() => {
+        const item = selectedReportProductTxn;
+        const txns = allCheckouts.filter(c => {
+          if (c.item_id !== item.id) return false;
+          if (reportsBranch !== 'all' && getBranchName(c) !== reportsBranch) return false;
+          const chkIn = isDateInReportsRange(c.checkout_date);
+          const retIn = c.status === 'returned' && c.actual_return_date && isDateInReportsRange(c.actual_return_date);
+          return chkIn || retIn;
+        }).sort((a, b) => new Date(b.checkout_date).getTime() - new Date(a.checkout_date).getTime());
+
+        return (
+          <div className="ov" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1001, background: 'rgba(15, 23, 42, 0.4)' }}>
+            <div className="modal inv-modal" style={{ maxWidth: '750px', width: '90%', borderRadius: '24px', padding: '28px', maxHeight: '80vh', overflowY: 'auto' }}>
+              
+              {/* Head */}
+              <div className="modal-head" style={{ border: 'none', padding: '0 0 16px 0', marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <span style={{ fontFamily: 'Playfair Display, serif', fontSize: '20px', fontWeight: 900, color: '#1A1F2E' }}>
+                    Transaction History
+                  </span>
+                  <div style={{ fontSize: '13px', color: '#64748b', marginTop: '2px' }}>{item.name} • SKU: {item.barcode_value}</div>
+                </div>
+                <button 
+                  onClick={() => setSelectedReportProductTxn(null)} 
+                  style={{ border: '1px solid #E2DED6', background: 'transparent', width: '32px', height: '32px', borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Transactions list */}
+              <div style={{ overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: '16px', marginTop: '16px', maxHeight: '400px' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '12.5px' }}>
+                  <thead>
+                    <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                      <th style={{ padding: '10px 12px', fontWeight: 800 }}>DATE</th>
+                      <th style={{ padding: '10px 12px', fontWeight: 800 }}>TYPE</th>
+                      <th style={{ padding: '10px 12px', fontWeight: 800 }}>QTY</th>
+                      <th style={{ padding: '10px 12px', fontWeight: 800 }}>DISTRIBUTOR</th>
+                      <th style={{ padding: '10px 12px', fontWeight: 800 }}>NOTES</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {txns.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>
+                          No transactions recorded during the selected period.
+                        </td>
+                      </tr>
+                    ) : (
+                      txns.map(t => {
+                        const checkoutInPeriod = isDateInReportsRange(t.checkout_date);
+                        const returnInPeriod = t.status === 'returned' && t.actual_return_date && isDateInReportsRange(t.actual_return_date);
+
+                        return (
+                          <React.Fragment key={t.id}>
+                            {checkoutInPeriod && (
+                              <tr style={{ borderBottom: '1px solid #e2e8f0' }}>
+                                <td style={{ padding: '12px' }}>{t.checkout_date}</td>
+                                <td style={{ padding: '12px' }}>
+                                  <span style={{ padding: '3px 8px', borderRadius: '20px', fontSize: '10px', fontWeight: 900, background: '#eff6ff', color: '#2563eb' }}>
+                                    📤 Checkout
+                                  </span>
+                                </td>
+                                <td style={{ padding: '12px', fontWeight: 700 }}>{t.quantity}</td>
+                                <td style={{ padding: '12px' }}>{t.member?.name || 'Unknown Distributor'}</td>
+                                <td style={{ padding: '12px', color: '#64748b' }}>{t.notes || '—'}</td>
+                              </tr>
+                            )}
+                            {returnInPeriod && (
+                              <tr style={{ borderBottom: '1px solid #e2e8f0' }}>
+                                <td style={{ padding: '12px' }}>{t.actual_return_date ? t.actual_return_date.split('T')[0] : t.checkout_date}</td>
+                                <td style={{ padding: '12px' }}>
+                                  <span style={{ padding: '3px 8px', borderRadius: '20px', fontSize: '10px', fontWeight: 900, background: '#f0fdf4', color: '#16a34a' }}>
+                                    📥 Check-In
+                                  </span>
+                                </td>
+                                <td style={{ padding: '12px', fontWeight: 700 }}>{t.quantity}</td>
+                                <td style={{ padding: '12px' }}>{t.member?.name || 'Unknown Distributor'}</td>
+                                <td style={{ padding: '12px', color: '#64748b' }}>{t.condition_notes || 'Scanned returned'}</td>
+                              </tr>
+                            )}
+                          </React.Fragment>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', marginTop: '20px', justifyContent: 'flex-end' }}>
+                <button type="button" onClick={() => setSelectedReportProductTxn(null)} className="bsm s" style={{ height: '38px', borderRadius: '10px', padding: '0 20px', background: 'var(--teal)', color: '#fff', border: 'none', fontWeight: 800, fontSize: '12px', cursor: 'pointer' }}>Close</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Product Detail Modal */}
       {selectedProductDetail && (() => {
