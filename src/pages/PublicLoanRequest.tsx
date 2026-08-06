@@ -137,9 +137,12 @@ export default function PublicLoanRequest() {
       
       const fullDetailsSummary = `Category: ${purposeCategory}\nDetails: ${purposeDetail.trim()}\nPeriod: ${repaymentMonths} Months\nIncome: ₹${monthlyIncome} (${incomeSource.trim()})\nDebts: ${existingDebts ? existingDebtsDetail.trim() : 'None'}\nAadhaar Last 4: ${aadhaarLast4.trim()}\nDOB: ${dob} (${gender})`;
 
-      // 1. Primary Attempt: Payload with dedicated PRD columns
-      const fullPayload: any = {
-        member_id: member ? member.id : null,
+      let insertedRecord: any = null;
+
+      // Tier 1: Try inserting with all extended PRD columns
+      const tier1Payload: any = {
+        referred_member_id: member ? member.id : null,
+        referred_member_name: member ? member.name : '',
         applicant_name: fullName.trim(),
         applicant_dob: dob,
         applicant_gender: gender,
@@ -161,56 +164,69 @@ export default function PublicLoanRequest() {
         declaration_agreed: true,
         status: 'DRAFT',
         
-        // Base fallback columns
         requester_name: fullName.trim(),
         requester_phone: phone.trim(),
         requester_address: fullAddressStr,
         approximate_amount: parseFloat(amountRequested),
-        reason: fullDetailsSummary,
-        referred_member_name: member ? member.name : '',
-        referred_member_id: member ? member.id : null
+        reason: fullDetailsSummary
       };
 
-      let insertedRecord: any = null;
-
-      const { data, error: insertErr } = await supabase
+      const { data: t1Data, error: t1Err } = await supabase
         .from('loan_requests')
-        .insert([fullPayload])
-        .select()
-        .single();
+        .insert([tier1Payload])
+        .select();
 
-      if (insertErr) {
-        console.warn('Full schema insert failed, using base schema fallback:', insertErr.message);
+      if (!t1Err && t1Data && t1Data.length > 0) {
+        insertedRecord = t1Data[0];
+      } else {
+        console.warn('Tier 1 insert failed, trying Tier 2 legacy schema:', t1Err?.message);
         
-        // 2. Base Fallback Attempt: If Supabase table missing optional columns, insert using guaranteed base columns
-        const basePayload: any = {
-          member_id: member ? member.id : null,
+        // Tier 2: Try legacy schema using referred_member_id
+        const tier2Payload: any = {
+          referred_member_id: member ? member.id : null,
+          referred_member_name: member ? member.name : '',
           requester_name: fullName.trim(),
           requester_phone: phone.trim(),
           requester_address: fullAddressStr,
           approximate_amount: parseFloat(amountRequested),
           reason: fullDetailsSummary,
-          referred_member_name: member ? member.name : '',
-          referred_member_id: member ? member.id : null,
           status: 'DRAFT'
         };
 
-        const { data: baseData, error: baseErr } = await supabase
+        const { data: t2Data, error: t2Err } = await supabase
           .from('loan_requests')
-          .insert([basePayload])
-          .select()
-          .single();
+          .insert([tier2Payload])
+          .select();
 
-        if (baseErr) {
-          throw new Error(baseErr.message || 'Submission failed. Please check your network connection and try again.');
+        if (!t2Err && t2Data && t2Data.length > 0) {
+          insertedRecord = t2Data[0];
+        } else {
+          console.warn('Tier 2 insert failed, trying Tier 3 ultra-minimal schema:', t2Err?.message);
+
+          // Tier 3: Ultra-minimal schema guaranteed on all database versions
+          const tier3Payload: any = {
+            requester_name: fullName.trim(),
+            requester_phone: phone.trim(),
+            requester_address: fullAddressStr,
+            approximate_amount: parseFloat(amountRequested),
+            reason: `Referred By: ${member ? member.name : 'N/A'}\n${fullDetailsSummary}`,
+            status: 'DRAFT'
+          };
+
+          const { data: t3Data, error: t3Err } = await supabase
+            .from('loan_requests')
+            .insert([tier3Payload])
+            .select();
+
+          if (t3Err) {
+            throw new Error(t3Err.message || 'Submission failed. Please try again.');
+          }
+
+          insertedRecord = t3Data ? t3Data[0] : null;
         }
-
-        insertedRecord = baseData;
-      } else {
-        insertedRecord = data;
       }
 
-      const generatedRef = insertedRecord?.id ? `REF-${insertedRecord.id.slice(0, 8).toUpperCase()}` : 'REF-SUBMITTED';
+      const generatedRef = insertedRecord?.id ? `REF-${String(insertedRecord.id).slice(0, 8).toUpperCase()}` : 'REF-SUBMITTED';
       setRefNumber(generatedRef);
       setSuccess(true);
     } catch (err: any) {
