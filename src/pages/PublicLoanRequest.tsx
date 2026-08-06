@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { User, Phone, MapPin, IndianRupee, HelpCircle, CheckCircle, AlertCircle, ArrowLeft, Calendar, FileText, Briefcase, ShieldCheck } from 'lucide-react';
+import { User, Phone, MapPin, IndianRupee, CheckCircle, AlertCircle, ArrowLeft, ShieldCheck } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 
 export default function PublicLoanRequest() {
@@ -47,16 +47,33 @@ export default function PublicLoanRequest() {
       }
       try {
         const cleanCode = code.trim().toUpperCase();
+        
+        // 1. Try serverless API resolution (bypasses RLS & avoids PostgREST 406 header issue)
+        try {
+          const res = await fetch(`/api/resolve-member-code?code=${encodeURIComponent(cleanCode)}`);
+          if (res.ok) {
+            const result = await res.json();
+            if (result.success && result.member) {
+              setMember(result.member);
+              setLoading(false);
+              return;
+            }
+          }
+        } catch (apiErr) {
+          console.warn('API member code lookup fallback to client query:', apiErr);
+        }
+
+        // 2. Client-side query fallback using .limit(1) instead of .single() to prevent 406 error
         const { data, error: fetchErr } = await supabase
           .from('profiles')
-          .select('*')
-          .eq('member_unique_code', cleanCode)
-          .single();
+          .select('id, name, member_unique_code, code')
+          .or(`member_unique_code.ilike.${cleanCode},code.ilike.${cleanCode}`)
+          .limit(1);
 
-        if (fetchErr || !data) {
+        if (fetchErr || !data || data.length === 0) {
           setError('This link is invalid. Please contact the SKSSF member who shared it with you.');
         } else {
-          setMember(data);
+          setMember(data[0]);
         }
       } catch (err: any) {
         setError('This link is invalid. Please contact the SKSSF member who shared it with you.');

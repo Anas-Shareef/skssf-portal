@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import { Search, Eye, Plus, RefreshCw, AlertCircle, FileText, CheckCircle, Clock } from 'lucide-react';
+import { Search, Eye, Plus, RefreshCw, AlertCircle, FileText, CheckCircle, Clock, X, Share2, UserCheck } from 'lucide-react';
 import { supabase } from '../../lib/supabaseClient';
 
 export default function FiledLoans() {
@@ -12,6 +12,25 @@ export default function FiledLoans() {
   const [activeTab, setActiveTab] = useState<'all' | 'PENDING' | 'APPROVED' | 'REJECTED' | 'COMPLETE'>('all');
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
+  const [toast, setToast] = useState<{ type: 's' | 'e'; msg: string } | null>(null);
+
+  // Direct Filing Modal State
+  const [showDirectFileModal, setShowDirectFileModal] = useState(false);
+  const [applicantName, setApplicantName] = useState('');
+  const [applicantPhone, setApplicantPhone] = useState('');
+  const [applicantWhatsapp, setApplicantWhatsapp] = useState('');
+  const [applicantAddress, setApplicantAddress] = useState('');
+  const [loanAmount, setLoanAmount] = useState('');
+  const [repaymentMonths, setRepaymentMonths] = useState('12');
+  const [purposeCategory, setPurposeCategory] = useState('Medical');
+  const [purposeDetail, setPurposeDetail] = useState('');
+  const [memberNotes, setMemberNotes] = useState('');
+  const [submittingDirect, setSubmittingDirect] = useState(false);
+
+  const showToast = (type: 's' | 'e', msg: string) => {
+    setToast({ type, msg });
+    setTimeout(() => setToast(null), 3500);
+  };
 
   async function loadFiledLoans() {
     if (!profile) return;
@@ -52,6 +71,94 @@ export default function FiledLoans() {
   useEffect(() => {
     loadFiledLoans();
   }, [profile]);
+
+  const handleDirectFileSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!applicantName.trim() || applicantName.trim().length < 3) {
+      showToast('e', 'Applicant name is required (min 3 characters).');
+      return;
+    }
+    if (!applicantPhone.trim() || !/^\d{10}$/.test(applicantPhone.replace(/\D/g, ''))) {
+      showToast('e', 'Please enter a valid 10-digit applicant phone number.');
+      return;
+    }
+    if (!applicantAddress.trim()) {
+      showToast('e', 'Applicant address is required.');
+      return;
+    }
+    const amt = parseFloat(loanAmount);
+    if (isNaN(amt) || amt < 1000) {
+      showToast('e', 'Loan amount must be at least ₹1,000.');
+      return;
+    }
+    if (!purposeDetail.trim() || purposeDetail.trim().length < 20) {
+      showToast('e', 'Purpose details must be at least 20 characters long.');
+      return;
+    }
+    if (!memberNotes.trim() || memberNotes.trim().length < 15) {
+      showToast('e', 'Member assessment notes are required (min 15 characters).');
+      return;
+    }
+
+    setSubmittingDirect(true);
+    try {
+      const memberId = profile?.db_id || profile?.id;
+      const memberCode = profile?.member_unique_code || profile?.code || 'MEMBER';
+      const fullPurpose = `${purposeCategory}: ${purposeDetail.trim()}`;
+
+      // Insert directly into loans table attached to this member
+      const { data: newLoan, error: insertErr } = await supabase
+        .from('loans')
+        .insert([{
+          filed_by_member_id: memberId,
+          submitted_by_member_id: memberId,
+          applicant_name: applicantName.trim(),
+          applicant_phone: applicantPhone.trim(),
+          applicant_whatsapp: applicantWhatsapp.trim() || applicantPhone.trim(),
+          requester_name: applicantName.trim(),
+          requester_phone: applicantPhone.trim(),
+          requester_address: applicantAddress.trim(),
+          loan_amount_requested: amt,
+          loan_amount_approved: amt,
+          purpose: fullPurpose,
+          repayment_period_months: parseInt(repaymentMonths),
+          member_notes: memberNotes.trim(),
+          workflow_status: 'PENDING_COORDINATOR_REVIEW',
+          status: 'pending',
+          submission_source: 'direct_member_filing'
+        }])
+        .select()
+        .single();
+
+      if (insertErr) throw insertErr;
+
+      // Log in loan audit trail so reviewers know who filed it
+      await supabase.from('loan_audit_log').insert({
+        loan_id: newLoan.id,
+        action: 'DIRECT_MEMBER_FILING',
+        performed_by_user_id: memberId,
+        notes: `Loan filed directly by Representative Member: ${profile?.name} (${memberCode}). Member notes: ${memberNotes.trim()}`
+      });
+
+      showToast('s', 'Loan application filed successfully! Forwarded to coordinator review.');
+      setShowDirectFileModal(false);
+
+      // Reset form
+      setApplicantName('');
+      setApplicantPhone('');
+      setApplicantWhatsapp('');
+      setApplicantAddress('');
+      setLoanAmount('');
+      setPurposeDetail('');
+      setMemberNotes('');
+
+      loadFiledLoans();
+    } catch (err: any) {
+      showToast('e', err.message || 'Direct loan filing failed.');
+    } finally {
+      setSubmittingDirect(false);
+    }
+  };
 
   const getWorkflowStatus = (l: any): string => {
     return l.workflow_status || l.status || 'PENDING_COORDINATOR_REVIEW';
@@ -111,7 +218,12 @@ export default function FiledLoans() {
 
   return (
     <div style={{ animation: 'fadeIn 0.5s ease', padding: '24px' }}>
-      
+      {toast && (
+        <div style={{ position: 'fixed', top: '24px', right: '24px', zIndex: 2000, background: toast.type === 's' ? '#0f172a' : 'var(--red)', color: '#fff', padding: '14px 24px', borderRadius: '16px', fontWeight: 700, boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)', display: 'flex', alignItems: 'center', gap: '10px' }}>
+          {toast.type === 's' ? '✅' : '⚠️'} {toast.msg}
+        </div>
+      )}
+
       {/* Header Bar */}
       <div className="pg-hd fu" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '16px' }}>
         <div>
@@ -122,10 +234,21 @@ export default function FiledLoans() {
           <button onClick={loadFiledLoans} className="bsm g" style={{ display: 'flex', alignItems: 'center', gap: '6px' }} title="Refresh">
             <RefreshCw size={14} />
           </button>
-          <button onClick={() => navigate('/member/dashboard/apply')} className="bsm s" style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#0f172a' }}>
-            <Plus size={16} /> Share Link / Apply
+          <button onClick={() => navigate('/member/dashboard/apply')} className="bsm g" style={{ display: 'flex', alignItems: 'center', gap: '6px' }} title="Share Applicant Link">
+            <Share2 size={14} /> Share Link
+          </button>
+          <button onClick={() => setShowDirectFileModal(true)} className="bsm s" style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#0f172a' }}>
+            <Plus size={16} /> File New Application
           </button>
         </div>
+      </div>
+
+      {/* Helper Banner displaying logged-in member ID & info */}
+      <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '12px 18px', borderRadius: '16px', color: '#166534', fontSize: '13px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '24px' }}>
+        <UserCheck size={18} />
+        <span>
+          Applications filed here are automatically tagged with your unique representative identity: <b>{profile?.name}</b> ({profile?.member_unique_code || profile?.code || 'Member'}). Reviewers will see this application came through your referral.
+        </span>
       </div>
 
       {/* 4 Stats Cards */}
@@ -273,6 +396,171 @@ export default function FiledLoans() {
                 })}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* DIRECT LOAN FILING MODAL */}
+      {showDirectFileModal && (
+        <div className="ov" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1200, background: 'rgba(15, 23, 42, 0.5)' }}>
+          <div className="modal" style={{ maxWidth: '580px', width: '92%', borderRadius: '24px', padding: '28px', background: '#fff', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px', borderBottom: '1px solid #f1f5f9', paddingBottom: '14px' }}>
+              <div>
+                <h3 style={{ fontSize: '20px', fontWeight: 950, color: '#0f172a', margin: 0 }}>File Loan Application</h3>
+                <div style={{ fontSize: '12px', color: '#166534', fontWeight: 700, marginTop: '2px' }}>
+                  Filing on behalf of applicant as Member: <b>{profile?.name}</b> ({profile?.member_unique_code || profile?.code || 'Member'})
+                </div>
+              </div>
+              <button onClick={() => setShowDirectFileModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}><X size={20} /></button>
+            </div>
+
+            <form onSubmit={handleDirectFileSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              
+              {/* Applicant Basic Details */}
+              <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '16px', border: '1px solid #e2e8f0' }}>
+                <h4 style={{ margin: '0 0 12px 0', fontSize: '13px', fontWeight: 900, color: '#0f172a', textTransform: 'uppercase' }}>Applicant Information</h4>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <div>
+                    <label className="fl2" style={{ fontWeight: 800 }}>Applicant Full Name *</label>
+                    <input
+                      type="text"
+                      placeholder="Full legal name of the loan seeker"
+                      value={applicantName}
+                      onChange={(e) => setApplicantName(e.target.value)}
+                      className="fi2"
+                      style={{ width: '100%' }}
+                      required
+                    />
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    <div>
+                      <label className="fl2" style={{ fontWeight: 800 }}>Applicant Phone (10 digits) *</label>
+                      <input
+                        type="tel"
+                        maxLength={10}
+                        placeholder="Mobile number"
+                        value={applicantPhone}
+                        onChange={(e) => setApplicantPhone(e.target.value.replace(/\D/g, ''))}
+                        className="fi2"
+                        style={{ width: '100%' }}
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="fl2" style={{ fontWeight: 800 }}>WhatsApp Number (Optional)</label>
+                      <input
+                        type="tel"
+                        maxLength={10}
+                        placeholder="If different"
+                        value={applicantWhatsapp}
+                        onChange={(e) => setApplicantWhatsapp(e.target.value.replace(/\D/g, ''))}
+                        className="fi2"
+                        style={{ width: '100%' }}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="fl2" style={{ fontWeight: 800 }}>Applicant Full Address *</label>
+                    <textarea
+                      placeholder="House name, street, town, pin code"
+                      value={applicantAddress}
+                      onChange={(e) => setApplicantAddress(e.target.value)}
+                      className="ta2"
+                      rows={2}
+                      style={{ width: '100%' }}
+                      required
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Loan Details */}
+              <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '16px', border: '1px solid #e2e8f0' }}>
+                <h4 style={{ margin: '0 0 12px 0', fontSize: '13px', fontWeight: 900, color: '#0f172a', textTransform: 'uppercase' }}>Loan Specifications</h4>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    <div>
+                      <label className="fl2" style={{ fontWeight: 800 }}>Loan Amount (₹) *</label>
+                      <input
+                        type="number"
+                        min={1000}
+                        placeholder="₹ Amount"
+                        value={loanAmount}
+                        onChange={(e) => setLoanAmount(e.target.value)}
+                        className="fi2"
+                        style={{ width: '100%' }}
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="fl2" style={{ fontWeight: 800 }}>Repayment Period (Months) *</label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={36}
+                        value={repaymentMonths}
+                        onChange={(e) => setRepaymentMonths(e.target.value)}
+                        className="fi2"
+                        style={{ width: '100%' }}
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="fl2" style={{ fontWeight: 800 }}>Purpose Category *</label>
+                    <select
+                      value={purposeCategory}
+                      onChange={(e) => setPurposeCategory(e.target.value)}
+                      className="sel2"
+                      style={{ width: '100%', height: '42px' }}
+                    >
+                      <option value="Medical">Medical Relief & Healthcare</option>
+                      <option value="Education">Educational Support</option>
+                      <option value="Business">Small Business & Livelihood</option>
+                      <option value="Home Repair">Home Repair / Shelter</option>
+                      <option value="Other">Other Purpose</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="fl2" style={{ fontWeight: 800 }}>Detailed Purpose * (Min 20 chars)</label>
+                    <textarea
+                      placeholder="Detailed justification of why loan is needed..."
+                      value={purposeDetail}
+                      onChange={(e) => setPurposeDetail(e.target.value)}
+                      className="ta2"
+                      rows={2}
+                      style={{ width: '100%' }}
+                      required
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Member Assessment */}
+              <div>
+                <label className="fl2" style={{ fontWeight: 800 }}>Your Representative Assessment Notes * (Min 15 chars)</label>
+                <textarea
+                  placeholder="Your personal assessment of the applicant's request, background, and credibility..."
+                  value={memberNotes}
+                  onChange={(e) => setMemberNotes(e.target.value)}
+                  className="ta2"
+                  rows={3}
+                  style={{ width: '100%' }}
+                  required
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
+                <button type="button" onClick={() => setShowDirectFileModal(false)} style={{ flex: 1, padding: '12px', border: '1.5px solid #e2e8f0', background: '#fff', borderRadius: '12px', fontWeight: 800 }}>Cancel</button>
+                <button type="submit" disabled={submittingDirect} className="bsm s" style={{ flex: 2, padding: '12px', borderRadius: '12px', fontWeight: 900, background: '#0f172a' }}>
+                  {submittingDirect ? 'Filing Application...' : 'File Application to Review Panel'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
