@@ -135,7 +135,10 @@ export default function PublicLoanRequest() {
     try {
       const fullAddressStr = `${addressHouse.trim()}, ${addressStreet.trim()}, ${addressCity.trim()} - ${addressPin.trim()}`;
       
-      const payload: any = {
+      const fullDetailsSummary = `Category: ${purposeCategory}\nDetails: ${purposeDetail.trim()}\nPeriod: ${repaymentMonths} Months\nIncome: ₹${monthlyIncome} (${incomeSource.trim()})\nDebts: ${existingDebts ? existingDebtsDetail.trim() : 'None'}\nAadhaar Last 4: ${aadhaarLast4.trim()}\nDOB: ${dob} (${gender})`;
+
+      // 1. Primary Attempt: Payload with dedicated PRD columns
+      const fullPayload: any = {
         member_id: member ? member.id : null,
         applicant_name: fullName.trim(),
         applicant_dob: dob,
@@ -158,27 +161,56 @@ export default function PublicLoanRequest() {
         declaration_agreed: true,
         status: 'DRAFT',
         
-        // Legacy fallback column fields
+        // Base fallback columns
         requester_name: fullName.trim(),
         requester_phone: phone.trim(),
         requester_address: fullAddressStr,
         approximate_amount: parseFloat(amountRequested),
-        reason: `${purposeCategory}: ${purposeDetail.trim()}`,
+        reason: fullDetailsSummary,
         referred_member_name: member ? member.name : '',
         referred_member_id: member ? member.id : null
       };
 
+      let insertedRecord: any = null;
+
       const { data, error: insertErr } = await supabase
         .from('loan_requests')
-        .insert([payload])
+        .insert([fullPayload])
         .select()
         .single();
 
       if (insertErr) {
-        throw new Error(insertErr.message || 'Submission failed. Please try again.');
+        console.warn('Full schema insert failed, using base schema fallback:', insertErr.message);
+        
+        // 2. Base Fallback Attempt: If Supabase table missing optional columns, insert using guaranteed base columns
+        const basePayload: any = {
+          member_id: member ? member.id : null,
+          requester_name: fullName.trim(),
+          requester_phone: phone.trim(),
+          requester_address: fullAddressStr,
+          approximate_amount: parseFloat(amountRequested),
+          reason: fullDetailsSummary,
+          referred_member_name: member ? member.name : '',
+          referred_member_id: member ? member.id : null,
+          status: 'DRAFT'
+        };
+
+        const { data: baseData, error: baseErr } = await supabase
+          .from('loan_requests')
+          .insert([basePayload])
+          .select()
+          .single();
+
+        if (baseErr) {
+          throw new Error(baseErr.message || 'Submission failed. Please check your network connection and try again.');
+        }
+
+        insertedRecord = baseData;
+      } else {
+        insertedRecord = data;
       }
 
-      const generatedRef = data?.id ? `REF-${data.id.slice(0, 8).toUpperCase()}` : 'REF-SUBMITTED';
+      const generatedRef = insertedRecord?.id ? `REF-${insertedRecord.id.slice(0, 8).toUpperCase()}` : 'REF-SUBMITTED';
       setRefNumber(generatedRef);
       setSuccess(true);
     } catch (err: any) {
