@@ -6,56 +6,54 @@ const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 export default async function handler(req, res) {
-  // Simple auth check for Vercel Cron
+  // Authorization check for Cron trigger
   const authHeader = req.headers.authorization;
   if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return res.status(401).json({ success: false, message: 'Unauthorized cron trigger' });
   }
 
   try {
-    console.log('Starting daily repayment alert runner...');
+    console.log('Starting daily repayment alert runner (07:00 IST schedule)...');
 
-    // 1. Fetch all pending or overdue installments
+    // 1. Fetch pending, partial, or overdue installments
     const { data: installments, error: fetchInstError } = await supabase
-      .from('repayment_installments')
+      .from('repayment_instalments')
       .select('*, loans(*)')
-      .in('status', ['PENDING', 'PARTIALLY_PAID', 'OVERDUE']);
+      .in('status', ['PENDING', 'PARTIAL', 'OVERDUE']);
 
     if (fetchInstError) {
-      console.warn('repayment_installments query failed:', fetchInstError.message);
+      console.warn('repayment_instalments query failed:', fetchInstError.message);
       return res.status(500).json({ success: false, error: fetchInstError.message });
     }
 
-    // 2. Fetch sent notifications log to de-duplicate
+    // 2. Fetch sent notifications log for deduplication
     const { data: sentLogs, error: fetchLogError } = await supabase
       .from('repayment_notifications_sent')
       .select('*');
 
-    if (fetchLogError) {
-      console.warn('repayment_notifications_sent query failed:', fetchLogError.message);
-      return res.status(500).json({ success: false, error: fetchLogError.message });
-    }
-
-    const sentLogMap = {}; // key: installment_id + '_' + trigger_type
-    sentLogs.forEach(log => {
-      sentLogMap[`${log.installment_id}_${log.trigger_type}`] = true;
-    });
-
     const todayStr = new Date().toISOString().split('T')[0];
     const today = new Date(todayStr);
 
+    const sentLogMap = {}; // Key: installment_id + '_' + trigger_type + '_' + sent_date
+    if (sentLogs) {
+      sentLogs.forEach(log => {
+        sentLogMap[`${log.instalment_id}_${log.trigger_type}_${log.sent_date || todayStr}`] = true;
+      });
+    }
+
     let alertsSentCount = 0;
 
-    for (const inst of installments) {
+    for (const inst of (installments || [])) {
       const loan = inst.loans;
       if (!loan) continue;
 
-      const memberId = loan.submitted_by_member_id;
+      const memberId = loan.submitted_by_member_id || loan.filed_by_member_id;
       if (!memberId) continue;
 
       const dueDate = new Date(inst.due_date);
       const diffTime = dueDate.getTime() - today.getTime();
       const daysUntilDue = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      const appName = loan.applicant_name || loan.requester_name || 'Applicant';
 
       let triggerType = null;
       let alertTitle = '';
@@ -63,51 +61,66 @@ export default async function handler(req, res) {
 
       if (daysUntilDue === 7) {
         triggerType = '7_DAY';
-        alertTitle = '⏳ Repayment Due in 7 Days';
-        alertMessage = `Repayment installment #${inst.installment_number} of ₹${inst.amount_due} for ${loan.requester_name || loan.name} is due in 7 days.`;
+        alertTitle = '⏰ Upcoming Repayment (7 Days)';
+        alertMessage = `Upcoming Repayment: ₹${Number(inst.amount_due - (inst.amount_paid || 0)).toLocaleString()} for ${appName} is due in 7 days on ${new Date(inst.due_date).toLocaleDateString()}.`;
       } else if (daysUntilDue === 3) {
         triggerType = '3_DAY';
-        alertTitle = '⚠️ Urgent: Repayment Due in 3 Days';
-        alertMessage = `Urgent: Repayment installment #${inst.installment_number} of ₹${inst.amount_due} for ${loan.requester_name || loan.name} is due in 3 days.`;
+        alertTitle = '⚠️ Reminder: Repayment Due in 3 Days';
+        alertMessage = `Reminder: ₹${Number(inst.amount_due - (inst.amount_paid || 0)).toLocaleString()} for ${appName} is due in 3 days on ${new Date(inst.due_date).toLocaleDateString()}. Please prepare to collect.`;
+      } else if (daysUntilDue === 1) {
+        triggerType = '1_DAY';
+        alertTitle = '🚨 Tomorrow: Repayment Due';
+        alertMessage = `Tomorrow: ₹${Number(inst.amount_due - (inst.amount_paid || 0)).toLocaleString()} repayment for ${appName} is due tomorrow (${new Date(inst.due_date).toLocaleDateString()}). Contact them today.`;
       } else if (daysUntilDue === 0) {
         triggerType = 'DUE_DATE';
-        alertTitle = '📅 Repayment Due Today';
-        alertMessage = `Today is the due date for installment #${inst.installment_number} of ₹${inst.amount_due} for ${loan.requester_name || loan.name}.`;
+        alertTitle = '📅 Today: Repayment Due TODAY';
+        alertMessage = `Today: ₹${Number(inst.amount_due - (inst.amount_paid || 0)).toLocaleString()} repayment for ${appName} is due TODAY. Please collect and record it.`;
       } else if (daysUntilDue < 0) {
-        triggerType = 'OVERDUE';
-        alertTitle = '🚨 Repayment Overdue';
-        alertMessage = `Overdue: installment #${inst.installment_number} of ₹${inst.amount_due} for ${loan.requester_name || loan.name} is overdue by ${Math.abs(daysUntilDue)} days.`;
+        triggerType = Math.abs(daysUntilDue) === 1 ? 'OVERDUE_DAY1' : 'OVERDUE_REPEAT';
+        alertTitle = '⛔ OVERDUE Repayment';
+        alertMessage = `OVERDUE: ₹${Number(inst.amount_due - (inst.amount_paid || 0)).toLocaleString()} for ${appName} was due ${new Date(inst.due_date).toLocaleDateString()} and has not been recorded. Please follow up.`;
       }
 
       if (triggerType) {
-        const logKey = `${inst.id}_${triggerType}`;
+        const logKey = `${inst.id}_${triggerType}_${todayStr}`;
         if (!sentLogMap[logKey]) {
-          // Send notification
+          // 1. Insert in-app notification for member
           await supabase.from('notifications').insert({
             user_id: memberId,
             title: alertTitle,
             message: alertMessage,
             link_url: `/member/dashboard/repayments`,
-            is_read: false
+            read_at: null
           });
 
-          // Log in sent notifications
+          // Also notify admin if overdue
+          if (triggerType === 'OVERDUE_DAY1' || triggerType === 'OVERDUE_REPEAT') {
+            const { data: admins } = await supabase.from('profiles').select('id').eq('role', 'admin');
+            if (admins) {
+              const adminNotifs = admins.map(a => ({
+                user_id: a.id,
+                title: `⛔ Overdue Loan Repayment — ${appName}`,
+                message: alertMessage,
+                link_url: `/admin/dashboard/repayments`,
+                read_at: null
+              }));
+              await supabase.from('notifications').insert(adminNotifs);
+            }
+          }
+
+          // 2. Log in sent notifications for deduplication
           await supabase.from('repayment_notifications_sent').insert({
-            installment_id: inst.id,
-            trigger_type: triggerType
+            instalment_id: inst.id,
+            trigger_type: triggerType,
+            sent_date: todayStr
           });
 
-          // If overdue, update installment status and loan repayment_status
-          if (triggerType === 'OVERDUE') {
+          // 3. Mark instalment status as OVERDUE if past due date
+          if (daysUntilDue < 0) {
             await supabase
-              .from('repayment_installments')
+              .from('repayment_instalments')
               .update({ status: 'OVERDUE' })
               .eq('id', inst.id);
-
-            await supabase
-              .from('loans')
-              .update({ repayment_status: 'overdue' })
-              .eq('id', loan.id);
           }
 
           alertsSentCount++;
@@ -115,42 +128,7 @@ export default async function handler(req, res) {
       }
     }
 
-    // --- 3. Inventory Overdue Checkout Alerts ---
-    console.log('Evaluating inventory lease checkouts for overdue status...');
-    const { data: activeCheckouts, error: checkoutsErr } = await supabase
-      .from('inventory_checkouts')
-      .select('*, items:item_id(name)')
-      .eq('status', 'active');
-
-    if (checkoutsErr) {
-      console.warn('inventory_checkouts query failed:', checkoutsErr.message);
-    } else if (activeCheckouts) {
-      for (const checkout of activeCheckouts) {
-        if (!checkout.due_return_date) continue;
-        const dueDate = new Date(checkout.due_return_date);
-        dueDate.setHours(0,0,0,0);
-        
-        if (dueDate < today) {
-          // Update status to overdue
-          await supabase
-            .from('inventory_checkouts')
-            .update({ status: 'overdue', updated_at: new Date().toISOString() })
-            .eq('id', checkout.id);
-
-          // Trigger notification if not notified today
-          // We can check if notification exists, or simply insert a notification
-          await supabase.from('notifications').insert({
-            user_id: checkout.member_id,
-            title: '🚨 Leased Item Overdue',
-            message: `Overdue Alert: The item "${checkout.items?.name || 'Lease supply'}" (Qty: ${checkout.quantity}) was due back on ${new Date(checkout.due_return_date).toLocaleDateString()}. Please check it in.`,
-            link_url: `/member/dashboard/inventory`,
-            is_read: false
-          });
-        }
-      }
-    }
-
-    console.log(`Alert runner run complete. Evaluated ${installments.length} installments. Sent ${alertsSentCount} alerts.`);
+    console.log(`Repayment alert runner execution complete. Evaluated ${installments.length} instalments. Sent ${alertsSentCount} new alerts.`);
     return res.status(200).json({
       success: true,
       evaluated: installments.length,

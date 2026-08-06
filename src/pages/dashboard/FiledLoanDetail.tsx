@@ -2,73 +2,73 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabaseClient';
-import { localDb } from '../../lib/localDb';
-import { ArrowLeft, User, Phone, MapPin, Plus, MessageSquare, Check, X } from 'lucide-react';
+import { ArrowLeft, User, Phone, MapPin, IndianRupee, Download, Bell, Plus, CheckCircle, AlertCircle, Clock, ShieldCheck, FileText, X } from 'lucide-react';
 
 export default function FiledLoanDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { profile } = useAuth();
   const [loan, setLoan] = useState<any>(null);
-  const [installments, setInstallments] = useState<any[]>([]);
+  const [instalments, setInstalments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState<{ type: 's' | 'e'; msg: string } | null>(null);
-  const [admins, setAdmins] = useState<any[]>([]);
 
-  // Modal states
+  // Modal States
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [selectedInst, setSelectedInst] = useState<any>(null);
   const [amtPaid, setAmtPaid] = useState('');
-  const [payMethod, setPayMethod] = useState<'Cash' | 'Bank Transfer' | 'Other'>('Cash');
+  const [payMethod, setPayMethod] = useState<'Cash' | 'Bank Transfer' | 'Online' | 'Other'>('Cash');
   const [payNote, setPayNote] = useState('');
+  const [savingPayment, setSavingPayment] = useState(false);
 
   const [showNotifyModal, setShowNotifyModal] = useState(false);
   const [msgText, setMsgText] = useState('');
+  const [sendingNotify, setSendingNotify] = useState(false);
 
   const showToast = (type: 's' | 'e', msg: string) => {
     setToast({ type, msg });
-    setTimeout(() => setToast(null), 3000);
+    setTimeout(() => setToast(null), 3500);
   };
 
   async function loadLoanData() {
+    if (!id) return;
     try {
       setLoading(true);
-      const token = sessionStorage.getItem('active_api_token') || '';
 
-      // 1. Fetch loan
-      const loansRes = await fetch('/api/get-member-loans', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (!loansRes.ok) {
-        const errData = await loansRes.json().catch(() => ({}));
-        throw new Error(errData.error || `Server error ${loansRes.status}`);
+      // 1. Fetch loan detail
+      const { data: loanData, error: loanErr } = await supabase
+        .from('loans')
+        .select('*')
+        .eq('id', id)
+        .single();
+
+      if (loanErr) throw loanErr;
+      setLoan(loanData);
+
+      // 2. Fetch repayment instalments if loan is approved or active
+      const status = loanData.workflow_status || loanData.status;
+      if (status === 'APPROVED' || status === 'DISBURSED' || status === 'REPAYMENT_COMPLETE') {
+        const { data: instData, error: instErr } = await supabase
+          .from('repayment_instalments')
+          .select('*')
+          .eq('loan_id', id)
+          .order('instalment_number', { ascending: true });
+
+        if (!instErr && instData) {
+          // Sort OVERDUE first, then by instalment_number
+          const sorted = [...instData].sort((a, b) => {
+            const isOverdueA = a.status === 'OVERDUE' || (a.status === 'PENDING' && new Date(a.due_date) < new Date());
+            const isOverdueB = b.status === 'OVERDUE' || (b.status === 'PENDING' && new Date(b.due_date) < new Date());
+            if (isOverdueA && !isOverdueB) return -1;
+            if (!isOverdueA && isOverdueB) return 1;
+            return a.instalment_number - b.instalment_number;
+          });
+          setInstalments(sorted);
+        }
       }
-      const loansData = await loansRes.json();
-      const matchedLoan = (loansData.loans || []).find((l: any) => String(l.id) === String(id));
-      if (!matchedLoan) throw new Error('Loan not found');
-      setLoan(matchedLoan);
-
-      // 2. Fetch admins from localDb cache
-      const allUsers = localDb.getUsers();
-      const adminList = allUsers.filter((u: any) => ['admin', 'super', 'coordinator'].includes(u.role));
-      setAdmins(adminList);
-
-      // 3. Fetch installments
-      const repsRes = await fetch('/api/get-member-repayments', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (!repsRes.ok) {
-        const errData = await repsRes.json().catch(() => ({}));
-        throw new Error(errData.error || `Server error ${repsRes.status}`);
-      }
-      const repsData = await repsRes.json();
-      const matchedInsts = (repsData.installments || [])
-        .filter((inst: any) => String(inst.loan_id) === String(id))
-        .sort((a: any, b: any) => a.installment_number - b.installment_number);
-      setInstallments(matchedInsts);
     } catch (err: any) {
-      console.error('Failed to load loan data:', err);
-      showToast('e', err.message || 'Failed to load loan data.');
+      console.error('Failed to load loan details:', err);
+      showToast('e', err.message || 'Failed to load loan details.');
     } finally {
       setLoading(false);
     }
@@ -80,492 +80,517 @@ export default function FiledLoanDetail() {
 
   const handleRecordPayment = async (e: React.FormEvent) => {
     e.preventDefault();
-    const paidVal = Number(amtPaid);
-    const balance = selectedInst.amount_due - selectedInst.amount_paid;
-    if (paidVal <= 0 || paidVal > balance) {
-      showToast('e', `Payment amount must be between ₹1 and ₹${balance}`);
+    if (!selectedInst) return;
+
+    const paidVal = parseFloat(amtPaid);
+    const balance = selectedInst.amount_due - (selectedInst.amount_paid || 0);
+
+    if (isNaN(paidVal) || paidVal <= 0 || paidVal > balance) {
+      showToast('e', `Payment amount cannot exceed remaining balance of ₹${balance.toLocaleString()}`);
       return;
     }
 
+    setSavingPayment(true);
     try {
-      const token = sessionStorage.getItem('active_api_token') || '';
-      const res = await fetch('/api/record-member-repayment', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          selectedInstId: selectedInst.id,
-          amtPaid: paidVal,
-          payMethod,
-          payNote: payNote.trim()
-        })
-      });
+      const newPaidAmt = Number(selectedInst.amount_paid || 0) + paidVal;
+      const isFullyPaid = newPaidAmt >= selectedInst.amount_due;
+      const newStatus = isFullyPaid ? 'PAID' : 'PARTIAL';
+      const todayStr = new Date().toISOString().split('T')[0];
 
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error || `Server error ${res.status}`);
+      // Update repayment_instalment in Supabase
+      const { error: updateErr } = await supabase
+        .from('repayment_instalments')
+        .update({
+          amount_paid: newPaidAmt,
+          status: newStatus,
+          payment_date: todayStr,
+          payment_method: payMethod,
+          reference_note: payNote.trim(),
+          recorded_by_user_id: profile?.db_id || profile?.id
+        })
+        .eq('id', selectedInst.id);
+
+      if (updateErr) throw updateErr;
+
+      // Check if all instalments for this loan are now PAID
+      const { data: allInsts } = await supabase
+        .from('repayment_instalments')
+        .select('status')
+        .eq('loan_id', id);
+
+      if (allInsts && allInsts.every(inst => inst.status === 'PAID')) {
+        await supabase
+          .from('loans')
+          .update({ workflow_status: 'REPAYMENT_COMPLETE', status: 'completed' })
+          .eq('id', id);
       }
 
-      showToast('s', 'Repayment recorded successfully!');
+      showToast('s', 'Payment recorded successfully!');
       setShowPaymentModal(false);
       setSelectedInst(null);
       setAmtPaid('');
       setPayNote('');
       loadLoanData();
     } catch (err: any) {
-      showToast('e', err.message || 'Payment update failed.');
+      showToast('e', err.message || 'Failed to record payment.');
+    } finally {
+      setSavingPayment(false);
     }
   };
 
-  const handleNotifySubmit = async (e: React.FormEvent) => {
+  const handleSendReminder = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!msgText.trim()) return;
 
+    setSendingNotify(true);
     try {
-      const token = sessionStorage.getItem('active_api_token') || '';
-      const res = await fetch('/api/log-member-notification', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          loanId: id,
-          installmentId: selectedInst.id,
-          messageText: msgText.trim()
-        })
-      });
+      const memberId = profile?.db_id || profile?.id;
+      
+      // Log to requester_notifications table
+      await supabase
+        .from('requester_notifications')
+        .insert([{
+          loan_id: id,
+          instalment_id: selectedInst ? selectedInst.id : null,
+          sent_by_member_id: memberId,
+          message_text: msgText.trim(),
+          delivery_method: 'PORTAL_LOG'
+        }]);
 
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error || `Server error ${res.status}`);
-      }
-
-      showToast('s', 'Notification logged. Opening WhatsApp...');
+      showToast('s', 'Applicant reminder logged! Opening communication links...');
       setShowNotifyModal(false);
 
-      const encodedMsg = encodeURIComponent(msgText.trim());
-      const phoneNo = loan.requester_phone || loan.phone;
-      const url = `https://api.whatsapp.com/send?phone=${phoneNo}&text=${encodedMsg}`;
-      window.open(url, '_blank');
+      // Open WhatsApp link
+      const phoneNo = loan.applicant_phone || loan.applicant_whatsapp || loan.requester_phone;
+      if (phoneNo) {
+        const url = `https://api.whatsapp.com/send?phone=${phoneNo.replace(/\D/g, '')}&text=${encodeURIComponent(msgText.trim())}`;
+        window.open(url, '_blank');
+      }
     } catch (err: any) {
-      showToast('e', err.message || 'Notification log failed.');
+      showToast('e', err.message || 'Failed to send notification.');
+    } finally {
+      setSendingNotify(false);
     }
   };
 
-  const openNotifyModal = (inst: any) => {
-    setSelectedInst(inst);
-    const amountStr = Number(inst.amount_due - inst.amount_paid).toLocaleString();
-    const msg = `Dear ${loan.requester_name || loan.name}, your repayment installment #${inst.installment_number} of ₹${amountStr} for your SKSSF loan is due on ${new Date(inst.due_date).toLocaleDateString()}. Please coordinate to submit the payment soon. Thank you! — ${profile?.name}, SKSSF.`;
+  const openNotifyModal = (inst?: any) => {
+    setSelectedInst(inst || null);
+    const name = loan.applicant_name || loan.requester_name;
+    const dueAmt = inst ? (inst.amount_due - (inst.amount_paid || 0)) : (loan.loan_amount_approved || loan.loan_amount_requested);
+    const dueDateStr = inst?.due_date ? new Date(inst.due_date).toLocaleDateString() : 'due date';
+    
+    const msg = `Dear ${name}, your SKSSF loan repayment of ₹${Number(dueAmt).toLocaleString()} is due on ${dueDateStr}. Please arrange payment at your earliest convenience. — ${profile?.name || 'Representative'}, SKSSF`;
     setMsgText(msg);
     setShowNotifyModal(true);
   };
 
   const openPaymentModal = (inst: any) => {
     setSelectedInst(inst);
-    setAmtPaid(String(inst.amount_due - inst.amount_paid));
+    setAmtPaid(String(inst.amount_due - (inst.amount_paid || 0)));
     setShowPaymentModal(true);
+  };
+
+  const handleDownloadPDF = () => {
+    window.print();
   };
 
   if (loading) {
     return (
-      <div style={{ display: 'flex', justifyContent: 'center', padding: '50px', color: 'var(--teal)' }}>
-        <div className="spinner">Loading loan details...</div>
+      <div style={{ display: 'flex', justifyContent: 'center', padding: '60px', color: 'var(--teal)' }}>
+        <div className="spinner">Loading Loan Details...</div>
       </div>
     );
   }
 
   if (!loan) return null;
 
+  const isApproved = loan.workflow_status === 'APPROVED' || loan.workflow_status === 'DISBURSED' || loan.workflow_status === 'REPAYMENT_COMPLETE';
+  const isRejected = (loan.workflow_status || '').includes('REJECTED');
+  const refCode = `REF-${String(loan.id).slice(0, 8).toUpperCase()}`;
+
+  // Schedule Summary Calculations
+  const totalLoanAmt = loan.loan_amount_approved || loan.loan_amount_requested || 0;
+  const totalPaidAmt = instalments.reduce((sum, inst) => sum + Number(inst.amount_paid || 0), 0);
+  const outstandingAmt = Math.max(0, totalLoanAmt - totalPaidAmt);
+  const progressPct = totalLoanAmt > 0 ? Math.min(100, Math.round((totalPaidAmt / totalLoanAmt) * 100)) : 0;
+
   return (
     <div style={{ animation: 'fadeIn 0.5s ease', padding: '24px' }}>
       {toast && (
-        <div style={{ position: 'fixed', top: '24px', right: '24px', zIndex: 1000, background: toast.type === 's' ? '#0f172a' : 'var(--red)', color: '#fff', padding: '14px 24px', borderRadius: '16px', fontWeight: 700, boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)', display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <div style={{ position: 'fixed', top: '24px', right: '24px', zIndex: 2000, background: toast.type === 's' ? '#0f172a' : 'var(--red)', color: '#fff', padding: '14px 24px', borderRadius: '16px', fontWeight: 700, boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)', display: 'flex', alignItems: 'center', gap: '10px' }}>
           {toast.type === 's' ? '✅' : '⚠️'} {toast.msg}
         </div>
       )}
 
-      <button onClick={() => navigate('/member/dashboard/filed-loans')} style={{ background: 'none', border: 'none', color: '#64748b', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px' }}>
-        <ArrowLeft size={16} /> Back to Filed Loans
-      </button>
+      {/* SECTION A — Page Header Bar */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '16px' }}>
+        <div>
+          <button onClick={() => navigate('/member/dashboard/filed-loans')} style={{ background: 'none', border: 'none', color: '#64748b', fontWeight: 800, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '13px', marginBottom: '6px' }}>
+            <ArrowLeft size={16} /> Back to Filed Loans
+          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <h1 style={{ fontSize: '24px', fontWeight: 950, color: '#0f172a', margin: 0 }}>
+              Loan Application — {loan.applicant_name || loan.requester_name}
+            </h1>
+            <span style={{ fontSize: '12px', fontWeight: 900, background: '#f1f5f9', color: 'var(--teal)', padding: '3px 10px', borderRadius: '8px', fontFamily: 'monospace' }}>
+              {refCode}
+            </span>
+          </div>
+        </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '24px', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <button onClick={handleDownloadPDF} className="bsm g" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+            <Download size={15} /> Download PDF
+          </button>
+          <span className={`bdg ${isApproved ? 'bdg-g' : isRejected ? 'bdg-r' : 'bdg-a'}`} style={{ fontSize: '12px', padding: '8px 16px', borderRadius: '12px' }}>
+            {loan.workflow_status ? loan.workflow_status.replace(/_/g, ' ') : 'PENDING'}
+          </span>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: '24px', flexWrap: 'wrap' }}>
         
-        {/* Left Column: Loan Detail Summary */}
+        {/* Left Column: Applicant Info, Loan Specs, Repayment Schedule */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-          <div className="card" style={{ padding: '28px', borderRadius: '24px', background: '#fff', border: '1.5px solid #f1f5f9' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px', marginBottom: '24px' }}>
+          
+          {/* SECTION B — Applicant Information Card */}
+          <div className="card" style={{ padding: '24px', borderRadius: '24px', background: '#fff', border: '1.5px solid #e2e8f0' }}>
+            <h3 style={{ margin: '0 0 16px 0', fontSize: '16px', fontWeight: 900, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <User size={18} color="var(--teal)" /> Section B — Applicant Details
+            </h3>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', fontSize: '13.5px' }}>
+              <div><b>Full Name:</b> {loan.applicant_name || loan.requester_name}</div>
               <div>
-                <h2 style={{ fontSize: '22px', fontWeight: 900, color: '#0f172a', margin: 0 }}>{loan.requester_name || loan.name}</h2>
-                <div style={{ fontSize: '12px', color: '#94a3b8', fontWeight: 700, marginTop: '4px' }}>Filed on: {new Date(loan.created_at).toLocaleDateString()}</div>
+                <b>Phone:</b>{' '}
+                <a href={`tel:${loan.applicant_phone || loan.requester_phone}`} style={{ color: 'var(--teal)', fontWeight: 800, textDecoration: 'none' }}>
+                  📞 {loan.applicant_phone || loan.requester_phone}
+                </a>
               </div>
-              <span className={`bdg ${loan.workflow_status === 'APPROVED' ? 'bdg-g' : loan.workflow_status === 'REPAYMENT_COMPLETE' ? 'bdg-g' : loan.workflow_status.includes('REJECTED') ? 'bdg-r' : 'bdg-a'}`}>
-                {loan.workflow_status.replace(/_/g, ' ')}
-              </span>
-            </div>
-
-            <div className="rv-sec">
-              <div className="rv-sec-t">📋 Profile Details</div>
-              <div className="rv-row"><div className="rv-k"><User size={15} /> Full Name</div><div className="rv-v">{loan.requester_name || loan.name}</div></div>
-              <div className="rv-row"><div className="rv-k"><Phone size={15} /> Phone</div><div className="rv-v">{loan.requester_phone || loan.phone}</div></div>
-              <div className="rv-row"><div className="rv-k"><MapPin size={15} /> Home Address</div><div className="rv-v">{loan.requester_address || loan.address}</div></div>
-            </div>
-
-            <div className="rv-sec" style={{ marginTop: '24px' }}>
-              <div className="rv-sec-t">💼 Loan Specifications</div>
-              <div className="rv-row"><div className="rv-k">Amount Requested</div><div className="rv-v" style={{ fontWeight: 900, color: 'var(--teal)' }}>₹{(loan.loan_amount_requested || loan.amt).toLocaleString()}</div></div>
-              {loan.loan_amount_approved && <div className="rv-row"><div className="rv-k">Approved Amount</div><div className="rv-v" style={{ fontWeight: 900, color: '#10b981' }}>₹{Number(loan.loan_amount_approved).toLocaleString()}</div></div>}
-              <div className="rv-row"><div className="rv-k">Repayment Period</div><div className="rv-v">{loan.repayment_period_months || loan.months || 12} Months</div></div>
-              <div className="rv-row"><div className="rv-k">Purpose</div><div className="rv-v">{loan.purpose || loan.purpDesc}</div></div>
+              <div><b>WhatsApp:</b> {loan.applicant_whatsapp || 'Same as phone'}</div>
+              <div><b>Date of Birth:</b> {loan.applicant_dob ? new Date(loan.applicant_dob).toLocaleDateString() : 'N/A'}</div>
+              <div><b>Gender:</b> {loan.applicant_gender || 'N/A'}</div>
+              <div><b>Aadhaar (Last 4):</b> <span style={{ fontFamily: 'monospace', fontWeight: 800 }}>XXXX-{loan.applicant_aadhaar_last4 || 'XXXX'}</span></div>
+              <div><b>Monthly Income:</b> ₹{Number(loan.monthly_income || 0).toLocaleString()}</div>
+              <div><b>Source of Income:</b> {loan.income_source || 'N/A'}</div>
+              <div style={{ gridColumn: 'span 2' }}>
+                <b>Address:</b> {loan.applicant_address_house ? `${loan.applicant_address_house}, ${loan.applicant_address_street}, ${loan.applicant_address_city} - ${loan.applicant_address_pin}` : loan.requester_address}
+              </div>
             </div>
           </div>
 
-          {/* Guarantors */}
-          {loan.guarantors && loan.guarantors.length > 0 && (
-            <div className="card" style={{ padding: '24px', borderRadius: '24px', background: '#fff', border: '1.5px solid #f1f5f9' }}>
-              <h3 style={{ margin: '0 0 16px 0', fontSize: '18px', fontWeight: 900 }}>👥 Guarantor Details</h3>
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr style={{ borderBottom: '1.5px solid #f1f5f9', backgroundColor: '#f8fafc' }}>
-                      <th style={{ textAlign: 'left', padding: '12px', fontSize: '11px', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase' }}>Name</th>
-                      <th style={{ textAlign: 'left', padding: '12px', fontSize: '11px', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase' }}>Relationship</th>
-                      <th style={{ textAlign: 'left', padding: '12px', fontSize: '11px', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase' }}>Phone</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {loan.guarantors.map((g: any, i: number) => (
-                      <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                        <td style={{ padding: '12px', fontWeight: 700, color: '#1e293b' }}>{g.name}</td>
-                        <td style={{ padding: '12px', color: '#475569', fontSize: '13px' }}>{g.rel || g.relation}</td>
-                        <td style={{ padding: '12px', color: '#64748b', fontSize: '13px' }}>{g.phone}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
+          {/* SECTION C — Loan Details Card */}
+          <div className="card" style={{ padding: '24px', borderRadius: '24px', background: '#fff', border: '1.5px solid #e2e8f0' }}>
+            <h3 style={{ margin: '0 0 16px 0', fontSize: '16px', fontWeight: 900, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <IndianRupee size={18} color="var(--teal)" /> Section C — Loan Details
+            </h3>
 
-          {/* Witnesses */}
-          {loan.witnesses && loan.witnesses.filter((w: any) => w.name).length > 0 && (
-            <div className="card" style={{ padding: '24px', borderRadius: '24px', background: '#fff', border: '1.5px solid #f1f5f9' }}>
-              <h3 style={{ margin: '0 0 16px 0', fontSize: '18px', fontWeight: 900 }}>🤝 Witness Details</h3>
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr style={{ borderBottom: '1.5px solid #f1f5f9', backgroundColor: '#f8fafc' }}>
-                      <th style={{ textAlign: 'left', padding: '12px', fontSize: '11px', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase' }}>Name</th>
-                      <th style={{ textAlign: 'left', padding: '12px', fontSize: '11px', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase' }}>Mobile</th>
-                      <th style={{ textAlign: 'left', padding: '12px', fontSize: '11px', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase' }}>OTP Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {loan.witnesses.filter((w: any) => w.name).map((w: any, i: number) => (
-                      <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                        <td style={{ padding: '12px', fontWeight: 700, color: '#1e293b' }}>{w.name}</td>
-                        <td style={{ padding: '12px', color: '#64748b', fontSize: '13px' }}>{w.phone || w.mobile || w.email}</td>
-                        <td style={{ padding: '12px' }}>
-                          {w.otpVerified ? (
-                            <span className="bdg bdg-g" style={{ fontSize: '10px' }}>VERIFIED</span>
-                          ) : (
-                            <span className="bdg bdg-a" style={{ fontSize: '10px' }}>PENDING</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', fontSize: '13.5px' }}>
+              <div><b>Amount Requested:</b> <span style={{ color: 'var(--teal)', fontWeight: 900 }}>₹{Number(loan.loan_amount_requested || loan.amount || 0).toLocaleString()}</span></div>
+              <div><b>Amount Approved:</b> <span style={{ color: '#10b981', fontWeight: 900 }}>{loan.loan_amount_approved ? `₹${Number(loan.loan_amount_approved).toLocaleString()}` : '— (Pending Approval)'}</span></div>
+              <div><b>Repayment Period:</b> {loan.repayment_period_months || 12} Months</div>
+              <div><b>Date Filed by Member:</b> {loan.created_at ? new Date(loan.created_at).toLocaleDateString() : '—'}</div>
+              <div style={{ gridColumn: 'span 2' }}>
+                <b>Purpose:</b> {loan.purpose || loan.loan_purpose || 'General Support'}
               </div>
-            </div>
-          )}
-
-          {/* Applicant Signature */}
-          {loan.signature && (
-            <div className="card" style={{ padding: '24px', borderRadius: '24px', background: '#fff', border: '1.5px solid #f1f5f9' }}>
-              <h3 style={{ margin: '0 0 16px 0', fontSize: '18px', fontWeight: 900 }}>✍️ Applicant Digital Signature</h3>
-              <div style={{ background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: '16px', padding: '20px', textAlign: 'center' }}>
-                <img src={loan.signature} alt="Digital Signature" style={{ maxHeight: '100px', maxWidth: '100%' }} />
-                <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '10px', fontWeight: 700 }}>
-                  Digitally signed on filing submission date.
+              {loan.member_notes && (
+                <div style={{ gridColumn: 'span 2', background: '#f8fafc', padding: '12px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                  <b>Member Assessment Notes:</b>
+                  <p style={{ margin: '4px 0 0 0', color: '#475569', fontStyle: 'italic' }}>"{loan.member_notes}"</p>
                 </div>
+              )}
+            </div>
+          </div>
+
+          {/* SECTION E — 📅 Repayment Schedule (Auto-Generated on Approval) */}
+          {isApproved ? (
+            <div className="card" style={{ padding: '24px', borderRadius: '24px', background: '#fff', border: '1.5px solid #e2e8f0' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
+                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 950, color: '#0f172a' }}>
+                  📅 Repayment Schedule
+                </h3>
+                
+                {/* Section F: Standalone Send Reminder trigger */}
+                <button onClick={() => openNotifyModal()} className="bsm s" style={{ padding: '8px 14px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '6px', background: '#0f172a' }}>
+                  <Bell size={14} /> Send Reminder to Applicant
+                </button>
               </div>
+
+              {instalments.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '30px', color: '#64748b', fontSize: '13px' }}>
+                  Repayment schedule generated upon approval. Loading instalments...
+                </div>
+              ) : (
+                <>
+                  <div style={{ overflowX: 'auto', marginBottom: '20px' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                      <thead>
+                        <tr style={{ borderBottom: '1.5px solid #f1f5f9', backgroundColor: '#f8fafc' }}>
+                          <th style={{ textAlign: 'left', padding: '12px', fontSize: '11px', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase' }}>#</th>
+                          <th style={{ textAlign: 'left', padding: '12px', fontSize: '11px', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase' }}>Due Date</th>
+                          <th style={{ textAlign: 'left', padding: '12px', fontSize: '11px', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase' }}>Amount Due</th>
+                          <th style={{ textAlign: 'left', padding: '12px', fontSize: '11px', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase' }}>Amount Paid</th>
+                          <th style={{ textAlign: 'left', padding: '12px', fontSize: '11px', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase' }}>Payment Date</th>
+                          <th style={{ textAlign: 'left', padding: '12px', fontSize: '11px', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase' }}>Status</th>
+                          <th style={{ textAlign: 'center', padding: '12px', fontSize: '11px', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase' }}>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {instalments.map((inst) => {
+                          const isPaid = inst.status === 'PAID';
+                          const isOverdue = inst.status === 'OVERDUE' || (!isPaid && new Date(inst.due_date) < new Date());
+                          const isUpcoming7Days = !isPaid && !isOverdue && (new Date(inst.due_date).getTime() - new Date().getTime() <= 7 * 24 * 60 * 60 * 1000);
+
+                          return (
+                            <tr
+                              key={inst.id}
+                              style={{
+                                borderBottom: '1px solid #f1f5f9',
+                                borderLeft: isOverdue ? '4px solid #ef4444' : isUpcoming7Days ? '4px solid #f59e0b' : 'none',
+                                background: isOverdue ? '#fef2f2' : isUpcoming7Days ? '#fffbeb' : 'transparent'
+                              }}
+                            >
+                              <td style={{ padding: '14px 12px', fontWeight: 800 }}>#{inst.instalment_number}</td>
+                              <td style={{ padding: '14px 12px', fontSize: '13px', fontWeight: 700 }}>{new Date(inst.due_date).toLocaleDateString()}</td>
+                              <td style={{ padding: '14px 12px', fontWeight: 900 }}>₹{Number(inst.amount_due).toLocaleString()}</td>
+                              <td style={{ padding: '14px 12px', color: '#10b981', fontWeight: 900 }}>₹{Number(inst.amount_paid || 0).toLocaleString()}</td>
+                              <td style={{ padding: '14px 12px', fontSize: '12px', color: '#64748b' }}>
+                                {inst.payment_date ? new Date(inst.payment_date).toLocaleDateString() : '—'}
+                              </td>
+                              <td style={{ padding: '14px 12px' }}>
+                                <span className={`bdg ${
+                                  isPaid ? 'bdg-g' : isOverdue ? 'bdg-r' : isUpcoming7Days ? 'bdg-a' : 'bdg-a'
+                                }`} style={{ fontSize: '10px' }}>
+                                  {isPaid ? 'PAID' : isOverdue ? 'OVERDUE' : inst.status}
+                                </span>
+                              </td>
+                              <td style={{ padding: '14px 12px', textAlign: 'center' }}>
+                                {!isPaid && (
+                                  <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
+                                    <button onClick={() => openPaymentModal(inst)} className="bsm s" style={{ padding: '6px 10px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                      <Plus size={12} /> Record
+                                    </button>
+                                    <button onClick={() => openNotifyModal(inst)} className="bsm g" style={{ padding: '6px 10px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                      <Bell size={12} /> Notify
+                                    </button>
+                                  </div>
+                                )}
+                                {isPaid && (
+                                  <span style={{ color: '#10b981', fontSize: '12px', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                    <CheckCircle size={14} /> Paid
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Summary Bar */}
+                  <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '16px', border: '1px solid #e2e8f0' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', fontWeight: 800, marginBottom: '8px' }}>
+                      <span>Total Loan: ₹{Number(totalLoanAmt).toLocaleString()}</span>
+                      <span>Paid: ₹{Number(totalPaidAmt).toLocaleString()}</span>
+                      <span>Outstanding: <b style={{ color: '#ef4444' }}>₹{Number(outstandingAmt).toLocaleString()}</b></span>
+                    </div>
+
+                    <div style={{ width: '100%', height: '8px', background: '#e2e8f0', borderRadius: '4px', overflow: 'hidden' }}>
+                      <div style={{ width: `${progressPct}%`, height: '100%', background: '#10b981', transition: 'width 0.4s ease' }}></div>
+                    </div>
+                    <div style={{ textAlign: 'right', fontSize: '11px', color: '#64748b', fontWeight: 800, marginTop: '4px' }}>
+                      {progressPct}% Repaid
+                    </div>
+                  </div>
+                </>
+              )}
+
+            </div>
+          ) : (
+            <div className="card" style={{ padding: '24px', borderRadius: '24px', background: '#f8fafc', border: '1.5px dashed #cbd5e1', textAlign: 'center', color: '#64748b' }}>
+              <Clock size={36} style={{ margin: '0 auto 12px', opacity: 0.5, color: 'var(--teal)' }} />
+              <h4 style={{ margin: 0, fontSize: '15px', fontWeight: 900, color: '#0f172a' }}>Repayment Schedule Pending Approval</h4>
+              <p style={{ margin: '6px 0 0 0', fontSize: '13px' }}>The monthly repayment schedule will be auto-generated as soon as the 3-person panel approves the application.</p>
             </div>
           )}
 
-          {/* Repayment Installment Schedule */}
-          {(loan.workflow_status === 'APPROVED' || loan.workflow_status === 'REPAYMENT_COMPLETE') && (
-            <div className="card" style={{ padding: '24px', borderRadius: '24px', background: '#fff', border: '1.5px solid #f1f5f9' }}>
-              <h3 style={{ margin: '0 0 16px 0', fontSize: '18px', fontWeight: 900 }}>📅 Repayment Schedule</h3>
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr style={{ borderBottom: '1.5px solid #f1f5f9', backgroundColor: '#f8fafc' }}>
-                      <th style={{ textAlign: 'left', padding: '12px', fontSize: '11px', color: '#94a3b8' }}>Inst #</th>
-                      <th style={{ textAlign: 'left', padding: '12px', fontSize: '11px', color: '#94a3b8' }}>Due Date</th>
-                      <th style={{ textAlign: 'left', padding: '12px', fontSize: '11px', color: '#94a3b8' }}>Amount Due</th>
-                      <th style={{ textAlign: 'left', padding: '12px', fontSize: '11px', color: '#94a3b8' }}>Amount Paid</th>
-                      <th style={{ textAlign: 'left', padding: '12px', fontSize: '11px', color: '#94a3b8' }}>Status</th>
-                      <th style={{ textAlign: 'center', padding: '12px', fontSize: '11px', color: '#94a3b8' }}>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {installments.map((inst) => {
-                      const balance = inst.amount_due - inst.amount_paid;
-                      const isOverdue = inst.status === 'OVERDUE' || (inst.status === 'PENDING' && new Date(inst.due_date) < new Date());
-                      return (
-                        <tr key={inst.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                          <td style={{ padding: '12px', fontWeight: 700 }}>#{inst.installment_number}</td>
-                          <td style={{ padding: '12px', fontSize: '13px' }}>{new Date(inst.due_date).toLocaleDateString()}</td>
-                          <td style={{ padding: '12px', fontWeight: 800 }}>₹{Number(inst.amount_due).toLocaleString()}</td>
-                          <td style={{ padding: '12px', color: '#10b981', fontWeight: 800 }}>₹{Number(inst.amount_paid).toLocaleString()}</td>
-                          <td style={{ padding: '12px' }}>
-                            <span className={`bdg ${
-                              inst.status === 'PAID' ? 'bdg-g' : 
-                              isOverdue ? 'bdg-r' : 'bdg-a'
-                            }`} style={{ fontSize: '10px' }}>
-                              {isOverdue ? 'OVERDUE' : inst.status}
-                            </span>
-                          </td>
-                          <td style={{ padding: '12px', display: 'flex', gap: '6px', justifyContent: 'center' }}>
-                            {inst.status !== 'PAID' && (
-                              <>
-                                <button onClick={() => openPaymentModal(inst)} className="bsm s" style={{ padding: '6px 10px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                                  <Plus size={12} /> Log Pay
-                                </button>
-                                <button onClick={() => openNotifyModal(inst)} className="bsm g" style={{ padding: '6px 10px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                                  <MessageSquare size={12} /> Notify
-                                </button>
-                              </>
-                            )}
-                            {inst.status === 'PAID' && (
-                              <span style={{ color: '#10b981', fontSize: '13px', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '4px' }}><Check size={14} /> Paid</span>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-          {/* Draft Repayment Schedule (Proposed Plan) */}
-          {!(loan.workflow_status === 'APPROVED' || loan.workflow_status === 'REPAYMENT_COMPLETE') && loan.repayments && loan.repayments.length > 0 && (
-            <div className="card" style={{ padding: '24px', borderRadius: '24px', background: '#fff', border: '1.5px solid #f1f5f9' }}>
-              <h3 style={{ margin: '0 0 16px 0', fontSize: '18px', fontWeight: 900 }}>📅 Proposed Repayment Plan</h3>
-              <p style={{ margin: '0 0 16px 0', fontSize: '13px', color: '#64748b' }}>
-                This is the projected monthly repayment schedule if the loan gets approved.
-              </p>
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr style={{ borderBottom: '1.5px solid #f1f5f9', backgroundColor: '#f8fafc' }}>
-                      <th style={{ textAlign: 'left', padding: '12px', fontSize: '11px', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase' }}>EMI #</th>
-                      <th style={{ textAlign: 'left', padding: '12px', fontSize: '11px', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase' }}>Due Date</th>
-                      <th style={{ textAlign: 'left', padding: '12px', fontSize: '11px', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase' }}>Amount</th>
-                      <th style={{ textAlign: 'left', padding: '12px', fontSize: '11px', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase' }}>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {loan.repayments.map((r: any, i: number) => (
-                      <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                        <td style={{ padding: '12px', fontWeight: 700 }}>#{i + 1}</td>
-                        <td style={{ padding: '12px', fontSize: '13px' }}>{new Date(r.due || r.due_date).toLocaleDateString()}</td>
-                        <td style={{ padding: '12px', fontWeight: 800 }}>₹{Number(r.amt || r.amount).toLocaleString()}</td>
-                        <td style={{ padding: '12px' }}>
-                          <span className="bdg bdg-a" style={{ fontSize: '10px' }}>PROPOSED</span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
         </div>
 
-        {/* Right Column: Workflow Consensus */}
+        {/* Right Column: SECTION D — Live Review Status Panel */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-          {/* Panel consensus status */}
-            {(() => {
-              const reqState = loan.request || {};
-              const assignedIds: string[] = reqState.assignedReviewers || [];
-              const approvals: any[] = reqState.approvals || [];
-              const threshold = reqState.threshold || 2;
-              
-              const approvedCount = approvals.filter(a => a.status === 'approved').length;
-              
-              const reviewerList: { name: string; status: 'APPROVED' | 'REJECTED' | 'PENDING'; date?: string }[] = [];
-              
-              const config = localDb.getPortalConfig();
-              const pool = admins.filter((a: any) => (config.authorizedReviewers || []).includes(a.id));
-              const activePool = assignedIds.length > 0 ? pool.filter((a: any) => assignedIds.includes(a.id)) : pool;
+          
+          <div className="card" style={{ padding: '24px', borderRadius: '24px', background: '#fff', border: '1.5px solid #e2e8f0' }}>
+            <h3 style={{ margin: '0 0 16px 0', fontSize: '16px', fontWeight: 900, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <ShieldCheck size={18} color="var(--teal)" /> Section D — Review Status
+            </h3>
 
-              activePool.forEach(admin => {
-                const approvalObj = approvals.find(ap => String(ap.id) === String(admin.id) || ap.by === admin.name);
-                reviewerList.push({
-                  name: admin.name,
-                  status: approvalObj ? (approvalObj.status === 'approved' ? 'APPROVED' : 'REJECTED') : 'PENDING',
-                  date: approvalObj ? new Date(approvalObj.date).toLocaleDateString() : undefined
-                });
-              });
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              
+              {/* Step 1: Member Submission */}
+              <div style={{ borderLeft: '3px solid #10b981', paddingLeft: '14px' }}>
+                <div style={{ fontSize: '13px', fontWeight: 900, color: '#0f172a' }}>1. Member Submission</div>
+                <div style={{ fontSize: '12px', color: '#10b981', fontWeight: 800, marginTop: '2px' }}>✅ Completed</div>
+                <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>Submitted by {profile?.name || 'Member'}</div>
+              </div>
 
-              // Add any other approvals that are not in the active pool (e.g. historic approvals)
-              approvals.forEach(ap => {
-                const alreadyAdded = reviewerList.some(r => r.name === ap.by);
-                if (!alreadyAdded) {
-                  reviewerList.push({
-                    name: ap.by || 'Admin',
-                    status: ap.status === 'approved' ? 'APPROVED' : 'REJECTED',
-                    date: new Date(ap.date).toLocaleDateString()
-                  });
-                }
-              });
-
-              return (
-                <div className="card" style={{ padding: '24px', borderRadius: '24px', background: '#fff', border: '1.5px solid #f1f5f9' }}>
-                  <h3 style={{ margin: '0 0 8px 0', fontSize: '16px', fontWeight: 900, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span>🛡️ Consensus Status</span>
-                    <span style={{ fontSize: '12px', background: '#ecfdf5', color: '#10b981', padding: '2px 8px', borderRadius: '8px', fontWeight: 800 }}>
-                      {approvedCount} of {threshold} Approved
-                    </span>
-                  </h3>
-                  <p style={{ margin: '0 0 16px 0', fontSize: '11.5px', color: '#64748b' }}>
-                    Requires at least {threshold} committee signatures to approve the application.
-                  </p>
-                  
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '13px' }}>
-                    {reviewerList.map((rev, index) => (
-                      <div key={index} style={{ display: 'flex', justifyContent: 'space-between', borderBottom: index < reviewerList.length - 1 ? '1px solid #f1f5f9' : 'none', paddingBottom: index < reviewerList.length - 1 ? '8px' : '0' }}>
-                        <div>
-                          <span style={{ fontWeight: 700, color: '#334155' }}>{rev.name}</span>
-                          {rev.date && <span style={{ fontSize: '10px', color: '#94a3b8', marginLeft: '6px' }}>({rev.date})</span>}
-                        </div>
-                        <span style={{
-                          fontWeight: 800,
-                          color: rev.status === 'APPROVED' ? '#10b981' : rev.status === 'REJECTED' ? 'var(--red)' : '#64748b'
-                        }}>
-                          {rev.status}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
+              {/* Step 2: Coordinator Review */}
+              <div style={{ borderLeft: `3px solid ${loan.coordinator_review_status === 'VERIFIED' ? '#10b981' : loan.coordinator_review_status === 'REJECTED' ? '#ef4444' : '#f59e0b'}`, paddingLeft: '14px' }}>
+                <div style={{ fontSize: '13px', fontWeight: 900, color: '#0f172a' }}>2. Coordinator Review</div>
+                <div style={{ fontSize: '12px', fontWeight: 800, color: loan.coordinator_review_status === 'VERIFIED' ? '#10b981' : loan.coordinator_review_status === 'REJECTED' ? '#ef4444' : '#f59e0b', marginTop: '2px' }}>
+                  {loan.coordinator_review_status === 'VERIFIED' ? '✅ Verified' : loan.coordinator_review_status === 'REJECTED' ? '❌ Rejected' : '⏳ In Progress'}
                 </div>
-              );
-            })()}
-
-          {/* Audit trail / log */}
-          {loan.coordinator_review_notes && (
-            <div className="card" style={{ padding: '24px', borderRadius: '24px', background: '#fff', border: '1.5px solid #f1f5f9' }}>
-              <h3 style={{ margin: '0 0 12px 0', fontSize: '15px', fontWeight: 900 }}>📋 Coordinator Verification Notes</h3>
-              <div style={{ fontSize: '13px', color: '#475569', lineHeight: 1.5, background: '#f8fafc', padding: '12px', borderRadius: '12px' }}>
-                "{loan.coordinator_review_notes}"
+                {loan.coordinator_review_notes && <div style={{ fontSize: '11px', color: '#475569', fontStyle: 'italic', marginTop: '2px' }}>"{loan.coordinator_review_notes}"</div>}
               </div>
-            </div>
-          )}
 
-          {/* Detailed Audit Log */}
-          {loan.audit && loan.audit.length > 0 && (
-            <div className="card" style={{ padding: '24px', borderRadius: '24px', background: '#fff', border: '1.5px solid #f1f5f9' }}>
-              <h3 style={{ margin: '0 0 16px 0', fontSize: '16px', fontWeight: 900 }}>📋 Application Activity Logs</h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', maxHeight: '350px', overflowY: 'auto', paddingRight: '4px' }}>
-                {loan.audit.map((log: any, i: number) => (
-                  <div key={i} style={{ fontSize: '12.5px', background: '#f8fafc', padding: '10px 12px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800, color: '#334155', marginBottom: '4px' }}>
-                      <span>{log.action}</span>
-                      <span style={{ fontSize: '10.5px', color: '#94a3b8', fontWeight: 600 }}>{log.date}</span>
-                    </div>
-                    {log.note && <div style={{ color: '#64748b', fontStyle: 'italic', marginTop: '2px' }}>"{log.note}"</div>}
-                    <div style={{ fontSize: '10.5px', color: 'var(--teal)', fontWeight: 800, marginTop: '4px', textTransform: 'uppercase' }}>By: {log.by}</div>
-                  </div>
-                ))}
+              {/* Step 3: President Vote */}
+              <div style={{ borderLeft: `3px solid ${loan.president_vote === 'APPROVE' ? '#10b981' : loan.president_vote === 'REJECT' ? '#ef4444' : '#cbd5e1'}`, paddingLeft: '14px' }}>
+                <div style={{ fontSize: '13px', fontWeight: 900, color: '#0f172a' }}>3. President Vote</div>
+                <div style={{ fontSize: '12px', fontWeight: 800, color: loan.president_vote === 'APPROVE' ? '#10b981' : loan.president_vote === 'REJECT' ? '#ef4444' : '#64748b', marginTop: '2px' }}>
+                  {loan.president_vote ? loan.president_vote : '⏳ Pending'}
+                </div>
               </div>
+
+              {/* Step 4: Secretary Vote */}
+              <div style={{ borderLeft: `3px solid ${loan.secretary_vote === 'APPROVE' ? '#10b981' : loan.secretary_vote === 'REJECT' ? '#ef4444' : '#cbd5e1'}`, paddingLeft: '14px' }}>
+                <div style={{ fontSize: '13px', fontWeight: 900, color: '#0f172a' }}>4. Secretary Vote</div>
+                <div style={{ fontSize: '12px', fontWeight: 800, color: loan.secretary_vote === 'APPROVE' ? '#10b981' : loan.secretary_vote === 'REJECT' ? '#ef4444' : '#64748b', marginTop: '2px' }}>
+                  {loan.secretary_vote ? loan.secretary_vote : '⏳ Pending'}
+                </div>
+              </div>
+
+              {/* Step 5: Panel Coordinator Vote */}
+              <div style={{ borderLeft: `3px solid ${loan.panel_coordinator_vote === 'APPROVE' ? '#10b981' : loan.panel_coordinator_vote === 'REJECT' ? '#ef4444' : '#cbd5e1'}`, paddingLeft: '14px' }}>
+                <div style={{ fontSize: '13px', fontWeight: 900, color: '#0f172a' }}>5. Panel Coordinator Vote</div>
+                <div style={{ fontSize: '12px', fontWeight: 800, color: loan.panel_coordinator_vote === 'APPROVE' ? '#10b981' : loan.panel_coordinator_vote === 'REJECT' ? '#ef4444' : '#64748b', marginTop: '2px' }}>
+                  {loan.panel_coordinator_vote ? loan.panel_coordinator_vote : '⏳ Pending'}
+                </div>
+              </div>
+
+              {/* Final Banner */}
+              {isApproved && (
+                <div style={{ background: '#f0fdf4', border: '1.5px solid #bbf7d0', padding: '14px', borderRadius: '14px', color: '#166534', textAlign: 'center', marginTop: '8px' }}>
+                  <div style={{ fontWeight: 950, fontSize: '14px' }}>🎉 LOAN APPROVED</div>
+                  <div style={{ fontSize: '12px', marginTop: '2px' }}>Approved Amount: <b>₹{Number(loan.loan_amount_approved || loan.loan_amount_requested).toLocaleString()}</b></div>
+                </div>
+              )}
+
+              {isRejected && (
+                <div style={{ background: '#fef2f2', border: '1.5px solid #fecaca', padding: '14px', borderRadius: '14px', color: '#991b1b', textAlign: 'center', marginTop: '8px' }}>
+                  <div style={{ fontWeight: 950, fontSize: '14px' }}>⛔ LOAN REJECTED</div>
+                  {loan.rejection_reason && <div style={{ fontSize: '12px', marginTop: '4px' }}>Reason: "{loan.rejection_reason}"</div>}
+                </div>
+              )}
+
             </div>
-          )}
+          </div>
+
         </div>
 
       </div>
 
-      {/* Record Payment Modal */}
+      {/* RECORD PAYMENT MODAL */}
       {showPaymentModal && selectedInst && (
-        <div className="ov" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}>
-          <div className="modal" style={{ maxWidth: '400px', width: '90%', animation: 'slideUp 0.3s ease' }}>
-            <div className="modal-head">
-              <span className="modal-title">Record Repayment EMI #{selectedInst.installment_number}</span>
-              <button onClick={() => setShowPaymentModal(false)} className="modal-close">&times;</button>
+        <div className="ov" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1200, background: 'rgba(15, 23, 42, 0.5)' }}>
+          <div className="modal" style={{ maxWidth: '440px', width: '92%', borderRadius: '24px', padding: '28px', background: '#fff' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <h3 style={{ fontSize: '18px', fontWeight: 950, color: '#0f172a', margin: 0 }}>Record Payment — Inst #{selectedInst.instalment_number}</h3>
+              <button onClick={() => setShowPaymentModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}><X size={18} /></button>
             </div>
-            <form onSubmit={handleRecordPayment} className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+
+            <form onSubmit={handleRecordPayment} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <div>
-                <label className="fl2">Amount Paid (₹)</label>
+                <label className="fl2" style={{ fontWeight: 800 }}>Amount Paid (₹) *</label>
                 <input
                   type="number"
+                  max={selectedInst.amount_due - (selectedInst.amount_paid || 0)}
                   value={amtPaid}
                   onChange={(e) => setAmtPaid(e.target.value)}
                   className="fi2"
+                  style={{ width: '100%' }}
                   required
                 />
+                <div style={{ fontSize: '11px', color: '#64748b', marginTop: '3px' }}>
+                  Remaining Due: ₹{Number(selectedInst.amount_due - (selectedInst.amount_paid || 0)).toLocaleString()}
+                </div>
               </div>
+
               <div>
-                <label className="fl2">Payment Method</label>
-                <select value={payMethod} onChange={(e: any) => setPayMethod(e.target.value)} className="sel2">
+                <label className="fl2" style={{ fontWeight: 800 }}>Payment Method *</label>
+                <select value={payMethod} onChange={(e: any) => setPayMethod(e.target.value)} className="sel2" style={{ width: '100%', height: '42px' }}>
                   <option value="Cash">Cash</option>
                   <option value="Bank Transfer">Bank Transfer</option>
+                  <option value="Online">Online / UPI</option>
                   <option value="Other">Other</option>
                 </select>
               </div>
+
               <div>
-                <label className="fl2">Reference / Note (Optional)</label>
-                <textarea
-                  placeholder="Tx ID, Receipt Number, etc."
+                <label className="fl2" style={{ fontWeight: 800 }}>Reference / Receipt Note</label>
+                <input
+                  type="text"
+                  placeholder="E.g. TXN-9981 or receipt number"
                   value={payNote}
                   onChange={(e) => setPayNote(e.target.value)}
-                  className="ta2"
-                  rows={2}
+                  className="fi2"
+                  style={{ width: '100%' }}
                 />
               </div>
-              <div className="modal-foot" style={{ display: 'flex', gap: '8px', padding: '12px 0 0 0', border: 'none' }}>
-                <button type="submit" className="bsm s" style={{ flex: 1 }}>Save Repayment</button>
-                <button type="button" onClick={() => setShowPaymentModal(false)} className="bsm g">Cancel</button>
+
+              <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
+                <button type="button" onClick={() => setShowPaymentModal(false)} style={{ flex: 1, padding: '12px', border: '1.5px solid #e2e8f0', background: '#fff', borderRadius: '12px', fontWeight: 800 }}>Cancel</button>
+                <button type="submit" disabled={savingPayment} className="bsm s" style={{ flex: 1, padding: '12px', borderRadius: '12px', fontWeight: 900, background: '#0f172a' }}>
+                  {savingPayment ? 'Saving...' : 'Record Payment'}
+                </button>
               </div>
             </form>
           </div>
         </div>
       )}
 
-      {/* Notify Requester Modal */}
-      {showNotifyModal && selectedInst && (
-        <div className="ov" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}>
-          <div className="modal" style={{ maxWidth: '500px', width: '90%', animation: 'slideUp 0.3s ease' }}>
-            <div className="modal-head">
-              <span className="modal-title">Notify Borrower Requester</span>
-              <button onClick={() => setShowNotifyModal(false)} className="modal-close">&times;</button>
+      {/* NOTIFY APPLICANT MODAL */}
+      {showNotifyModal && (
+        <div className="ov" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1200, background: 'rgba(15, 23, 42, 0.5)' }}>
+          <div className="modal" style={{ maxWidth: '500px', width: '92%', borderRadius: '24px', padding: '28px', background: '#fff' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <h3 style={{ fontSize: '18px', fontWeight: 950, color: '#0f172a', margin: 0 }}>Notify Applicant</h3>
+              <button onClick={() => setShowNotifyModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}><X size={18} /></button>
             </div>
-            <form onSubmit={handleNotifySubmit} className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              <div>
-                <label className="fl2">Requester Phone</label>
-                <a href={`tel:${loan.requester_phone || loan.phone}`} style={{ fontSize: '16px', color: 'var(--teal)', fontWeight: 900, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '6px' }}><Phone size={16} /> {loan.requester_phone || loan.phone} (Tap to Call)</a>
+
+            <form onSubmit={handleSendReminder} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div style={{ background: '#f8fafc', padding: '14px', borderRadius: '14px', border: '1px solid #e2e8f0', fontSize: '13px' }}>
+                <div><b>Applicant:</b> {loan.applicant_name || loan.requester_name}</div>
+                <div>
+                  <b>Phone:</b>{' '}
+                  <a href={`tel:${loan.applicant_phone || loan.requester_phone}`} style={{ color: 'var(--teal)', fontWeight: 800 }}>
+                    {loan.applicant_phone || loan.requester_phone}
+                  </a>
+                </div>
               </div>
+
               <div>
-                <label className="fl2">WhatsApp Reminder Message</label>
+                <label className="fl2" style={{ fontWeight: 800 }}>Reminder Message</label>
                 <textarea
                   value={msgText}
                   onChange={(e) => setMsgText(e.target.value)}
                   className="ta2"
-                  rows={5}
+                  rows={4}
+                  style={{ width: '100%' }}
                   required
                 />
               </div>
-              <div className="modal-foot" style={{ display: 'flex', gap: '8px', padding: '12px 0 0 0', border: 'none' }}>
-                <button type="submit" className="bsm s" style={{ flex: 1 }}>Open WhatsApp & Send</button>
-                <button type="button" onClick={() => setShowNotifyModal(false)} className="bsm g">Cancel</button>
+
+              <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
+                <button type="button" onClick={() => setShowNotifyModal(false)} style={{ flex: 1, padding: '12px', border: '1.5px solid #e2e8f0', background: '#fff', borderRadius: '12px', fontWeight: 800 }}>Cancel</button>
+                <button type="submit" disabled={sendingNotify} className="bsm s" style={{ flex: 2, padding: '12px', borderRadius: '12px', fontWeight: 900, background: '#25D366' }}>
+                  {sendingNotify ? 'Logging...' : 'Send via WhatsApp'}
+                </button>
               </div>
             </form>
           </div>
         </div>
       )}
+
     </div>
   );
 }
