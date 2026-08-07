@@ -107,10 +107,14 @@ export default function FiledLoans() {
       const fullPurpose = `${purposeCategory}: ${purposeDetail.trim()}`;
       const months = parseInt(repaymentMonths || '12');
 
+      // Generate unique loan_no to satisfy NOT NULL constraint on loans table
+      const generatedLoanNo = 'LN-' + Math.floor(100000 + Math.random() * 900000);
+
       let newLoan: any = null;
 
-      // Tier 1: Exact `loans` Table Schema (requester_name, requester_phone, requester_address, loan_amount_requested, loan_amount_approved, purpose, repayment_period_months, member_notes, workflow_status, submitted_by_member_id)
+      // Tier 1: Exact `loans` Table Schema with loan_no
       const tier1Payload: any = {
+        loan_no: generatedLoanNo,
         submitted_by_member_id: memberId,
         filed_by_member_id: memberId,
         requester_name: applicantName.trim(),
@@ -136,8 +140,9 @@ export default function FiledLoans() {
       } else {
         console.warn('Tier 1 direct file failed, trying Tier 2 schema:', t1Err?.message);
 
-        // Tier 2: Base `loans` Schema (requester_name, requester_phone, requester_address, purpose, status)
+        // Tier 2: Base `loans` Schema with loan_no
         const tier2Payload: any = {
+          loan_no: generatedLoanNo,
           submitted_by_member_id: memberId,
           requester_name: applicantName.trim(),
           requester_phone: applicantPhone.trim(),
@@ -156,8 +161,9 @@ export default function FiledLoans() {
         } else {
           console.warn('Tier 2 direct file failed, trying Tier 3 ultra-minimal schema:', t2Err?.message);
 
-          // Tier 3: Ultra-Minimal `loans` Schema (purpose, status)
+          // Tier 3: Ultra-Minimal `loans` Schema with loan_no
           const tier3Payload: any = {
+            loan_no: generatedLoanNo,
             purpose: `Applicant: ${applicantName.trim()} (Phone: ${applicantPhone.trim()})\nAddress: ${applicantAddress.trim()}\nAmount: ₹${amt}\nMember: ${profile?.name}\nNotes: ${memberNotes.trim()}`,
             status: 'pending'
           };

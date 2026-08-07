@@ -137,12 +137,19 @@ export default function MemberInbox() {
       const purpose = selectedRequest.loan_purpose_detail || selectedRequest.reason || selectedRequest.purpose || 'Loan Request';
       const months = selectedRequest.repayment_period_months || 12;
 
+      // Generate unique loan_no to satisfy NOT NULL constraint on loans table
+      const generatedLoanNo = 'LN-' + Math.floor(100000 + Math.random() * 900000);
+
       let newLoan: any = null;
 
-      // Tier 1: Exact `loans` Table Schema (requester_name, requester_phone, requester_address, loan_amount_requested, loan_amount_approved, purpose, repayment_period_months, member_notes, workflow_status, submitted_by_member_id)
+      // Tier 1: Extended PRD Schema with loan_no
       const tier1Payload: any = {
+        loan_no: generatedLoanNo,
         submitted_by_member_id: memberId,
+        filed_by_member_id: memberId,
         source_request_id: selectedRequest.id,
+        applicant_name: applicantName,
+        applicant_phone: applicantPhone,
         requester_name: applicantName,
         requester_phone: applicantPhone,
         requester_address: applicantAddress,
@@ -165,8 +172,9 @@ export default function MemberInbox() {
       } else {
         console.warn('Tier 1 loans insert failed, trying Tier 2 schema:', t1Err?.message);
 
-        // Tier 2: Base `loans` Schema (requester_name, requester_phone, requester_address, purpose, status)
+        // Tier 2: Base `loans` Schema with loan_no
         const tier2Payload: any = {
+          loan_no: generatedLoanNo,
           submitted_by_member_id: memberId,
           requester_name: applicantName,
           requester_phone: applicantPhone,
@@ -183,10 +191,11 @@ export default function MemberInbox() {
         if (!t2Err && t2Data && t2Data.length > 0) {
           newLoan = t2Data[0];
         } else {
-          console.warn('Tier 2 loans insert failed, trying Tier 3 ultra-minimal schema:', t2Err?.message);
+          console.warn('Tier 2 loans insert failed, trying Tier 3 ultra-minimal loans schema:', t2Err?.message);
 
-          // Tier 3: Ultra-Minimal `loans` Schema (purpose, status)
+          // Tier 3: Ultra-Minimal `loans` Schema with loan_no
           const tier3Payload: any = {
+            loan_no: generatedLoanNo,
             purpose: `Applicant: ${applicantName} (Phone: ${applicantPhone})\nAddress: ${applicantAddress}\nAmount: ₹${recAmt}\nMember: ${profile?.name}\nNotes: ${memberNotes.trim()}`,
             status: 'pending'
           };
