@@ -139,7 +139,7 @@ export default function PublicLoanRequest() {
 
       let insertedRecord: any = null;
 
-      // Tier 1: Try inserting with all extended PRD columns
+      // Tier 1: Extended PRD schema insert (using status: 'pending' to satisfy Postgres check constraint)
       const tier1Payload: any = {
         referred_member_id: member ? member.id : null,
         referred_member_name: member ? member.name : '',
@@ -162,7 +162,7 @@ export default function PublicLoanRequest() {
         monthly_income: parseFloat(monthlyIncome),
         income_source: incomeSource.trim(),
         declaration_agreed: true,
-        status: 'DRAFT',
+        status: 'pending',
         
         requester_name: fullName.trim(),
         requester_phone: phone.trim(),
@@ -179,9 +179,9 @@ export default function PublicLoanRequest() {
       if (!t1Err && t1Data && t1Data.length > 0) {
         insertedRecord = t1Data[0];
       } else {
-        console.warn('Tier 1 insert failed, trying Tier 2 legacy schema:', t1Err?.message);
+        console.warn('Tier 1 insert failed, trying Tier 2 legacy schema with status=pending:', t1Err?.message);
         
-        // Tier 2: Try legacy schema using referred_member_id
+        // Tier 2: Legacy schema using referred_member_id with status=pending
         const tier2Payload: any = {
           referred_member_id: member ? member.id : null,
           referred_member_name: member ? member.name : '',
@@ -190,7 +190,7 @@ export default function PublicLoanRequest() {
           requester_address: fullAddressStr,
           approximate_amount: parseFloat(amountRequested),
           reason: fullDetailsSummary,
-          status: 'DRAFT'
+          status: 'pending'
         };
 
         const { data: t2Data, error: t2Err } = await supabase
@@ -201,16 +201,15 @@ export default function PublicLoanRequest() {
         if (!t2Err && t2Data && t2Data.length > 0) {
           insertedRecord = t2Data[0];
         } else {
-          console.warn('Tier 2 insert failed, trying Tier 3 ultra-minimal schema:', t2Err?.message);
+          console.warn('Tier 2 insert failed, trying Tier 3 ultra-minimal schema without status key:', t2Err?.message);
 
-          // Tier 3: Ultra-minimal schema guaranteed on all database versions
+          // Tier 3: Ultra-minimal payload omitting status key to rely on Postgres table DEFAULT value
           const tier3Payload: any = {
             requester_name: fullName.trim(),
             requester_phone: phone.trim(),
             requester_address: fullAddressStr,
             approximate_amount: parseFloat(amountRequested),
-            reason: `Referred By: ${member ? member.name : 'N/A'}\n${fullDetailsSummary}`,
-            status: 'DRAFT'
+            reason: `Referred By: ${member ? member.name : 'N/A'}\n${fullDetailsSummary}`
           };
 
           const { data: t3Data, error: t3Err } = await supabase
