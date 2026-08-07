@@ -646,6 +646,64 @@ export default function LoanManagement() {
                 <button className="modal-close" onClick={() => setShowReview(false)}>✕</button>
               </div>
               <div className="modal-body" style={{ flex: 1, overflowY: 'auto', padding: '24px' }}>
+                
+                {/* PRD Section 28: Applicant Previous Loan History Detector */}
+                {(() => {
+                  const applicantName = selectedLoan.name || selectedLoan.applicant_name || '';
+                  const prevLoans = loans.filter(l => l.id !== selectedLoan.id && (l.name === applicantName || l.applicant_name === applicantName));
+                  const completedPrev = prevLoans.filter(l => l.status === 'completed' || l.workflow_status === 'REPAYMENT_COMPLETE').length;
+                  const activePrev = prevLoans.filter(l => l.status === 'approved' || l.status === 'completed' || l.workflow_status === 'APPROVED' || l.workflow_status === 'DISBURSED').length;
+                  const hasActiveOrOverdue = activePrev > 0;
+
+                  return (
+                    <div style={{ background: '#f8fafc', padding: '14px', borderRadius: '14px', border: '1px solid #e2e8f0', marginBottom: '16px' }}>
+                      <div style={{ fontSize: '11px', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', marginBottom: '8px' }}>
+                        🔍 Applicant Previous Loan History
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px', fontSize: '12px', flexWrap: 'wrap' }}>
+                        <span style={{ padding: '3px 8px', background: '#fff', borderRadius: '6px', border: '1px solid #cbd5e1', fontWeight: 700 }}>
+                          Total Previous: <b>{prevLoans.length}</b>
+                        </span>
+                        <span style={{ padding: '3px 8px', background: '#dcfce7', color: '#166534', borderRadius: '6px', fontWeight: 700 }}>
+                          Completed: <b>{completedPrev}</b>
+                        </span>
+                        <span style={{ padding: '3px 8px', background: '#e0f2fe', color: '#0369a1', borderRadius: '6px', fontWeight: 700 }}>
+                          Active: <b>{activePrev}</b>
+                        </span>
+                      </div>
+
+                      {hasActiveOrOverdue && (
+                        <div style={{ marginTop: '10px', background: '#fef2f2', border: '1px solid #fecaca', padding: '8px 12px', borderRadius: '8px', color: '#991b1b', fontSize: '11.5px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span>⚠ Warning: Applicant currently has an active / outstanding loan.</span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {/* PRD Section 29: Verification Checklist */}
+                {!isMember && (
+                  <div style={{ background: '#f8fafc', padding: '14px', borderRadius: '14px', border: '1px solid #e2e8f0', marginBottom: '16px' }}>
+                    <div style={{ fontSize: '11px', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', marginBottom: '8px' }}>
+                      ✅ Admin Verification Checklist
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '12px', color: '#0f172a' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                        <input type="checkbox" defaultChecked style={{ accentColor: 'var(--teal)' }} /> Membership Number Verified
+                      </label>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                        <input type="checkbox" defaultChecked style={{ accentColor: 'var(--teal)' }} /> Applicant Identity Verified
+                      </label>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                        <input type="checkbox" defaultChecked style={{ accentColor: 'var(--teal)' }} /> Financial & Occupation Reviewed
+                      </label>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                        <input type="checkbox" defaultChecked style={{ accentColor: 'var(--teal)' }} /> Witness / Guarantors Checked
+                      </label>
+                    </div>
+                  </div>
+                )}
+
                 {isMember && selectedLoan.status === 'pending' && (
                   <div style={{ background: '#f8fafc', borderRadius: 12, padding: '16px', marginBottom: '24px', border: '1px solid #e2e8f0' }}>
                     <div style={{ fontSize: '12px', fontWeight: 800, color: '#1e40af', textTransform: 'uppercase', marginBottom: '12px' }}>Consensus Progress</div>

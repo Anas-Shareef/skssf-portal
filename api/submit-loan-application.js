@@ -39,7 +39,7 @@ export default async function handler(req, res) {
     // Truncate purpose & notes to <= 220 chars to guarantee VARCHAR(255) compliance
     const cleanPurpose = (purpose || 'Loan Request').slice(0, 220);
     const cleanNotes = (member_notes || '').slice(0, 220);
-    const loanNo = 'LN-' + Math.floor(100000 + Math.random() * 900000);
+    const loanNo = 'PYD-IL-2026-' + Math.floor(10000 + Math.random() * 90000);
 
     // Candidates in order of preference.
     // Mandatory NOT NULL columns provided in ALL candidates: `loan_no`, `name`, `amount`, `purpose`, `status`.
