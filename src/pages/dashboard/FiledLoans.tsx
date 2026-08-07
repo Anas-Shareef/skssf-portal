@@ -109,19 +109,16 @@ export default function FiledLoans() {
 
       let newLoan: any = null;
 
-      // Tier 1: Extended PRD Columns
+      // Tier 1: Exact `loans` Table Schema (requester_name, requester_phone, requester_address, loan_amount_requested, loan_amount_approved, purpose, repayment_period_months, member_notes, workflow_status, submitted_by_member_id)
       const tier1Payload: any = {
-        filed_by_member_id: memberId,
         submitted_by_member_id: memberId,
-        applicant_name: applicantName.trim(),
-        applicant_phone: applicantPhone.trim(),
-        applicant_whatsapp: applicantWhatsapp.trim() || applicantPhone.trim(),
+        filed_by_member_id: memberId,
         requester_name: applicantName.trim(),
         requester_phone: applicantPhone.trim(),
         requester_address: applicantAddress.trim(),
         loan_amount_requested: amt,
         loan_amount_approved: amt,
-        purpose: fullPurpose,
+        purpose: `${fullPurpose}\nMember Notes: ${memberNotes.trim()}`,
         repayment_period_months: months,
         member_notes: memberNotes.trim(),
         workflow_status: 'PENDING_COORDINATOR_REVIEW',
@@ -137,19 +134,16 @@ export default function FiledLoans() {
       if (!t1Err && t1Data && t1Data.length > 0) {
         newLoan = t1Data[0];
       } else {
-        console.warn('Tier 1 direct file failed, trying Tier 2 legacy loans schema:', t1Err?.message);
+        console.warn('Tier 1 direct file failed, trying Tier 2 schema:', t1Err?.message);
 
-        // Tier 2: Legacy `loans` Schema (name, phone, address, amt, months, purpose)
+        // Tier 2: Base `loans` Schema (requester_name, requester_phone, requester_address, purpose, status)
         const tier2Payload: any = {
           submitted_by_member_id: memberId,
-          name: applicantName.trim(),
-          phone: applicantPhone.trim(),
-          address: applicantAddress.trim(),
-          amt: amt,
-          months: months,
-          purpose: `${fullPurpose}\nMember Notes: ${memberNotes.trim()}`,
-          status: 'pending',
-          workflow_status: 'PENDING_COORDINATOR_REVIEW'
+          requester_name: applicantName.trim(),
+          requester_phone: applicantPhone.trim(),
+          requester_address: applicantAddress.trim(),
+          purpose: `${fullPurpose}\nAmount: ₹${amt}\nMonths: ${months}\nNotes: ${memberNotes.trim()}`,
+          status: 'pending'
         };
 
         const { data: t2Data, error: t2Err } = await supabase
@@ -160,13 +154,11 @@ export default function FiledLoans() {
         if (!t2Err && t2Data && t2Data.length > 0) {
           newLoan = t2Data[0];
         } else {
-          console.warn('Tier 2 direct file failed, trying Tier 3 ultra-minimal loans schema:', t2Err?.message);
+          console.warn('Tier 2 direct file failed, trying Tier 3 ultra-minimal schema:', t2Err?.message);
 
-          // Tier 3: Ultra-Minimal `loans` Schema
+          // Tier 3: Ultra-Minimal `loans` Schema (purpose, status)
           const tier3Payload: any = {
-            name: applicantName.trim(),
-            amt: amt,
-            purpose: `${fullPurpose}\nPhone: ${applicantPhone.trim()}\nAddress: ${applicantAddress.trim()}\nMember: ${profile?.name}\nNotes: ${memberNotes.trim()}`,
+            purpose: `Applicant: ${applicantName.trim()} (Phone: ${applicantPhone.trim()})\nAddress: ${applicantAddress.trim()}\nAmount: ₹${amt}\nMember: ${profile?.name}\nNotes: ${memberNotes.trim()}`,
             status: 'pending'
           };
 

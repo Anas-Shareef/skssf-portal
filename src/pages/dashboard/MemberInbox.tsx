@@ -71,7 +71,7 @@ export default function MemberInbox() {
       const normalized = dataList.map(item => {
         let st = item.status || 'NEW';
         if (st === 'DRAFT_UNASSIGNED' || st === 'DRAFT' || st === 'pending') st = 'NEW';
-        if (st === 'CONVERTED') st = 'SUBMITTED';
+        if (st === 'CONVERTED' || st === 'forwarded' || st === 'SUBMITTED') st = 'SUBMITTED';
         return { ...item, normalizedStatus: st };
       });
 
@@ -139,26 +139,20 @@ export default function MemberInbox() {
 
       let newLoan: any = null;
 
-      // Tier 1: Extended PRD Columns
+      // Tier 1: Exact `loans` Table Schema (requester_name, requester_phone, requester_address, loan_amount_requested, loan_amount_approved, purpose, repayment_period_months, member_notes, workflow_status, submitted_by_member_id)
       const tier1Payload: any = {
         submitted_by_member_id: memberId,
-        filed_by_member_id: memberId,
         source_request_id: selectedRequest.id,
-        applicant_name: applicantName,
-        applicant_phone: applicantPhone,
         requester_name: applicantName,
         requester_phone: applicantPhone,
         requester_address: applicantAddress,
         loan_amount_requested: selectedRequest.loan_amount_requested || selectedRequest.approximate_amount || recAmt,
         loan_amount_approved: recAmt,
-        member_recommended_amount: recAmt,
-        member_relationship: relationship,
-        member_notes: memberNotes.trim(),
-        purpose: purpose,
+        purpose: `${purpose}\nRelationship: ${relationship}\nMember Notes: ${memberNotes.trim()}`,
         repayment_period_months: months,
+        member_notes: memberNotes.trim(),
         workflow_status: 'PENDING_COORDINATOR_REVIEW',
-        status: 'pending',
-        submission_source: 'inbox_referral'
+        status: 'pending'
       };
 
       const { data: t1Data, error: t1Err } = await supabase
@@ -169,19 +163,16 @@ export default function MemberInbox() {
       if (!t1Err && t1Data && t1Data.length > 0) {
         newLoan = t1Data[0];
       } else {
-        console.warn('Tier 1 loans insert failed, trying Tier 2 legacy loans schema:', t1Err?.message);
+        console.warn('Tier 1 loans insert failed, trying Tier 2 schema:', t1Err?.message);
 
-        // Tier 2: Legacy `loans` Schema (name, phone, address, amt, months, purpose)
+        // Tier 2: Base `loans` Schema (requester_name, requester_phone, requester_address, purpose, status)
         const tier2Payload: any = {
           submitted_by_member_id: memberId,
-          name: applicantName,
-          phone: applicantPhone,
-          address: applicantAddress,
-          amt: recAmt,
-          months: months,
-          purpose: `${purpose}\nRelationship: ${relationship}\nMember Notes: ${memberNotes.trim()}`,
-          status: 'pending',
-          workflow_status: 'PENDING_COORDINATOR_REVIEW'
+          requester_name: applicantName,
+          requester_phone: applicantPhone,
+          requester_address: applicantAddress,
+          purpose: `${purpose}\nAmount: ₹${recAmt}\nMonths: ${months}\nNotes: ${memberNotes.trim()}`,
+          status: 'pending'
         };
 
         const { data: t2Data, error: t2Err } = await supabase
@@ -192,13 +183,11 @@ export default function MemberInbox() {
         if (!t2Err && t2Data && t2Data.length > 0) {
           newLoan = t2Data[0];
         } else {
-          console.warn('Tier 2 loans insert failed, trying Tier 3 ultra-minimal loans schema:', t2Err?.message);
+          console.warn('Tier 2 loans insert failed, trying Tier 3 ultra-minimal schema:', t2Err?.message);
 
-          // Tier 3: Ultra-Minimal `loans` Schema
+          // Tier 3: Ultra-Minimal `loans` Schema (purpose, status)
           const tier3Payload: any = {
-            name: applicantName,
-            amt: recAmt,
-            purpose: `${purpose}\nPhone: ${applicantPhone}\nAddress: ${applicantAddress}\nMember: ${profile?.name}\nNotes: ${memberNotes.trim()}`,
+            purpose: `Applicant: ${applicantName} (Phone: ${applicantPhone})\nAddress: ${applicantAddress}\nAmount: ₹${recAmt}\nMember: ${profile?.name}\nNotes: ${memberNotes.trim()}`,
             status: 'pending'
           };
 
@@ -221,8 +210,7 @@ export default function MemberInbox() {
           .from('loan_requests')
           .update({
             status: 'forwarded',
-            forwarded_loan_id: newLoan ? newLoan.id : null,
-            member_notes: memberNotes.trim()
+            converted_to_loan_id: newLoan ? newLoan.id : null
           })
           .eq('id', selectedRequest.id);
       } catch (updErr) {
@@ -266,7 +254,7 @@ export default function MemberInbox() {
       await supabase
         .from('loan_requests')
         .update({
-          status: 'rejected',
+          status: 'DISMISSED',
           dismissal_reason: dismissalReason.trim()
         })
         .eq('id', selectedRequest.id);
