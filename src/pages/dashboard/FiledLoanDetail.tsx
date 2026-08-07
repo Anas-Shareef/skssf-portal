@@ -291,7 +291,22 @@ export default function FiledLoanDetail() {
               <div><b>Repayment Period:</b> {loan.repayment_period_months || 12} Months</div>
               <div><b>Date Filed by Member:</b> {loan.created_at ? new Date(loan.created_at).toLocaleDateString() : '—'}</div>
               <div style={{ gridColumn: 'span 2' }}>
-                <b>Purpose:</b> {loan.purpose || loan.loan_purpose || 'General Support'}
+                {(() => {
+                  const pStr = loan.purpose || loan.loan_purpose || '';
+                  if (pStr.includes('Category:') || pStr.includes('Referred By:')) {
+                    const catMatch = pStr.match(/Category:\s*([^Details|Period|Income|Debts|Aadhaar|DOB]+)/i);
+                    const detMatch = pStr.match(/Details:\s*([^Period|Income|Debts|Aadhaar|DOB]+)/i);
+                    const cat = catMatch ? catMatch[1].trim() : 'General Support';
+                    const det = detMatch ? detMatch[1].trim() : '';
+                    return (
+                      <div>
+                        <b>Purpose Category:</b> <span style={{ background: '#e0f2fe', color: '#0369a1', padding: '2px 8px', borderRadius: '6px', fontWeight: 800, fontSize: '12px' }}>{cat}</span>
+                        {det && <div style={{ marginTop: '6px', color: '#475569' }}><b>Details:</b> {det}</div>}
+                      </div>
+                    );
+                  }
+                  return <div><b>Purpose:</b> {pStr || 'General Support'}</div>;
+                })()}
               </div>
               {loan.member_notes && (
                 <div style={{ gridColumn: 'span 2', background: '#f8fafc', padding: '12px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>

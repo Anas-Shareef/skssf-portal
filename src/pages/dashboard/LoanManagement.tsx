@@ -8,6 +8,53 @@ import ConfirmDialog from '../../components/ConfirmDialog';
 
 
 
+export function parseLoanPurpose(purposeStr: string, rawLoan?: any) {
+  const p = purposeStr || '';
+  if (!p.includes('Category:') && !p.includes('Referred By:')) {
+    return {
+      referredBy: rawLoan?.submitted_by_member_name || rawLoan?.referred_member_name || '',
+      category: p || 'General Support',
+      details: rawLoan?.purpDesc || rawLoan?.member_notes || '',
+      period: rawLoan?.months ? `${rawLoan.months} Months` : (rawLoan?.repayment_period_months ? `${rawLoan.repayment_period_months} Months` : ''),
+      income: rawLoan?.income || '',
+      debts: rawLoan?.debts || '',
+      aadhaar: rawLoan?.aadhaar || '',
+      dob: rawLoan?.dob || '',
+      isParsed: false
+    };
+  }
+
+  const refMatch = p.match(/Referred By:\s*([^Category|Details|Period|Income|Debts|Aadhaar|DOB]+)/i);
+  const catMatch = p.match(/Category:\s*([^Details|Period|Income|Debts|Aadhaar|DOB]+)/i);
+  const detMatch = p.match(/Details:\s*([^Period|Income|Debts|Aadhaar|DOB]+)/i);
+  const perMatch = p.match(/Period:\s*([^Income|Debts|Aadhaar|DOB]+)/i);
+  const incMatch = p.match(/Income:\s*([^Debts|Aadhaar|DOB]+)/i);
+  const dbtMatch = p.match(/Debts:\s*([^Aadhaar|DOB]+)/i);
+  const aadhMatch = p.match(/Aadhaar Last 4:\s*([^DOB]+)/i);
+  const dobMatch = p.match(/DOB:\s*(.+)/i);
+
+  const referredBy = refMatch ? refMatch[1].trim() : (rawLoan?.submitted_by_member_name || '');
+  const category = catMatch ? catMatch[1].trim() : 'General Support';
+  const details = detMatch ? detMatch[1].trim() : (rawLoan?.purpDesc || '');
+  const period = perMatch ? perMatch[1].trim() : (rawLoan?.months ? `${rawLoan.months} Months` : '');
+  const income = incMatch ? incMatch[1].trim() : '';
+  const debts = dbtMatch ? dbtMatch[1].trim() : '';
+  const aadhaar = aadhMatch ? aadhMatch[1].trim() : '';
+  const dob = dobMatch ? dobMatch[1].trim() : '';
+
+  return {
+    referredBy,
+    category,
+    details,
+    period,
+    income,
+    debts,
+    aadhaar,
+    dob,
+    isParsed: true
+  };
+}
+
 export default function LoanManagement() {
   const { profile } = useAuth();
   const navigate = useNavigate();
@@ -366,7 +413,33 @@ export default function LoanManagement() {
                       {!isMember && (
                         <td><b>{l.name}</b><br /><span style={{ fontSize: '11px', color: 'var(--muted)' }}>{l.memNo}</span></td>
                       )}
-                      <td><b>₹{(l.amt || 0).toLocaleString()}</b><br /><span style={{ fontSize: '11px', color: 'var(--muted)' }}>{l.purpose}</span></td>
+                      <td>
+                        {(() => {
+                          const parsed = parseLoanPurpose(l.purpose, l);
+                          return (
+                            <div>
+                              <div style={{ fontSize: '14px', fontWeight: 950, color: 'var(--teal)' }}>
+                                ₹{(l.amt || l.amount || 0).toLocaleString()}
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px', flexWrap: 'wrap' }}>
+                                <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '6px', background: '#e0f2fe', color: '#0369a1', border: '1px solid #bae6fd', fontWeight: 800 }}>
+                                  {parsed.category}
+                                </span>
+                                {parsed.referredBy && (
+                                  <span style={{ fontSize: '11px', color: '#15803d', background: '#dcfce7', padding: '2px 8px', borderRadius: '6px', fontWeight: 700, border: '1px solid #bbf7d0' }}>
+                                    👤 Ref: {parsed.referredBy}
+                                  </span>
+                                )}
+                              </div>
+                              {parsed.details && (
+                                <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px', maxWidth: '280px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={parsed.details}>
+                                  {parsed.details}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+                      </td>
                       <td style={{ fontSize: '12px' }}>{l.submittedDate ? new Date(l.submittedDate).toLocaleDateString() : '—'}</td>
                       <td>{stBadge(l)}</td>
                       <td style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
@@ -447,13 +520,71 @@ export default function LoanManagement() {
                     </div>
                   )}
                 </div>
-                <div className="rv-sec">
-                  <div className="rv-sec-t">Purpose & Description</div>
-                  <div className="rv-row"><div className="rv-k">Category</div><div className="rv-v">{selectedLoan.purpose}</div></div>
-                  <div style={{ fontSize: '13px', color: 'var(--dark2)', marginTop: '8px', fontStyle: 'italic', padding: '10px', background: 'var(--white)', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                    "{selectedLoan.purpDesc}"
-                  </div>
-                </div>
+                {(() => {
+                  const parsed = parseLoanPurpose(selectedLoan.purpose, selectedLoan);
+                  return (
+                    <>
+                      <div className="rv-sec">
+                        <div className="rv-sec-t">Purpose & Specifications</div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', background: '#f8fafc', padding: '14px', borderRadius: '14px', border: '1px solid #e2e8f0', marginBottom: '12px' }}>
+                          <div>
+                            <div style={{ fontSize: '11px', fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>Category</div>
+                            <span style={{ fontSize: '12px', padding: '3px 10px', marginTop: '4px', display: 'inline-block', borderRadius: '6px', background: '#e0f2fe', color: '#0369a1', border: '1px solid #bae6fd', fontWeight: 800 }}>
+                              {parsed.category}
+                            </span>
+                          </div>
+
+                          {parsed.referredBy && (
+                            <div>
+                              <div style={{ fontSize: '11px', fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>Referred By Member</div>
+                              <div style={{ fontSize: '13px', fontWeight: 800, color: '#166534', marginTop: '4px' }}>
+                                👤 {parsed.referredBy}
+                              </div>
+                            </div>
+                          )}
+
+                          {parsed.period && (
+                            <div>
+                              <div style={{ fontSize: '11px', fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>Repayment Period</div>
+                              <div style={{ fontSize: '13px', fontWeight: 800, color: '#0f172a', marginTop: '4px' }}>
+                                ⏱ {parsed.period}
+                              </div>
+                            </div>
+                          )}
+
+                          {parsed.income && (
+                            <div>
+                              <div style={{ fontSize: '11px', fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>Monthly Income</div>
+                              <div style={{ fontSize: '13px', fontWeight: 800, color: '#0f172a', marginTop: '4px' }}>
+                                💵 {parsed.income}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {parsed.details && (
+                          <div style={{ padding: '12px', background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                            <div style={{ fontSize: '11px', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', marginBottom: '4px' }}>Detailed Purpose</div>
+                            <div style={{ fontSize: '13px', color: '#334155', lineHeight: 1.5 }}>
+                              {parsed.details}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {(parsed.aadhaar || parsed.dob || parsed.debts) && (
+                        <div className="rv-sec">
+                          <div className="rv-sec-t">Additional Declarations</div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', fontSize: '12.5px', background: '#f8fafc', padding: '12px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                            {parsed.aadhaar && <div><b>Aadhaar (Last 4):</b> {parsed.aadhaar}</div>}
+                            {parsed.dob && <div><b>DOB / Gender:</b> {parsed.dob}</div>}
+                            {parsed.debts && <div><b>Existing Debts:</b> {parsed.debts}</div>}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
 
                 {/* Repayment Plan */}
                 <div className="rv-sec">
