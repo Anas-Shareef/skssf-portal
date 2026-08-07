@@ -107,92 +107,80 @@ export default function FiledLoans() {
       const fullPurpose = `${purposeCategory}: ${purposeDetail.trim()}`;
       const months = parseInt(repaymentMonths || '12');
 
-      // Generate unique loan_no to satisfy NOT NULL constraint on loans table
-      const generatedLoanNo = 'LN-' + Math.floor(100000 + Math.random() * 900000);
+      let submissionSuccess = false;
 
-      let newLoan: any = null;
+      // 1. Primary: Serverless Service Role API Endpoint
+      try {
+        const apiRes = await fetch('/api/submit-loan-application', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            applicant_name: applicantName.trim(),
+            applicant_phone: applicantPhone.trim(),
+            applicant_address: applicantAddress.trim(),
+            amount: amt,
+            months: months,
+            purpose: fullPurpose,
+            member_notes: memberNotes.trim(),
+            submitted_by_member_id: memberId
+          })
+        });
 
-      // Tier 1: Exact `loans` Table Schema with loan_no
-      const tier1Payload: any = {
-        loan_no: generatedLoanNo,
-        submitted_by_member_id: memberId,
-        filed_by_member_id: memberId,
-        requester_name: applicantName.trim(),
-        requester_phone: applicantPhone.trim(),
-        requester_address: applicantAddress.trim(),
-        loan_amount_requested: amt,
-        loan_amount_approved: amt,
-        purpose: `${fullPurpose}\nMember Notes: ${memberNotes.trim()}`,
-        repayment_period_months: months,
-        member_notes: memberNotes.trim(),
-        workflow_status: 'PENDING_COORDINATOR_REVIEW',
-        status: 'pending',
-        submission_source: 'direct_member_filing'
-      };
+        if (apiRes.ok) {
+          const apiData = await apiRes.json();
+          if (apiData.success) {
+            submissionSuccess = true;
+          }
+        }
+      } catch (apiErr) {
+        console.warn('API direct file submission fallback to client retry:', apiErr);
+      }
 
-      const { data: t1Data, error: t1Err } = await supabase
-        .from('loans')
-        .insert([tier1Payload])
-        .select();
+      // 2. Client-side fallback if server endpoint is unreachable
+      if (!submissionSuccess) {
+        const generatedLoanNo = 'LN-' + Math.floor(100000 + Math.random() * 900000);
+        const safePurpose = fullPurpose.slice(0, 200);
+        const safeNotes = memberNotes.trim().slice(0, 200);
 
-      if (!t1Err && t1Data && t1Data.length > 0) {
-        newLoan = t1Data[0];
-      } else {
-        console.warn('Tier 1 direct file failed, trying Tier 2 schema:', t1Err?.message);
-
-        // Tier 2: Base `loans` Schema with loan_no
-        const tier2Payload: any = {
+        const c1Payload: any = {
           loan_no: generatedLoanNo,
-          submitted_by_member_id: memberId,
+          name: applicantName.trim(),
           requester_name: applicantName.trim(),
           requester_phone: applicantPhone.trim(),
           requester_address: applicantAddress.trim(),
-          purpose: `${fullPurpose}\nAmount: ₹${amt}\nMonths: ${months}\nNotes: ${memberNotes.trim()}`,
+          loan_amount_requested: amt,
+          loan_amount_approved: amt,
+          purpose: safePurpose,
+          repayment_period_months: months,
+          member_notes: safeNotes,
+          submitted_by_member_id: memberId,
+          filed_by_member_id: memberId,
           status: 'pending'
         };
 
-        const { data: t2Data, error: t2Err } = await supabase
+        const { data: c1Data, error: c1Err } = await supabase
           .from('loans')
-          .insert([tier2Payload])
+          .insert([c1Payload])
           .select();
 
-        if (!t2Err && t2Data && t2Data.length > 0) {
-          newLoan = t2Data[0];
+        if (!c1Err && c1Data && c1Data.length > 0) {
+          submissionSuccess = true;
         } else {
-          console.warn('Tier 2 direct file failed, trying Tier 3 ultra-minimal schema:', t2Err?.message);
-
-          // Tier 3: Ultra-Minimal `loans` Schema with loan_no
-          const tier3Payload: any = {
+          const c2Payload: any = {
             loan_no: generatedLoanNo,
-            purpose: `Applicant: ${applicantName.trim()} (Phone: ${applicantPhone.trim()})\nAddress: ${applicantAddress.trim()}\nAmount: ₹${amt}\nMember: ${profile?.name}\nNotes: ${memberNotes.trim()}`,
+            name: applicantName.trim(),
+            purpose: safePurpose,
             status: 'pending'
           };
 
-          const { data: t3Data, error: t3Err } = await supabase
+          const { data: c2Data, error: c2Err } = await supabase
             .from('loans')
-            .insert([tier3Payload])
+            .insert([c2Payload])
             .select();
 
-          if (t3Err) {
-            throw new Error(t3Err.message || 'Direct loan filing failed. Please check network connection.');
-          }
-
-          newLoan = t3Data ? t3Data[0] : null;
+          if (c2Err) throw new Error(c2Err.message || 'Direct loan filing failed.');
+          submissionSuccess = true;
         }
-      }
-
-      // Write audit log if available
-      try {
-        if (newLoan) {
-          await supabase.from('loan_audit_log').insert({
-            loan_id: newLoan.id,
-            action: 'DIRECT_MEMBER_FILING',
-            performed_by_user_id: memberId,
-            notes: `Loan filed directly by Representative Member: ${profile?.name} (${memberCode}). Member notes: ${memberNotes.trim()}`
-          });
-        }
-      } catch (auditErr) {
-        console.warn('Silent audit log insert fallback:', auditErr);
       }
 
       showToast('s', 'Loan application filed successfully! Forwarded to coordinator review.');
