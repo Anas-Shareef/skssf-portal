@@ -1,10 +1,10 @@
 if (!globalThis.WebSocket) globalThis.WebSocket = class {};
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || 'https://jgxzdwbixqhkjrdbhnlc.supabase.co';
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
 
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -35,69 +35,68 @@ export default async function handler(req, res) {
     const addressVal = applicant_address || '';
     const amtVal = parseFloat(amount) || 1000;
     const monthsVal = parseInt(months) || 12;
-    // Strictly truncate to <= 240 chars to ensure VARCHAR(255) limits are never exceeded
-    const notesVal = (member_notes || '').slice(0, 240);
-    const purposeVal = (purpose || 'Loan Request').slice(0, 240);
+
+    // Truncate purpose & notes to <= 220 chars to guarantee VARCHAR(255) compliance
+    const cleanPurpose = (purpose || 'Loan Request').slice(0, 220);
+    const cleanNotes = (member_notes || '').slice(0, 220);
     const loanNo = 'LN-' + Math.floor(100000 + Math.random() * 900000);
 
-    // Candidates in order of preference. Notice ALL candidates include `name` and `loan_no` to satisfy NOT NULL constraints.
+    // Candidates in order of preference.
+    // Mandatory NOT NULL columns provided in ALL candidates: `loan_no`, `name`, `amount`, `purpose`, `status`.
     const candidates = [
-      // Candidate A: Full Schema with `name`, `requester_name`, `loan_no`
+      // Candidate A: Full PRD Schema with all column aliases
       {
         loan_no: loanNo,
         name: nameVal,
+        amount: amtVal,
+        amt: amtVal,
+        loan_amount_requested: amtVal,
+        loan_amount_approved: amtVal,
+        purpose: cleanPurpose,
         requester_name: nameVal,
         requester_phone: phoneVal,
         requester_address: addressVal,
-        loan_amount_requested: amtVal,
-        loan_amount_approved: amtVal,
-        purpose: purposeVal,
         repayment_period_months: monthsVal,
-        member_notes: notesVal,
+        member_notes: cleanNotes,
         submitted_by_member_id: submitted_by_member_id || null,
         filed_by_member_id: submitted_by_member_id || null,
         source_request_id: source_request_id || null,
         workflow_status: 'PENDING_COORDINATOR_REVIEW',
         status: 'pending'
       },
-      // Candidate B: Extended PRD without source_request_id
+      // Candidate B: Extended schema without source_request_id / filed_by_member_id
       {
         loan_no: loanNo,
         name: nameVal,
+        amount: amtVal,
+        amt: amtVal,
+        loan_amount_requested: amtVal,
+        loan_amount_approved: amtVal,
+        purpose: cleanPurpose,
         requester_name: nameVal,
         requester_phone: phoneVal,
         requester_address: addressVal,
-        loan_amount_requested: amtVal,
-        loan_amount_approved: amtVal,
-        purpose: purposeVal,
         repayment_period_months: monthsVal,
         submitted_by_member_id: submitted_by_member_id || null,
+        workflow_status: 'PENDING_COORDINATOR_REVIEW',
         status: 'pending'
       },
-      // Candidate C: Legacy DB Schema (name, phone, address, amt, months)
+      // Candidate C: Legacy DB Schema (loan_no, name, amount, amt, purpose, status, submitted_by_member_id)
       {
         loan_no: loanNo,
         name: nameVal,
-        phone: phoneVal,
-        address: addressVal,
+        amount: amtVal,
         amt: amtVal,
-        months: monthsVal,
-        purpose: purposeVal,
+        purpose: cleanPurpose,
         submitted_by_member_id: submitted_by_member_id || null,
         status: 'pending'
       },
-      // Candidate D: Base DB Schema (name, purpose, status)
+      // Candidate D: Universal Base Schema (loan_no, name, amount, purpose, status)
       {
         loan_no: loanNo,
         name: nameVal,
-        purpose: purposeVal,
-        submitted_by_member_id: submitted_by_member_id || null,
-        status: 'pending'
-      },
-      // Candidate E: Absolute Minimal Schema (name, status)
-      {
-        loan_no: loanNo,
-        name: nameVal,
+        amount: amtVal,
+        purpose: cleanPurpose,
         status: 'pending'
       }
     ];

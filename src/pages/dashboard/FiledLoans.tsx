@@ -145,11 +145,13 @@ export default function FiledLoans() {
         const c1Payload: any = {
           loan_no: generatedLoanNo,
           name: applicantName.trim(),
+          amount: amt,
+          amt: amt,
+          loan_amount_requested: amt,
+          loan_amount_approved: amt,
           requester_name: applicantName.trim(),
           requester_phone: applicantPhone.trim(),
           requester_address: applicantAddress.trim(),
-          loan_amount_requested: amt,
-          loan_amount_approved: amt,
           purpose: safePurpose,
           repayment_period_months: months,
           member_notes: safeNotes,
@@ -169,6 +171,8 @@ export default function FiledLoans() {
           const c2Payload: any = {
             loan_no: generatedLoanNo,
             name: applicantName.trim(),
+            amount: amt,
+            amt: amt,
             purpose: safePurpose,
             status: 'pending'
           };

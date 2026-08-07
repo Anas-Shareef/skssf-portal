@@ -139,7 +139,7 @@ export default function MemberInbox() {
 
       let submissionSuccess = false;
 
-      // 1. Primary: Serverless Service Role API Endpoint (Bypasses RLS, handles all NOT NULL & VARCHAR(255) constraints)
+      // 1. Primary: Serverless Service Role API Endpoint
       try {
         const apiRes = await fetch('/api/submit-loan-application', {
           method: 'POST',
@@ -174,15 +174,17 @@ export default function MemberInbox() {
         const safePurpose = rawPurpose.slice(0, 200);
         const safeNotes = memberNotes.trim().slice(0, 200);
 
-        // Candidate 1: Standard PRD schema with both `name` and `requester_name`
+        // Candidate 1: Standard PRD schema with mandatory `amount`, `name`, `loan_no`
         const c1Payload: any = {
           loan_no: generatedLoanNo,
           name: applicantName,
+          amount: recAmt,
+          amt: recAmt,
+          loan_amount_requested: recAmt,
+          loan_amount_approved: recAmt,
           requester_name: applicantName,
           requester_phone: applicantPhone,
           requester_address: applicantAddress,
-          loan_amount_requested: recAmt,
-          loan_amount_approved: recAmt,
           purpose: safePurpose,
           repayment_period_months: months,
           member_notes: safeNotes,
@@ -198,10 +200,12 @@ export default function MemberInbox() {
         if (!c1Err && c1Data && c1Data.length > 0) {
           submissionSuccess = true;
         } else {
-          // Candidate 2: Base schema with `name`, `loan_no`, `purpose`, `status`
+          // Candidate 2: Universal Base schema with `loan_no`, `name`, `amount`, `purpose`, `status`
           const c2Payload: any = {
             loan_no: generatedLoanNo,
             name: applicantName,
+            amount: recAmt,
+            amt: recAmt,
             purpose: safePurpose,
             status: 'pending'
           };
