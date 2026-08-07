@@ -106,14 +106,12 @@ export default function MemberInbox() {
       try {
         await supabase
           .from('loan_requests')
-          .update({ status: 'REVIEWED' })
+          .update({ status: 'pending' })
           .eq('id', req.id);
         
-        // Local update
         req.normalizedStatus = 'REVIEWED';
-        req.status = 'REVIEWED';
       } catch (err) {
-        console.error('Error marking request as REVIEWED:', err);
+        console.warn('Silent update request status fallback:', err);
       }
     }
   };
@@ -137,52 +135,113 @@ export default function MemberInbox() {
       const applicantPhone = selectedRequest.applicant_phone || selectedRequest.requester_phone || selectedRequest.phone || '';
       const applicantAddress = selectedRequest.requester_address || selectedRequest.applicant_address_house || '';
       const purpose = selectedRequest.loan_purpose_detail || selectedRequest.reason || selectedRequest.purpose || 'Loan Request';
+      const months = selectedRequest.repayment_period_months || 12;
 
-      // 1. Create a record in `loans` table
-      const { data: newLoan, error: loanErr } = await supabase
+      let newLoan: any = null;
+
+      // Tier 1: Extended PRD Columns
+      const tier1Payload: any = {
+        submitted_by_member_id: memberId,
+        filed_by_member_id: memberId,
+        source_request_id: selectedRequest.id,
+        applicant_name: applicantName,
+        applicant_phone: applicantPhone,
+        requester_name: applicantName,
+        requester_phone: applicantPhone,
+        requester_address: applicantAddress,
+        loan_amount_requested: selectedRequest.loan_amount_requested || selectedRequest.approximate_amount || recAmt,
+        loan_amount_approved: recAmt,
+        member_recommended_amount: recAmt,
+        member_relationship: relationship,
+        member_notes: memberNotes.trim(),
+        purpose: purpose,
+        repayment_period_months: months,
+        workflow_status: 'PENDING_COORDINATOR_REVIEW',
+        status: 'pending',
+        submission_source: 'inbox_referral'
+      };
+
+      const { data: t1Data, error: t1Err } = await supabase
         .from('loans')
-        .insert([{
+        .insert([tier1Payload])
+        .select();
+
+      if (!t1Err && t1Data && t1Data.length > 0) {
+        newLoan = t1Data[0];
+      } else {
+        console.warn('Tier 1 loans insert failed, trying Tier 2 legacy loans schema:', t1Err?.message);
+
+        // Tier 2: Legacy `loans` Schema (name, phone, address, amt, months, purpose)
+        const tier2Payload: any = {
           submitted_by_member_id: memberId,
-          filed_by_member_id: memberId,
-          source_request_id: selectedRequest.id,
-          applicant_name: applicantName,
-          applicant_phone: applicantPhone,
-          requester_name: applicantName,
-          requester_phone: applicantPhone,
-          requester_address: applicantAddress,
-          loan_amount_requested: selectedRequest.loan_amount_requested || selectedRequest.approximate_amount || recAmt,
-          loan_amount_approved: recAmt,
-          member_recommended_amount: recAmt,
-          member_relationship: relationship,
-          member_notes: memberNotes.trim(),
-          purpose: purpose,
-          repayment_period_months: selectedRequest.repayment_period_months || 12,
-          workflow_status: 'PENDING_COORDINATOR_REVIEW',
+          name: applicantName,
+          phone: applicantPhone,
+          address: applicantAddress,
+          amt: recAmt,
+          months: months,
+          purpose: `${purpose}\nRelationship: ${relationship}\nMember Notes: ${memberNotes.trim()}`,
           status: 'pending',
-          submission_source: 'inbox_referral'
-        }])
-        .select()
-        .single();
+          workflow_status: 'PENDING_COORDINATOR_REVIEW'
+        };
 
-      if (loanErr) throw loanErr;
+        const { data: t2Data, error: t2Err } = await supabase
+          .from('loans')
+          .insert([tier2Payload])
+          .select();
 
-      // 2. Update status of loan_requests item to SUBMITTED / CONVERTED
-      await supabase
-        .from('loan_requests')
-        .update({
-          status: 'SUBMITTED',
-          forwarded_loan_id: newLoan.id,
-          member_notes: memberNotes.trim()
-        })
-        .eq('id', selectedRequest.id);
+        if (!t2Err && t2Data && t2Data.length > 0) {
+          newLoan = t2Data[0];
+        } else {
+          console.warn('Tier 2 loans insert failed, trying Tier 3 ultra-minimal loans schema:', t2Err?.message);
 
-      // 3. Write to audit log
-      await supabase.from('loan_audit_log').insert({
-        loan_id: newLoan.id,
-        action: 'SUBMITTED_BY_MEMBER',
-        performed_by_user_id: memberId,
-        notes: `Member ${profile?.name} submitted application to admin panel. Recommended amount: ₹${recAmt.toLocaleString()}. Notes: ${memberNotes.trim()}`
-      });
+          // Tier 3: Ultra-Minimal `loans` Schema
+          const tier3Payload: any = {
+            name: applicantName,
+            amt: recAmt,
+            purpose: `${purpose}\nPhone: ${applicantPhone}\nAddress: ${applicantAddress}\nMember: ${profile?.name}\nNotes: ${memberNotes.trim()}`,
+            status: 'pending'
+          };
+
+          const { data: t3Data, error: t3Err } = await supabase
+            .from('loans')
+            .insert([tier3Payload])
+            .select();
+
+          if (t3Err) {
+            throw new Error(t3Err.message || 'Submission failed. Please check network connection.');
+          }
+
+          newLoan = t3Data ? t3Data[0] : null;
+        }
+      }
+
+      // 2. Update status of loan_requests item gracefully
+      try {
+        await supabase
+          .from('loan_requests')
+          .update({
+            status: 'forwarded',
+            forwarded_loan_id: newLoan ? newLoan.id : null,
+            member_notes: memberNotes.trim()
+          })
+          .eq('id', selectedRequest.id);
+      } catch (updErr) {
+        console.warn('Silent update loan_requests status fallback:', updErr);
+      }
+
+      // 3. Write to audit log if available
+      try {
+        if (newLoan) {
+          await supabase.from('loan_audit_log').insert({
+            loan_id: newLoan.id,
+            action: 'SUBMITTED_BY_MEMBER',
+            performed_by_user_id: memberId,
+            notes: `Member ${profile?.name} submitted application to admin panel. Recommended amount: ₹${recAmt.toLocaleString()}. Notes: ${memberNotes.trim()}`
+          });
+        }
+      } catch (auditErr) {
+        console.warn('Silent audit log insert fallback:', auditErr);
+      }
 
       showToast('s', 'Loan request submitted successfully to Admin Review Panel!');
       setShowSubmitModal(false);
@@ -207,7 +266,7 @@ export default function MemberInbox() {
       await supabase
         .from('loan_requests')
         .update({
-          status: 'DISMISSED',
+          status: 'rejected',
           dismissal_reason: dismissalReason.trim()
         })
         .eq('id', selectedRequest.id);

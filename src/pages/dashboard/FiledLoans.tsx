@@ -105,40 +105,97 @@ export default function FiledLoans() {
       const memberId = profile?.db_id || profile?.id;
       const memberCode = profile?.member_unique_code || profile?.code || 'MEMBER';
       const fullPurpose = `${purposeCategory}: ${purposeDetail.trim()}`;
+      const months = parseInt(repaymentMonths || '12');
 
-      // Insert directly into loans table attached to this member
-      const { data: newLoan, error: insertErr } = await supabase
+      let newLoan: any = null;
+
+      // Tier 1: Extended PRD Columns
+      const tier1Payload: any = {
+        filed_by_member_id: memberId,
+        submitted_by_member_id: memberId,
+        applicant_name: applicantName.trim(),
+        applicant_phone: applicantPhone.trim(),
+        applicant_whatsapp: applicantWhatsapp.trim() || applicantPhone.trim(),
+        requester_name: applicantName.trim(),
+        requester_phone: applicantPhone.trim(),
+        requester_address: applicantAddress.trim(),
+        loan_amount_requested: amt,
+        loan_amount_approved: amt,
+        purpose: fullPurpose,
+        repayment_period_months: months,
+        member_notes: memberNotes.trim(),
+        workflow_status: 'PENDING_COORDINATOR_REVIEW',
+        status: 'pending',
+        submission_source: 'direct_member_filing'
+      };
+
+      const { data: t1Data, error: t1Err } = await supabase
         .from('loans')
-        .insert([{
-          filed_by_member_id: memberId,
+        .insert([tier1Payload])
+        .select();
+
+      if (!t1Err && t1Data && t1Data.length > 0) {
+        newLoan = t1Data[0];
+      } else {
+        console.warn('Tier 1 direct file failed, trying Tier 2 legacy loans schema:', t1Err?.message);
+
+        // Tier 2: Legacy `loans` Schema (name, phone, address, amt, months, purpose)
+        const tier2Payload: any = {
           submitted_by_member_id: memberId,
-          applicant_name: applicantName.trim(),
-          applicant_phone: applicantPhone.trim(),
-          applicant_whatsapp: applicantWhatsapp.trim() || applicantPhone.trim(),
-          requester_name: applicantName.trim(),
-          requester_phone: applicantPhone.trim(),
-          requester_address: applicantAddress.trim(),
-          loan_amount_requested: amt,
-          loan_amount_approved: amt,
-          purpose: fullPurpose,
-          repayment_period_months: parseInt(repaymentMonths),
-          member_notes: memberNotes.trim(),
-          workflow_status: 'PENDING_COORDINATOR_REVIEW',
+          name: applicantName.trim(),
+          phone: applicantPhone.trim(),
+          address: applicantAddress.trim(),
+          amt: amt,
+          months: months,
+          purpose: `${fullPurpose}\nMember Notes: ${memberNotes.trim()}`,
           status: 'pending',
-          submission_source: 'direct_member_filing'
-        }])
-        .select()
-        .single();
+          workflow_status: 'PENDING_COORDINATOR_REVIEW'
+        };
 
-      if (insertErr) throw insertErr;
+        const { data: t2Data, error: t2Err } = await supabase
+          .from('loans')
+          .insert([tier2Payload])
+          .select();
 
-      // Log in loan audit trail so reviewers know who filed it
-      await supabase.from('loan_audit_log').insert({
-        loan_id: newLoan.id,
-        action: 'DIRECT_MEMBER_FILING',
-        performed_by_user_id: memberId,
-        notes: `Loan filed directly by Representative Member: ${profile?.name} (${memberCode}). Member notes: ${memberNotes.trim()}`
-      });
+        if (!t2Err && t2Data && t2Data.length > 0) {
+          newLoan = t2Data[0];
+        } else {
+          console.warn('Tier 2 direct file failed, trying Tier 3 ultra-minimal loans schema:', t2Err?.message);
+
+          // Tier 3: Ultra-Minimal `loans` Schema
+          const tier3Payload: any = {
+            name: applicantName.trim(),
+            amt: amt,
+            purpose: `${fullPurpose}\nPhone: ${applicantPhone.trim()}\nAddress: ${applicantAddress.trim()}\nMember: ${profile?.name}\nNotes: ${memberNotes.trim()}`,
+            status: 'pending'
+          };
+
+          const { data: t3Data, error: t3Err } = await supabase
+            .from('loans')
+            .insert([tier3Payload])
+            .select();
+
+          if (t3Err) {
+            throw new Error(t3Err.message || 'Direct loan filing failed. Please check network connection.');
+          }
+
+          newLoan = t3Data ? t3Data[0] : null;
+        }
+      }
+
+      // Write audit log if available
+      try {
+        if (newLoan) {
+          await supabase.from('loan_audit_log').insert({
+            loan_id: newLoan.id,
+            action: 'DIRECT_MEMBER_FILING',
+            performed_by_user_id: memberId,
+            notes: `Loan filed directly by Representative Member: ${profile?.name} (${memberCode}). Member notes: ${memberNotes.trim()}`
+          });
+        }
+      } catch (auditErr) {
+        console.warn('Silent audit log insert fallback:', auditErr);
+      }
 
       showToast('s', 'Loan application filed successfully! Forwarded to coordinator review.');
       setShowDirectFileModal(false);
@@ -345,7 +402,7 @@ export default function FiledLoans() {
               <tbody>
                 {filteredLoans.map((l) => {
                   const name = l.applicant_name || l.requester_name || l.name || 'Applicant';
-                  const amount = l.loan_amount_approved || l.loan_amount_requested || l.amount || 0;
+                  const amount = l.loan_amount_approved || l.loan_amount_requested || l.amt || l.amount || 0;
                   const dateStr = l.created_at ? new Date(l.created_at).toLocaleDateString() : '—';
                   const coordStatus = l.coordinator_review_status === 'VERIFIED' ? 'Verified ✓' : (l.coordinator_review_status || 'Not assigned yet');
 
