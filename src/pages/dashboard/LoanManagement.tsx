@@ -610,19 +610,62 @@ export default function LoanManagement() {
                     </table>
                   </div>
                 )}
-                {selectedLoan.witnesses?.length > 0 && (
-                  <div className="rv-sec">
-                    <div className="rv-sec-t">Witnesses</div>
-                    <table className="wit-tbl">
-                      <thead><tr><th>Name</th><th>Mobile</th></tr></thead>
-                      <tbody>
-                        {selectedLoan.witnesses.filter((w: any) => w.name).map((w: any, i: number) => (
-                          <tr key={i}><td><b>{w.name}</b></td><td>{w.phone}</td></tr>
-                        ))}
-                      </tbody>
-                    </table>
+                {/* PRD Witness / Guarantor Verification Cards with WhatsApp 1-Click triggers */}
+                <div className="rv-sec">
+                  <div className="rv-sec-t">Witness / Guarantor Verifications</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    {[1, 2].map((idx) => {
+                      const wName = idx === 2 ? (selectedLoan.witness2_name || selectedLoan.witnesses?.[1]?.name) : (selectedLoan.witness1_name || selectedLoan.witnesses?.[0]?.name);
+                      const wPhone = idx === 2 ? (selectedLoan.witness2_phone || selectedLoan.witnesses?.[1]?.phone) : (selectedLoan.witness1_phone || selectedLoan.witnesses?.[0]?.phone);
+                      const wStatus = idx === 2 ? selectedLoan.witness2_status : selectedLoan.witness1_status;
+                      
+                      if (!wName && !wPhone) return null;
+
+                      const cleanPhone = (wPhone || '').replace(/\D/g, '');
+                      const token = `WV-${selectedLoan.id || 'PYD'}-${idx}`;
+                      const verifyLink = `https://skssf-portal.vercel.app/witness-verify/${token}`;
+                      const msgText = `Assalamu Alaikum ${wName || 'Witness'},\n\n${selectedLoan.name || selectedLoan.applicant_name || 'Applicant'} has listed you as a Witness/Guarantor for an Interest-Free Loan (₹${Number(selectedLoan.amt || selectedLoan.amount || 30000).toLocaleString()}) at SKSSF Poyanad Branch (Reg No. 2773).\n\nPlease click here to confirm your witness approval:\n${verifyLink}`;
+                      const waUrl = `https://wa.me/91${cleanPhone}?text=${encodeURIComponent(msgText)}`;
+
+                      return (
+                        <div key={idx} style={{ background: '#fff', padding: '12px 14px', borderRadius: '12px', border: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                          <div>
+                            <div style={{ fontWeight: 800, fontSize: '13px', color: '#0f172a' }}>
+                              Witness {idx}: {wName || '—'} {wPhone && <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>({wPhone})</span>}
+                            </div>
+                            <div style={{ marginTop: '4px' }}>
+                              {wStatus === 'VERIFIED' ? (
+                                <span style={{ fontSize: '11px', fontWeight: 800, color: '#166534', background: '#dcfce7', padding: '2px 8px', borderRadius: '6px' }}>
+                                  🟢 Verified via WhatsApp ✓
+                                </span>
+                              ) : wStatus === 'REJECTED' ? (
+                                <span style={{ fontSize: '11px', fontWeight: 800, color: '#991b1b', background: '#fee2e2', padding: '2px 8px', borderRadius: '6px' }}>
+                                  🔴 Declined by Witness
+                                </span>
+                              ) : (
+                                <span style={{ fontSize: '11px', fontWeight: 800, color: '#b45309', background: '#fef3c7', padding: '2px 8px', borderRadius: '6px' }}>
+                                  ⏳ Pending Witness Confirmation
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          {wPhone && (
+                            <a
+                              href={waUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="bsm s"
+                              style={{ padding: '6px 12px', fontSize: '11px', background: '#25D366', borderColor: '#25D366', color: '#fff', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                            >
+                              📲 Send WhatsApp Link
+                            </a>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
-                )}
+                </div>
 
                 {selectedLoan.signature && (
                   <div className="rv-sec">

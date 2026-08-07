@@ -466,6 +466,47 @@ export default function MemberInbox() {
                   <div style={{ gridColumn: '1 / -1' }}><b>Purpose Details:</b> {selectedRequest.loan_purpose_detail || selectedRequest.reason || '—'}</div>
                 </div>
               </div>
+
+              <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '16px', border: '1px solid #e2e8f0' }}>
+                <h4 style={{ margin: '0 0 10px 0', fontSize: '13px', fontWeight: 900, color: '#0f172a', textTransform: 'uppercase' }}>Section C — Witness Verifications</h4>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {[1, 2].map((idx) => {
+                    const wName = idx === 2 ? (selectedRequest.witness2_name) : (selectedRequest.witness1_name);
+                    const wPhone = idx === 2 ? (selectedRequest.witness2_phone) : (selectedRequest.witness1_phone);
+                    const wStatus = idx === 2 ? selectedRequest.witness2_status : selectedRequest.witness1_status;
+
+                    if (!wName && !wPhone) return null;
+
+                    const cleanPhone = (wPhone || '').replace(/\D/g, '');
+                    const token = `WV-${selectedRequest.id || 'PYD'}-${idx}`;
+                    const verifyLink = `https://skssf-portal.vercel.app/witness-verify/${token}`;
+                    const msgText = `Assalamu Alaikum ${wName || 'Witness'},\n\n${selectedRequest.applicant_name || selectedRequest.requester_name || 'Applicant'} has listed you as a Witness for an Interest-Free Loan (₹${Number(selectedRequest.loan_amount_requested || selectedRequest.approximate_amount || 30000).toLocaleString()}) at SKSSF Poyanad Branch.\n\nPlease click to confirm: ${verifyLink}`;
+                    const waUrl = `https://wa.me/91${cleanPhone}?text=${encodeURIComponent(msgText)}`;
+
+                    return (
+                      <div key={idx} style={{ background: '#fff', padding: '10px 12px', borderRadius: '10px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <div style={{ fontSize: '12px', fontWeight: 800, color: '#0f172a' }}>
+                            Witness {idx}: {wName || '—'} {wPhone && <span style={{ color: '#64748b', fontWeight: 600 }}>({wPhone})</span>}
+                          </div>
+                          <div style={{ marginTop: '2px' }}>
+                            {wStatus === 'VERIFIED' ? (
+                              <span style={{ fontSize: '10px', fontWeight: 800, color: '#166534', background: '#dcfce7', padding: '2px 6px', borderRadius: '4px' }}>🟢 Verified ✓</span>
+                            ) : (
+                              <span style={{ fontSize: '10px', fontWeight: 800, color: '#b45309', background: '#fef3c7', padding: '2px 6px', borderRadius: '4px' }}>⏳ Pending</span>
+                            )}
+                          </div>
+                        </div>
+                        {wPhone && (
+                          <a href={waUrl} target="_blank" rel="noreferrer" className="bsm s" style={{ padding: '4px 10px', fontSize: '11px', background: '#25D366', borderColor: '#25D366', color: '#fff', fontWeight: 800 }}>
+                            📲 WhatsApp Link
+                          </a>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
 
             {/* Modal Actions */}

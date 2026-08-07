@@ -21,6 +21,7 @@ import ResetPassword from './pages/ResetPassword';
 import PublicCatalog from './pages/PublicCatalog';
 import PublicCatalogDetail from './pages/PublicCatalogDetail';
 import PublicLoanRequest from './pages/PublicLoanRequest';
+import WitnessVerify from './pages/WitnessVerify';
 
 // Member sub-pages
 import MemberInbox from './pages/dashboard/MemberInbox';
@@ -60,6 +61,7 @@ function App() {
           {/* Public loan request — works with or without member code */}
           <Route path="/request" element={<PublicLoanRequest />} />
           <Route path="/request/:code" element={<PublicLoanRequest />} />
+          <Route path="/witness-verify/:token" element={<WitnessVerify />} />
 
           {/* ── Public Catalog (no auth, no role) ── */}
           <Route path="/catalog" element={<PublicCatalog />} />
