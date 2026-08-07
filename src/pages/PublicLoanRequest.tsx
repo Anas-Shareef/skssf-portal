@@ -102,7 +102,6 @@ export default function PublicLoanRequest() {
     if (!addressStreet.trim()) return 'Street / Area is required.';
     if (!addressCity.trim()) return 'City / Town is required.';
     if (!addressPin.trim() || !/^\d{6}$/.test(addressPin.trim())) return 'Please enter a valid 6-digit PIN Code.';
-    if (!aadhaarLast4.trim() || !/^\d{4}$/.test(aadhaarLast4.trim())) return 'Please enter the last 4 digits of your Aadhaar number.';
 
     const amt = parseFloat(amountRequested);
     if (isNaN(amt) || amt < 1000) return 'Loan amount must be at least ₹1,000.';
@@ -135,7 +134,7 @@ export default function PublicLoanRequest() {
     try {
       const fullAddressStr = `${addressHouse.trim()}, ${addressStreet.trim()}, ${addressCity.trim()} - ${addressPin.trim()}`;
       
-      const fullDetailsSummary = `Category: ${purposeCategory}\nDetails: ${purposeDetail.trim()}\nPeriod: ${repaymentMonths} Months\nIncome: ₹${monthlyIncome} (${incomeSource.trim()})\nDebts: ${existingDebts ? existingDebtsDetail.trim() : 'None'}\nAadhaar Last 4: ${aadhaarLast4.trim()}\nDOB: ${dob} (${gender})`;
+      const fullDetailsSummary = `Category: ${purposeCategory}\nDetails: ${purposeDetail.trim()}\nPeriod: ${repaymentMonths} Months\nIncome: ₹${monthlyIncome} (${incomeSource.trim()})\nDebts: ${existingDebts ? existingDebtsDetail.trim() : 'None'}\nDOB: ${dob} (${gender})`;
 
       let insertedRecord: any = null;
 
@@ -442,21 +441,6 @@ export default function PublicLoanRequest() {
                     required
                   />
                 </div>
-              </div>
-
-              <div>
-                <label className="fl2" style={{ fontWeight: 800 }}>Aadhaar Number (Last 4 digits only) *</label>
-                <input
-                  type="password"
-                  maxLength={4}
-                  placeholder="XXXX"
-                  value={aadhaarLast4}
-                  onChange={(e) => setAadhaarLast4(e.target.value.replace(/\D/g, ''))}
-                  className="fi2"
-                  style={{ width: '100%', fontFamily: 'monospace', letterSpacing: '2px' }}
-                  required
-                />
-                <div style={{ fontSize: '11px', color: '#64748b', marginTop: '3px' }}>Do NOT enter full Aadhaar number. Only last 4 digits for identity verification.</div>
               </div>
             </div>
           </div>

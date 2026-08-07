@@ -507,23 +507,26 @@ export default function LoanManagement() {
                     <div className="ah-rn">{selectedLoan.months} Months</div>
                   </div>
                 </div>
-                <div className="rv-sec">
-                  <div className="rv-sec-t">Applicant Details</div>
-                  <div className="rv-row"><div className="rv-k">Name</div><div className="rv-v">{selectedLoan.name}</div></div>
-                  <div className="rv-row"><div className="rv-k">Contact</div><div className="rv-v">{selectedLoan.mob || selectedLoan.phone || '—'}</div></div>
-                  <div className="rv-row"><div className="rv-k">Monthly Salary</div><div className="rv-v">{selectedLoan.salary ? `₹${selectedLoan.salary}` : '—'}</div></div>
-                  <div className="rv-row"><div className="rv-k">Aadhaar / ID</div><div className="rv-v">{selectedLoan.aadhaar || '—'}</div></div>
-                  {filingHelper && (
-                    <div className="rv-row" style={{ background: 'var(--teal-pale)', padding: '6px 10px', borderRadius: '8px', marginTop: '10px' }}>
-                      <div className="rv-k" style={{ color: 'var(--teal)' }}>Filing Helper</div>
-                      <div className="rv-v" style={{ fontWeight: 800 }}>{filingHelper.name} ({filingHelper.member_unique_code || 'MBR-CODE'})</div>
-                    </div>
-                  )}
-                </div>
                 {(() => {
                   const parsed = parseLoanPurpose(selectedLoan.purpose, selectedLoan);
+                  const contactVal = selectedLoan.mob || selectedLoan.phone || selectedLoan.requester_phone || selectedLoan.applicant_phone || '—';
+                  const salaryVal = selectedLoan.salary ? `₹${selectedLoan.salary}` : parsed.income ? parsed.income : selectedLoan.monthly_income ? `₹${Number(selectedLoan.monthly_income).toLocaleString()}` : '—';
+
                   return (
                     <>
+                      <div className="rv-sec">
+                        <div className="rv-sec-t">Applicant Details</div>
+                        <div className="rv-row"><div className="rv-k">Name</div><div className="rv-v">{selectedLoan.name}</div></div>
+                        <div className="rv-row"><div className="rv-k">Contact</div><div className="rv-v">{contactVal}</div></div>
+                        <div className="rv-row"><div className="rv-k">Monthly Salary</div><div className="rv-v">{salaryVal}</div></div>
+                        {filingHelper && (
+                          <div className="rv-row" style={{ background: 'var(--teal-pale)', padding: '6px 10px', borderRadius: '8px', marginTop: '10px' }}>
+                            <div className="rv-k" style={{ color: 'var(--teal)' }}>Filing Helper</div>
+                            <div className="rv-v" style={{ fontWeight: 800 }}>{filingHelper.name} ({filingHelper.member_unique_code || 'MBR-CODE'})</div>
+                          </div>
+                        )}
+                      </div>
+
                       <div className="rv-sec">
                         <div className="rv-sec-t">Purpose & Specifications</div>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', background: '#f8fafc', padding: '14px', borderRadius: '14px', border: '1px solid #e2e8f0', marginBottom: '12px' }}>
@@ -551,15 +554,6 @@ export default function LoanManagement() {
                               </div>
                             </div>
                           )}
-
-                          {parsed.income && (
-                            <div>
-                              <div style={{ fontSize: '11px', fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>Monthly Income</div>
-                              <div style={{ fontSize: '13px', fontWeight: 800, color: '#0f172a', marginTop: '4px' }}>
-                                💵 {parsed.income}
-                              </div>
-                            </div>
-                          )}
                         </div>
 
                         {parsed.details && (
@@ -572,11 +566,10 @@ export default function LoanManagement() {
                         )}
                       </div>
 
-                      {(parsed.aadhaar || parsed.dob || parsed.debts) && (
+                      {(parsed.dob || parsed.debts) && (
                         <div className="rv-sec">
                           <div className="rv-sec-t">Additional Declarations</div>
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', fontSize: '12.5px', background: '#f8fafc', padding: '12px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                            {parsed.aadhaar && <div><b>Aadhaar (Last 4):</b> {parsed.aadhaar}</div>}
                             {parsed.dob && <div><b>DOB / Gender:</b> {parsed.dob}</div>}
                             {parsed.debts && <div><b>Existing Debts:</b> {parsed.debts}</div>}
                           </div>

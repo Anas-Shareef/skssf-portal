@@ -452,7 +452,6 @@ export default function MemberInbox() {
                   <div><b>Phone:</b> {selectedRequest.applicant_phone || selectedRequest.requester_phone || '—'}</div>
                   <div><b>WhatsApp:</b> {selectedRequest.applicant_whatsapp || '—'}</div>
                   <div><b>DOB / Gender:</b> {selectedRequest.applicant_dob || '—'} ({selectedRequest.applicant_gender || '—'})</div>
-                  <div><b>Aadhaar Last 4:</b> {selectedRequest.applicant_aadhaar_last4 || '—'}</div>
                   <div style={{ gridColumn: '1 / -1' }}><b>Address:</b> {selectedRequest.requester_address || `${selectedRequest.applicant_address_house || ''}, ${selectedRequest.applicant_address_city || ''}`}</div>
                 </div>
               </div>

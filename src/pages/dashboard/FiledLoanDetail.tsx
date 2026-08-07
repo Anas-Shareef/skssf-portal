@@ -270,7 +270,6 @@ export default function FiledLoanDetail() {
               <div><b>WhatsApp:</b> {loan.applicant_whatsapp || 'Same as phone'}</div>
               <div><b>Date of Birth:</b> {loan.applicant_dob ? new Date(loan.applicant_dob).toLocaleDateString() : 'N/A'}</div>
               <div><b>Gender:</b> {loan.applicant_gender || 'N/A'}</div>
-              <div><b>Aadhaar (Last 4):</b> <span style={{ fontFamily: 'monospace', fontWeight: 800 }}>XXXX-{loan.applicant_aadhaar_last4 || 'XXXX'}</span></div>
               <div><b>Monthly Income:</b> ₹{Number(loan.monthly_income || 0).toLocaleString()}</div>
               <div><b>Source of Income:</b> {loan.income_source || 'N/A'}</div>
               <div style={{ gridColumn: 'span 2' }}>
