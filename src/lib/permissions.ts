@@ -144,7 +144,7 @@ export const DEFAULT_ADMIN_PERMISSIONS: Record<string, boolean> = {
   'members.create': true,
   'members.edit': true,
   'members.delete': true,
-  'admins.view': true,
+  'admins.view': false,
   'admins.create': false,
   'admins.edit': false,
   'admins.delete': false

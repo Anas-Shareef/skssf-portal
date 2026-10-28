@@ -54,6 +54,10 @@ export default function Dashboard() {
     return <MemberDashboard loans={loans} profile={profile} navigate={navigate} totalCollected={totalCollected} />;
   }
 
+  if (isAdmin) {
+    return <AdminDashboard loans={allLoans} users={allUsers} products={products} units={units} profile={profile} navigate={navigate} />;
+  }
+
   return (
     <div className="dashboard-root" style={{ animation: 'fadeIn 0.5s ease' }}>
       {/* ════════════════ HEADER SECTION ════════════════ */}
@@ -65,7 +69,7 @@ export default function Dashboard() {
         <div style={{ position: 'relative', zIndex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
             <h1 style={{ fontSize: 26, fontWeight: 900, margin: 0, letterSpacing: -0.5 }}>Mission Control</h1>
-            <div style={{ background: 'rgba(20,184,166,0.2)', color: '#14b8a6', padding: '4px 12px', borderRadius: 20, fontSize: 10, fontWeight: 900 }}>{isSuper ? 'GLOBAL OVERVIEW' : `UNIT: ${branch}`}</div>
+            <div style={{ background: 'rgba(20,184,166,0.2)', color: '#14b8a6', padding: '4px 12px', borderRadius: 20, fontSize: 10, fontWeight: 900 }}>'GLOBAL OVERVIEW'</div>
           </div>
           <p style={{ fontSize: 14, color: '#94a3b8', marginTop: 6, opacity: 0.8 }}>Real-time synchronization across logistics and financial nodes</p>
         </div>
@@ -316,6 +320,195 @@ export default function Dashboard() {
   );
 }
 
+function AdminDashboard({ loans, users, products, units, profile, navigate }: any) {
+  const branch = profile?.branch || '';
+  const prefix = '/admin/dashboard';
+
+  // Scope to this admin's branch only
+  const branchLoans = (loans || []).filter((l: any) =>
+    !branch || l.branch === branch || !l.branch
+  );
+  const branchMembers = (users || []).filter((u: any) =>
+    u.role === 'member' && (!branch || u.branch === branch)
+  );
+
+  const pendingLoans    = branchLoans.filter((l: any) => l.status === 'pending').length;
+  const approvedLoans   = branchLoans.filter((l: any) => l.status === 'approved').length;
+  const completedLoans  = branchLoans.filter((l: any) => l.status === 'completed').length;
+  const totalDisbursed  = branchLoans.filter((l: any) => ['approved','completed'].includes(l.status)).reduce((s: number, l: any) => s + (l.amt || 0), 0);
+  const totalCollected  = branchLoans.reduce((s: number, l: any) => s + (l.total_paid || 0), 0);
+  const recoveryRate    = totalDisbursed > 0 ? (totalCollected / totalDisbursed) * 100 : 0;
+  const activeMembers   = branchMembers.filter((u: any) => u.active).length;
+  const lowStock        = (products || []).filter((p: any) => p.available_quantity < 5).length;
+
+  const fmt = (n: number) => `₹${(n / 1000).toFixed(1)}k`;
+
+  return (
+    <div className="dashboard-root" style={{ animation: 'fadeIn 0.5s ease' }}>
+
+      {/* Header */}
+      <div style={{
+        background: 'linear-gradient(135deg, var(--teal) 0%, var(--teal2) 100%)',
+        padding: '30px 40px', borderRadius: 24, marginBottom: 30, color: '#fff',
+        position: 'relative', overflow: 'hidden', boxShadow: '0 20px 50px rgba(13,115,119,0.15)'
+      }}>
+        <div style={{ position: 'relative', zIndex: 1 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+            <h1 style={{ fontSize: 26, fontWeight: 900, margin: 0 }}>Admin Dashboard</h1>
+            <div style={{ background: 'rgba(255,255,255,0.15)', padding: '4px 12px', borderRadius: 20, fontSize: 11, fontWeight: 900 }}>
+              UNIT: {branch || 'All Units'}
+            </div>
+          </div>
+          <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.8)', marginTop: 6 }}>
+            {profile?.admin_title ? `${profile.admin_title} · ` : ''}Welcome back, {profile?.name}
+          </p>
+        </div>
+        <div style={{ position: 'absolute', top: -100, right: -100, width: 300, height: 300, background: 'rgba(255,255,255,0.03)', borderRadius: '50%' }} />
+      </div>
+
+      {/* Stats Grid */}
+      <div className="dash-stats-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 20, marginBottom: 30 }}>
+        {[
+          { l: 'Pending Review',   v: pendingLoans,              sub: 'Awaiting action',        ic: '⏳', cl: '#f59e0b' },
+          { l: 'Active Members',   v: activeMembers,             sub: `of ${branchMembers.length} total`, ic: '👥', cl: 'var(--teal)' },
+          { l: 'Total Disbursed',  v: fmt(totalDisbursed),       sub: `${approvedLoans + completedLoans} loans`,    ic: '💰', cl: '#6366f1' },
+          { l: 'Recovery Rate',    v: `${recoveryRate.toFixed(1)}%`, sub: `${fmt(totalCollected)} collected`, ic: '📈', cl: '#10b981' },
+        ].map((s, i) => (
+          <div key={i} className="card-hover" style={{ background: '#fff', padding: '24px', borderRadius: 20, border: '1.5px solid #f1f5f9' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div style={{ width: 40, height: 40, borderRadius: 12, background: s.cl + '18', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>{s.ic}</div>
+              <div style={{ fontSize: 10, fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase' as const }}>{s.l}</div>
+            </div>
+            <div style={{ fontSize: 28, fontWeight: 900, color: '#0f172a', marginTop: 16 }}>{s.v}</div>
+            <div style={{ fontSize: 11, color: '#64748b', fontWeight: 700, marginTop: 4 }}>{s.sub}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 24 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+
+          {/* Loan Pipeline */}
+          <div className="card" style={{ padding: 24, borderRadius: 24 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <h3 style={{ fontSize: 16, fontWeight: 900, color: '#0f172a', margin: 0 }}>📝 Loan Pipeline — {branch || 'My Unit'}</h3>
+              <button className="bsm s" onClick={() => navigate(`${prefix}/loans`)}>Review All →</button>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 20 }}>
+              {[
+                { lbl: 'Pending Review', n: pendingLoans, cl: '#f59e0b', bg: '#fffbeb', bcl: '#fbbf24' },
+                { lbl: 'Approved',       n: approvedLoans, cl: '#10b981', bg: '#f0fdf4', bcl: '#34d399' },
+                { lbl: 'Completed',      n: completedLoans, cl: '#6366f1', bg: '#f5f3ff', bcl: '#818cf8' },
+              ].map((x, i) => (
+                <div key={i} style={{ padding: '16px 12px', borderRadius: 16, background: x.bg, borderLeft: `4px solid ${x.bcl}`, textAlign: 'center' }}>
+                  <div style={{ fontSize: 22, fontWeight: 950, color: x.cl }}>{x.n}</div>
+                  <div style={{ fontSize: 9, fontWeight: 800, color: x.cl, textTransform: 'uppercase' as const, marginTop: 4 }}>{x.lbl}</div>
+                </div>
+              ))}
+            </div>
+            <div className="tbl-wrap mobile-table-hide">
+              <table style={{ width: '100%' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1.5px solid #f1f5f9' }}>
+                    <th style={{ textAlign: 'left', padding: '12px', fontSize: 11, color: '#94a3b8' }}>APPLICANT</th>
+                    <th style={{ textAlign: 'left', padding: '12px', fontSize: 11, color: '#94a3b8' }}>AMOUNT</th>
+                    <th style={{ textAlign: 'left', padding: '12px', fontSize: 11, color: '#94a3b8' }}>STATUS</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {branchLoans.filter((l: any) => l.status === 'pending').slice(0, 5).map((l: any) => (
+                    <tr key={l.id} style={{ borderBottom: '1px solid #f8fafc' }}>
+                      <td style={{ padding: '14px 12px' }}>
+                        <div style={{ fontWeight: 800, fontSize: 13 }}>{l.name}</div>
+                        <div style={{ fontSize: 10, color: '#64748b' }}>{l.id}</div>
+                      </td>
+                      <td style={{ padding: '14px 12px', fontWeight: 900, color: 'var(--teal)' }}>₹{(l.amt || 0).toLocaleString()}</td>
+                      <td style={{ padding: '14px 12px' }}>
+                        <span style={{ fontSize: 10, fontWeight: 900, padding: '3px 10px', borderRadius: 20, background: '#fffbeb', color: '#f59e0b' }}>PENDING</span>
+                      </td>
+                    </tr>
+                  ))}
+                  {branchLoans.filter((l: any) => l.status === 'pending').length === 0 && (
+                    <tr><td colSpan={3} style={{ padding: 20, textAlign: 'center', color: '#94a3b8', fontSize: 12 }}>No pending applications. ✅</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Members Overview */}
+          <div className="card" style={{ padding: 24, borderRadius: 24 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h3 style={{ fontSize: 16, fontWeight: 900, color: '#0f172a', margin: 0 }}>👥 Members — {branch || 'My Unit'}</h3>
+              <button className="bsm s" onClick={() => navigate(`${prefix}/members`)}>Manage →</button>
+            </div>
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' as const }}>
+              {[
+                { lbl: 'Total Members', n: branchMembers.length, cl: '#0f172a' },
+                { lbl: 'Active',        n: activeMembers, cl: '#10b981' },
+                { lbl: 'Inactive',      n: branchMembers.length - activeMembers, cl: '#ef4444' },
+              ].map((x, i) => (
+                <div key={i} style={{ flex: 1, minWidth: 100, padding: '16px', background: '#f8fafc', borderRadius: 16, textAlign: 'center' }}>
+                  <div style={{ fontSize: 24, fontWeight: 900, color: x.cl }}>{x.n}</div>
+                  <div style={{ fontSize: 10, fontWeight: 800, color: '#64748b', marginTop: 4 }}>{x.lbl}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+        </div>
+
+        {/* Right column */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+
+          {/* Quick Actions */}
+          <div className="card" style={{ padding: 24, borderRadius: 24 }}>
+            <h3 style={{ fontSize: 15, fontWeight: 900, color: '#0f172a', marginBottom: 16 }}>⚡ Quick Actions</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {[
+                { lbl: 'Review Loan Applications', path: `${prefix}/loans`,       emoji: '📝' },
+                { lbl: 'Repayment Portal',          path: `${prefix}/repayments`, emoji: '💳' },
+                { lbl: 'Manage Members',            path: `${prefix}/members`,    emoji: '👥' },
+                { lbl: 'Reports & Export',          path: `${prefix}/reports`,    emoji: '📊' },
+              ].map((a, i) => (
+                <button key={i} onClick={() => navigate(a.path)} style={{
+                  display: 'flex', alignItems: 'center', gap: 12,
+                  padding: '12px 14px', borderRadius: 14, border: '1.5px solid #e2e8f0',
+                  background: '#fff', cursor: 'pointer', textAlign: 'left' as const,
+                  fontWeight: 700, fontSize: 13, color: '#1e293b', transition: 'all 0.2s'
+                }}>
+                  <span style={{ fontSize: 18 }}>{a.emoji}</span>
+                  {a.lbl}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Inventory snapshot */}
+          <div className="card" style={{ padding: 24, borderRadius: 24 }}>
+            <h3 style={{ fontSize: 15, fontWeight: 900, color: '#0f172a', marginBottom: 16 }}>📦 Inventory Snapshot</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {[
+                { lbl: 'Total Products',     val: (products || []).length,      ic: '📦' },
+                { lbl: 'Low Stock Alerts',   val: lowStock,                     ic: '⚠️' },
+                { lbl: 'Checked-out Units',  val: (units || []).filter((u: any) => u.status === 'Checked-out').length, ic: '📤' },
+              ].map((l, i) => (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: i % 2 === 0 ? '#f8fafc' : '#fff', borderRadius: 12 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, fontWeight: 700, color: '#334155' }}>
+                    <span>{l.ic}</span> {l.lbl}
+                  </div>
+                  <div style={{ fontSize: 18, fontWeight: 900, color: l.lbl.includes('Low') && l.val > 0 ? '#ef4444' : 'var(--teal)' }}>{l.val}</div>
+                </div>
+              ))}
+            </div>
+            <button className="bsm s" style={{ marginTop: 16, width: '100%' }} onClick={() => navigate(`${prefix}/inventory`)}>Manage Inventory →</button>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  );
+}
 function MemberDashboard({ profile, navigate }: any) {
   const [stats, setStats] = useState({
     filed: 0,

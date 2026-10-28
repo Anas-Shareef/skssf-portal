@@ -38,6 +38,7 @@ export default function RoleLogin({ mode = 'login' }: RoleLoginProps) {
   const [error, setError] = useState('');
   const [emailVal, setEmailVal] = useState('');
   const [passVal, setPassVal] = useState('');
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
   // Reset password modal
   const [showReset, setShowReset] = useState(false);
   const [resetEmail, setResetEmail] = useState('');
@@ -65,13 +66,21 @@ export default function RoleLogin({ mode = 'login' }: RoleLoginProps) {
 
   const doLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isLoggingIn) return;
     setError('');
-    const ok = await signIn(emailVal, passVal);
-    if (ok) {
-      const prefix = role === 'super-admin' ? '/super-admin/dashboard' : role === 'admin' ? '/admin/dashboard' : '/member/dashboard';
-      navigate(prefix);
+    setIsLoggingIn(true);
+    try {
+      const ok = await signIn(emailVal, passVal);
+      if (ok) {
+        const prefix = role === 'super-admin' ? '/super-admin/dashboard' : role === 'admin' ? '/admin/dashboard' : '/member/dashboard';
+        navigate(prefix);
+      }
+      else setError('Invalid email or password. Please try again.');
+    } catch {
+      setError('Invalid email or password. Please try again.');
+    } finally {
+      setIsLoggingIn(false);
     }
-    else setError('Invalid email or password. Please try again.');
   };
 
   const doResetPassword = async (e: React.FormEvent) => {
@@ -209,7 +218,9 @@ export default function RoleLogin({ mode = 'login' }: RoleLoginProps) {
                   Reset Password?
                 </button>
               </div>
-              <button type="submit" className="btn-login">Sign In <ArrowRight size={16} /></button>
+              <button type="submit" className="btn-login" disabled={isLoggingIn} style={isLoggingIn ? { opacity: 0.7, cursor: 'not-allowed' } : undefined}>
+                {isLoggingIn ? 'Signing In...' : <>Sign In <ArrowRight size={16} /></>}
+              </button>
               <div className="div">or</div>
               <div className="lfoot">Different role? <button type="button" onClick={() => navigate('/')}>Back to Portal</button></div>
             </form>

@@ -472,7 +472,14 @@ export const api = {
 
           return { token, user: userObj } as T;
         }
-      } catch (netErr) {
+
+        if (authError) {
+          throw new Error(authError.message || 'Invalid email or password. Please try again.');
+        }
+      } catch (netErr: any) {
+        if (netErr?.message && !netErr.message.includes('fetch') && !netErr.message.includes('Failed to fetch')) {
+          throw netErr;
+        }
         console.warn('[AUTH FALLBACK] Supabase auth network error or DNS failure:', netErr);
       }
 

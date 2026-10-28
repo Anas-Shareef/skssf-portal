@@ -65,6 +65,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           if (res?.user) {
             setProfile({
               ...res.user,
+              role: (res.user.role || 'member').toLowerCase() as Profile['role'],
               id: res.user.code || res.user.id,
               db_id: res.user.id,
               unit: res.user.branch || res.user.unit,
@@ -105,6 +106,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await syncFromBackend();
         setProfile({
           ...res.user,
+          role: (res.user.role || 'member').toLowerCase() as Profile['role'],
           id: res.user.code || res.user.id,
           db_id: res.user.id,
           unit: res.user.branch || res.user.unit,

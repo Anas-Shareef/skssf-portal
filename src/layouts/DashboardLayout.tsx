@@ -77,9 +77,9 @@ const buildNav = (role: string, isPanelCoordinator: boolean, hasPermission: (per
 
   const adminNav: any[] = [mainSection];
 
-  // Administration section for Super and Admin
+  // Administration section for Super and Members section for Admin
   const adminSectionItems = [];
-  if (role === 'super' || hasPermission('admins.view')) {
+  if (role === 'super') {
     adminSectionItems.push({ ic: ShieldCheck, lbl: 'Manage Admins', path: '/admins' });
   }
   if (role === 'super' || hasPermission('members.view')) {
