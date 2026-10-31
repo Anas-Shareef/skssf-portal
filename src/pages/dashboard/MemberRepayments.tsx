@@ -32,9 +32,11 @@ export default function MemberRepayments() {
       const memberId = profile.db_id || profile.id;
 
       // 1. Fetch member's loans
+      // NOTE: `loans` has no `applicant_name`/`applicant_phone` columns — the
+      // applicant info lives in `name` / `requester_name` / `requester_phone`.
       const { data: loansData, error: loansErr } = await supabase
         .from('loans')
-        .select('id, applicant_name, applicant_phone, applicant_whatsapp, requester_name, requester_phone')
+        .select('id, name, requester_name, requester_phone, mob')
         .eq('submitted_by_member_id', memberId);
 
       if (loansErr) throw loansErr;
@@ -59,8 +61,8 @@ export default function MemberRepayments() {
 
       const enriched = (instData || []).map(inst => {
         const loan = loanMap.get(inst.loan_id);
-        const name = loan ? (loan.applicant_name || loan.requester_name) : 'Applicant';
-        const phone = loan ? (loan.applicant_phone || loan.applicant_whatsapp || loan.requester_phone) : '';
+        const name = loan ? (loan.name || loan.requester_name) : 'Applicant';
+        const phone = loan ? (loan.requester_phone || loan.mob) : '';
         return {
           ...inst,
           applicantName: name,
@@ -328,7 +330,7 @@ export default function MemberRepayments() {
                           </span>
                         </td>
                         <td style={{ padding: '16px 18px', fontWeight: 800, fontSize: '13px', color: '#64748b' }}>
-                          #{inst.instalment_number}
+                          #{inst.installment_number}
                         </td>
                         <td style={{ padding: '16px 18px', textAlign: 'center' }}>
                           <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
