@@ -35,3 +35,4 @@ The system uses a two-tier physical inventory tracking model:
 3. **Super-Admin View (`/super-admin/dashboard/inventory`):**
    - Full access across categories, catalog creation, unit generation, and audit logs.
 4. **Data Synchronization Fix:** Updated `src/lib/localDb.ts` to map `inventory_items` and `inventory_units` field names (`total_stock`, `available_stock`, `barcode_value`) accurately so the frontend dashboard displays real counts instead of 0.
+

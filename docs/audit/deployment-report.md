@@ -49,3 +49,4 @@ If any regression occurs in production:
    ```
 2. Vercel will automatically redeploy the previous stable build.
 3. Database changes made were non-destructive additions (`repayment_installments` rows) and require no table drop.
+

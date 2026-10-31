@@ -47,7 +47,7 @@ export default async function handler(req, res) {
       const loan = inst.loans;
       if (!loan) continue;
 
-      const memberId = loan.submitted_by_member_id || loan.filed_by_member_id;
+      const memberId = loan.submitted_by_member_id;
       if (!memberId) continue;
 
       const dueDate = new Date(inst.due_date);

@@ -64,3 +64,4 @@ Conduct a comprehensive audit of all routes across Member, Admin, and Super-Admi
 2. **Schema Inconsistencies:** Resolved `repayment_instalments` typo across member detail, repayments, filed loans, and alert runner.
 3. **Data Parity:** Synchronized 21 installments from `loans.repayments` to `repayment_installments` table.
 4. **Role Isolation:** Decoupled `AdminDashboard` from `SuperAdmin` Mission Control; restricted `Manage Admins` in `DashboardLayout.tsx` to `role === 'super'`.
+

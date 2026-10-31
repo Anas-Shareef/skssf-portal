@@ -91,3 +91,4 @@ flowchart TD
 2. **Member Checkout:** Member selects item -> creates record in `inventory_checkouts` (`status: 'active'`).
 3. **Admin Action:** Admin uses barcode scanner in `/admin/dashboard/inventory` to verify and return items.
 4. **Stock Update:** Item returned -> updates `inventory_units.status` to `'available'` and increments `inventory_items.available_stock`.
+

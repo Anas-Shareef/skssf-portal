@@ -46,7 +46,7 @@ export default async function handler(req, res) {
   if (fetchError || !inst) return res.status(404).json({ error: 'Installment not found' });
 
   // Safety: Check if the logged-in member is indeed the submitter of the parent loan
-  if (inst.loans.submitted_by_member_id !== profile.id && inst.loans.filed_by_member_id !== profile.id) {
+  if (inst.loans.submitted_by_member_id !== profile.id) {
     return res.status(403).json({ error: 'Unauthorized to update this installment' });
   }
 

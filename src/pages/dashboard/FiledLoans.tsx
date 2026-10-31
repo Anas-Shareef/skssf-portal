@@ -41,7 +41,7 @@ export default function FiledLoans() {
       const { data, error } = await supabase
         .from('loans')
         .select('*')
-        .or(`filed_by_member_id.eq.${memberId},submitted_by_member_id.eq.${memberId}`)
+        .eq('submitted_by_member_id', memberId)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -156,7 +156,6 @@ export default function FiledLoans() {
           repayment_period_months: months,
           member_notes: safeNotes,
           submitted_by_member_id: memberId,
-          filed_by_member_id: memberId,
           status: 'pending'
         };
 

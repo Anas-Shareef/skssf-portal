@@ -35,7 +35,7 @@ export default function MemberRepayments() {
       const { data: loansData, error: loansErr } = await supabase
         .from('loans')
         .select('id, applicant_name, applicant_phone, applicant_whatsapp, requester_name, requester_phone')
-        .or(`filed_by_member_id.eq.${memberId},submitted_by_member_id.eq.${memberId}`);
+        .eq('submitted_by_member_id', memberId);
 
       if (loansErr) throw loansErr;
 

@@ -470,73 +470,29 @@ export const api = {
       const loginInput = (body.email || '').trim();
       const loginPass = body.password || '';
 
-      // Tier 1: Attempt Supabase Auth
-      try {
-        const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-          email: loginInput,
-          password: loginPass
-        });
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+        email: loginInput,
+        password: loginPass
+      });
 
-        if (!authError && authData?.user) {
-          const user = authData.user;
-          const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
-          const token = authData.session?.access_token || `token-${user.id}-${Date.now()}`;
-          sessionStorage.setItem('active_api_token', token);
-          sessionStorage.setItem('active_user_id', profile?.code || profile?.id || user.id);
-
-          const userObj = profile ? { ...profile, email: user.email, address: profile.addr } : {
-            id: user.id,
-            email: user.email,
-            name: user.user_metadata?.name || 'User',
-            role: user.user_metadata?.role || 'member'
-          };
-
-          return { token, user: userObj } as T;
-        }
-
-        if (authError) {
-          throw new Error(authError.message || 'Invalid email or password. Please try again.');
-        }
-      } catch (netErr: any) {
-        if (netErr?.message && !netErr.message.includes('fetch') && !netErr.message.includes('Failed to fetch')) {
-          throw netErr;
-        }
-        console.warn('[AUTH FALLBACK] Supabase auth network error or DNS failure:', netErr);
-      }
-
-      // Tier 2: Local Database / Offline / Demo Auth Fallback
-      const allUsers = localDb.getUsers();
-      const inputLower = loginInput.toLowerCase();
-
-      const foundUser = allUsers.find((u: any) =>
-        (u.email && u.email.toLowerCase() === inputLower) ||
-        (u.id && u.id.toLowerCase() === inputLower) ||
-        (u.code && u.code.toLowerCase() === inputLower) ||
-        (u.memberNo && u.memberNo.toLowerCase() === inputLower) ||
-        (u.member_unique_code && u.member_unique_code.toLowerCase() === inputLower) ||
-        (u.phone && u.phone.replace(/\D/g, '') === inputLower.replace(/\D/g, ''))
-      );
-
-      if (foundUser) {
-        const token = `local-token-${foundUser.id || foundUser.db_id || Date.now()}`;
+      if (!authError && authData?.user) {
+        const user = authData.user;
+        const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
+        const token = authData.session?.access_token || `token-${user.id}-${Date.now()}`;
         sessionStorage.setItem('active_api_token', token);
-        sessionStorage.setItem('active_user_id', foundUser.id || foundUser.code || foundUser.db_id);
+        sessionStorage.setItem('active_user_id', profile?.code || profile?.id || user.id);
 
-        return {
-          token,
-          user: {
-            ...foundUser,
-            id: foundUser.db_id || foundUser.id,
-            code: foundUser.id,
-            role: foundUser.role || 'member',
-            name: foundUser.name,
-            email: foundUser.email || loginInput,
-            unit: foundUser.branch || foundUser.unit
-          }
-        } as T;
+        const userObj = profile ? { ...profile, email: user.email, address: profile.addr } : {
+          id: user.id,
+          email: user.email,
+          name: user.user_metadata?.name || 'User',
+          role: user.user_metadata?.role || 'member'
+        };
+
+        return { token, user: userObj } as T;
       }
 
-      throw new Error('Invalid email or password. Please try again.');
+      throw new Error(authError?.message || 'Invalid email or password. Please try again.');
     }
 
     if (path === '/auth/logout') {
@@ -948,6 +904,15 @@ export const api = {
     }
 
     if (path === '/admin/reset') {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        throw new Error('Unauthorized: Super-admin authentication required.');
+      }
+      const { data: profile } = await supabase.from('profiles').select('role').eq('id', session.user.id).maybeSingle();
+      if (!profile || profile.role !== 'super') {
+        throw new Error('Forbidden: Only super-administrators can perform a portal data reset.');
+      }
+
       await Promise.all([
         supabase.from('inventory_transactions').delete().neq('id', 0),
         supabase.from('kits').delete().neq('id', 0),
