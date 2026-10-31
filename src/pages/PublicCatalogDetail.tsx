@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, CheckCircle, XCircle, AlertCircle, Printer, Tag, Settings, Layers, Star } from 'lucide-react';
 import JsBarcode from 'jsbarcode';
+import { getAccessToken } from '../lib/authSession';
 
 interface CatalogItem {
   id: string;
@@ -101,7 +102,7 @@ export default function PublicCatalogDetail() {
 
   const handleReviewSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const token = sessionStorage.getItem('active_api_token') || '';
+    const token = await getAccessToken();
     if (!token) {
       alert('Please log in to submit a review.');
       return;

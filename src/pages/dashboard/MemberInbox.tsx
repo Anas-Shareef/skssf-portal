@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { Inbox, Eye, ArrowRight, XCircle, CheckCircle2, Clock, Search, AlertCircle, FileText, UserCheck } from 'lucide-react';
 import { supabase } from '../../lib/supabaseClient';
+import { getAccessToken } from '../../lib/authSession';
 
 export default function MemberInbox() {
   const { profile } = useAuth();
@@ -36,7 +37,8 @@ export default function MemberInbox() {
 
       // 1. Try Service Role Endpoint (Bypasses RLS & handles all schema variations)
       try {
-        const token = sessionStorage.getItem('active_api_token') || '';
+        const token = await getAccessToken();
+        if (!token) throw new Error('No active session');
         const res = await fetch('/api/get-member-inbox', {
           headers: { Authorization: `Bearer ${token}` }
         });

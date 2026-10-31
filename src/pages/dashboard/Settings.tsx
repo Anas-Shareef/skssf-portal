@@ -2,6 +2,7 @@ import { supabase } from '../../lib/supabaseClient';
 import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { localDb, syncFromBackend } from '../../lib/localDb';
+import { getAuthHeaders } from '../../lib/authSession';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import { useLocation } from 'react-router-dom';
 
@@ -208,19 +209,13 @@ const [pConfig, setPConfig] = useState(() => localDb.getPortalConfig());
 
   const [whatsappNumber, setWhatsappNumber] = useState('');
 
-  const getHeaders = () => {
-    const token = sessionStorage.getItem('active_api_token') || '';
-    return {
-      'Authorization': `Bearer ${token}`,
-      'Content-Type': 'application/json'
-    };
-  };
+  const getHeaders = () => getAuthHeaders({ 'Content-Type': 'application/json' });
 
   useEffect(() => {
     async function loadOrgSettings() {
       try {
         const res = await fetch('/api/inventory?resource=org-settings', {
-          headers: getHeaders()
+          headers: await getHeaders()
         });
         if (res.ok) {
           const data = await res.json();
@@ -298,7 +293,7 @@ const [pConfig, setPConfig] = useState(() => localDb.getPortalConfig());
     try {
       const res = await fetch('/api/inventory?resource=org-settings', {
         method: 'POST',
-        headers: getHeaders(),
+        headers: await getHeaders(),
         body: JSON.stringify({ key: 'catalog_whatsapp', value: whatsappNumber })
       });
       if (!res.ok) throw new Error('Failed to save settings to database');

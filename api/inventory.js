@@ -177,9 +177,14 @@ export default async function handler(req, res) {
     .from('profiles')
     .select('*')
     .eq('id', user.id)
-    .single();
+    .maybeSingle();
 
-  if (profErr || !profile) return res.status(401).json({ error: 'Profile not found' });
+  if (profErr) {
+    console.error('Inventory profile lookup failed:', profErr);
+    return res.status(500).json({ error: 'Failed to verify profile' });
+  }
+  // Authenticated but without a portal profile: authenticated, not authorized.
+  if (!profile) return res.status(403).json({ error: 'Forbidden - No portal profile' });
 
   const hasPermission = (perm) => {
     if (profile.role === 'super') return true;

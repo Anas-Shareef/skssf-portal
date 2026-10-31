@@ -32,7 +32,7 @@ interface RoleLoginProps {
 export default function RoleLogin({ mode = 'login' }: RoleLoginProps) {
   const { role } = useParams<{ role: string }>();
   const navigate = useNavigate();
-  const { signIn } = useAuth();
+  const { signIn, authError } = useAuth();
   const [tab, setTab] = useState<'si' | 'su'>(mode === 'register' ? 'su' : 'si');
   const [showPass, setShowPass] = useState(false);
   const [error, setError] = useState('');
@@ -174,6 +174,7 @@ export default function RoleLogin({ mode = 'login' }: RoleLoginProps) {
 
 
           {error && <div className="form-error">{error}</div>}
+          {!error && authError && <div className="form-error">{authError}</div>}
 
           {tab === 'si' ? (
             <form onSubmit={doLogin}>

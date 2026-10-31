@@ -29,9 +29,13 @@ export default async function handler(req, res) {
     .from('profiles')
     .select('id, role, name')
     .eq('id', user.id)
-    .single();
+    .maybeSingle();
 
-  if (profError || !profile) return res.status(401).json({ error: 'Profile not found' });
+  if (profError) {
+    console.error('Member loan profile lookup failed:', profError);
+    return res.status(500).json({ error: 'Failed to verify profile' });
+  }
+  if (!profile) return res.status(403).json({ error: 'Forbidden - No portal profile' });
 
   // Fetch loans submitted by this member (service role = bypasses RLS)
   const { data: loans, error: loansError } = await supabase

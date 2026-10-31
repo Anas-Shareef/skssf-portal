@@ -5,6 +5,7 @@ import {
   Barcode as BarcodeIcon, Users, QrCode, FileSpreadsheet, Star, HelpCircle
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import { getAuthHeaders } from '../../lib/authSession';
 import JsBarcode from 'jsbarcode';
 import * as XLSX from 'xlsx';
 import { useSearchParams } from 'react-router-dom';
@@ -277,7 +278,7 @@ export default function Inventory() {
     try {
       if (!silent) setRefreshing(true);
       setMissionsError('');
-      const res = await fetch('/api/inventory?resource=missions', { headers: getHeaders() });
+      const res = await fetch('/api/inventory?resource=missions', { headers: await getHeaders() });
       const data = await res.json().catch(() => ({}));
 
       // DB migration not yet run — show banner but keep list empty (don't throw)
@@ -369,20 +370,16 @@ export default function Inventory() {
     setTimeout(() => setToast(null), 4000);
   };
 
-  const getHeaders = () => {
-    const token = sessionStorage.getItem('active_api_token') || '';
-    return {
-      'Authorization': `Bearer ${token}`,
-      'Content-Type': 'application/json'
-    };
-  };
+  // Always attach the current Supabase access token. The persisted Supabase
+  // session is the only source of truth, so expired tokens are refreshed here.
+  const getHeaders = () => getAuthHeaders({ 'Content-Type': 'application/json' });
 
   // Fetch Master Data
   const loadCatalogue = async (showSpinner = true) => {
     try {
       if (showSpinner) setLoading(true);
       else setRefreshing(true);
-      const catRes = await fetch('/api/inventory?resource=categories', { headers: getHeaders() });
+      const catRes = await fetch('/api/inventory?resource=categories', { headers: await getHeaders() });
       if (catRes.ok) {
         const catData = await catRes.json();
         setCategories(catData.categories || []);
@@ -391,7 +388,7 @@ export default function Inventory() {
         }
       }
 
-      const itemRes = await fetch('/api/inventory?resource=items', { headers: getHeaders() });
+      const itemRes = await fetch('/api/inventory?resource=items', { headers: await getHeaders() });
       if (itemRes.ok) {
         const itemData = await itemRes.json();
         setItems(itemData.items || []);
@@ -409,7 +406,7 @@ export default function Inventory() {
     try {
       if (showSpinner) setLoading(true);
       else setRefreshing(true);
-      const res = await fetch('/api/inventory?resource=checkouts', { headers: getHeaders() });
+      const res = await fetch('/api/inventory?resource=checkouts', { headers: await getHeaders() });
       if (res.ok) {
         const data = await res.json();
         setAllCheckouts(data.checkouts || []);
@@ -426,7 +423,7 @@ export default function Inventory() {
   const loadDamageReview = async (showSpinner = true) => {
     try {
       if (showSpinner) setLoading(true);
-      const res = await fetch('/api/inventory?resource=damage-review', { headers: getHeaders() });
+      const res = await fetch('/api/inventory?resource=damage-review', { headers: await getHeaders() });
       if (res.ok) {
         const data = await res.json();
         setDamageRecords(data.records || []);
@@ -441,7 +438,7 @@ export default function Inventory() {
   // Fetch Members Profiles list for Scanner dropdowns
   const loadMembers = async () => {
     try {
-      const res = await fetch('/api/members', { headers: getHeaders() });
+      const res = await fetch('/api/members', { headers: await getHeaders() });
       if (res.ok) {
         const data = await res.json();
         setMembers(data.members || []);
@@ -560,7 +557,7 @@ export default function Inventory() {
       setFormSubmitting(true);
       const res = await fetch('/api/inventory?resource=items', {
         method: 'POST',
-        headers: getHeaders(),
+        headers: await getHeaders(),
         body: JSON.stringify({
           name: newItemName,
           category_id: newItemCatId,
@@ -607,7 +604,7 @@ export default function Inventory() {
       setFormSubmitting(true);
       const res = await fetch('/api/inventory?resource=missions', {
         method: 'POST',
-        headers: getHeaders(),
+        headers: await getHeaders(),
         body: JSON.stringify({
           name: newMissionName.trim(),
           description: newMissionDesc.trim(),
@@ -642,7 +639,7 @@ export default function Inventory() {
       setFormSubmitting(true);
       const res = await fetch('/api/inventory?resource=item-actions', {
         method: 'POST',
-        headers: getHeaders(),
+        headers: await getHeaders(),
         body: JSON.stringify({
           action: 'edit',
           id: editingItem.id,
@@ -682,7 +679,7 @@ export default function Inventory() {
       setFormSubmitting(true);
       const res = await fetch('/api/inventory?resource=item-actions', {
         method: 'POST',
-        headers: getHeaders(),
+        headers: await getHeaders(),
         body: JSON.stringify({
           action: 'adjust-stock',
           id: adjustingItem.id,
@@ -714,7 +711,7 @@ export default function Inventory() {
       setFormSubmitting(true);
       const res = await fetch('/api/inventory?resource=checkout-actions', {
         method: 'POST',
-        headers: getHeaders(),
+        headers: await getHeaders(),
         body: JSON.stringify({
           action: 'mark-returned',
           id: overrideCheckout.id,
@@ -745,7 +742,7 @@ export default function Inventory() {
     try {
       const res = await fetch('/api/inventory?resource=checkout-actions', {
         method: 'POST',
-        headers: getHeaders(),
+        headers: await getHeaders(),
         body: JSON.stringify({
           action: 'mark-returned',
           id: checkoutId,
@@ -781,7 +778,7 @@ export default function Inventory() {
         try {
           const res = await fetch('/api/inventory?resource=item-actions', {
             method: 'POST',
-            headers: getHeaders(),
+            headers: await getHeaders(),
             body: JSON.stringify({ action: 'deactivate', id })
           });
           if (res.ok) {
@@ -810,7 +807,7 @@ export default function Inventory() {
         try {
           const res = await fetch('/api/inventory?resource=item-actions', {
             method: 'POST',
-            headers: getHeaders(),
+            headers: await getHeaders(),
             body: JSON.stringify({ action: 'delete', id })
           });
           if (res.ok) {
@@ -836,7 +833,7 @@ export default function Inventory() {
       setCatSubmitting(true);
       const res = await fetch('/api/inventory?resource=categories', {
         method: 'POST',
-        headers: getHeaders(),
+        headers: await getHeaders(),
         body: JSON.stringify({ name: newCatName.trim() })
       });
 
@@ -865,7 +862,7 @@ export default function Inventory() {
     try {
       const res = await fetch('/api/inventory?resource=categories', {
         method: 'PATCH',
-        headers: getHeaders(),
+        headers: await getHeaders(),
         body: JSON.stringify({ id: editingCategoryId, name: editingCategoryName.trim() })
       });
       if (res.ok) {
@@ -894,7 +891,7 @@ export default function Inventory() {
         try {
           const res = await fetch(`/api/inventory?resource=categories&id=${id}`, {
             method: 'DELETE',
-            headers: getHeaders()
+            headers: await getHeaders()
           });
           if (res.ok) {
             popToast('s', 'Category deleted successfully.');
@@ -915,7 +912,7 @@ export default function Inventory() {
     try {
       const res = await fetch('/api/inventory?resource=damage-review', {
         method: 'POST',
-        headers: getHeaders(),
+        headers: await getHeaders(),
         body: JSON.stringify({ id, resolve_action: resolveAction })
       });
       const data = await res.json();
@@ -939,7 +936,7 @@ export default function Inventory() {
       setScanLookupResult(null);
       
       const res = await fetch(`/api/inventory?resource=barcode-lookup&barcode=${manualBarcode.trim()}`, {
-        headers: getHeaders()
+        headers: await getHeaders()
       });
       
       if (!res.ok) {
@@ -959,7 +956,7 @@ export default function Inventory() {
       setScanError('');
       setScanLookupResult(null);
       const res = await fetch(`/api/inventory?resource=barcode-lookup&barcode=${barcodeVal}`, {
-        headers: getHeaders()
+        headers: await getHeaders()
       });
       if (!res.ok) throw new Error('No matching barcode');
       const data = await res.json();
@@ -987,7 +984,7 @@ export default function Inventory() {
 
         const res = await fetch('/api/inventory', {
           method: 'POST',
-          headers: getHeaders(),
+          headers: await getHeaders(),
           body: JSON.stringify({
             resource: 'checkouts',
             item_id: item.id,
@@ -1014,7 +1011,7 @@ export default function Inventory() {
         }
         const res = await fetch('/api/inventory', {
           method: 'POST',
-          headers: getHeaders(),
+          headers: await getHeaders(),
           body: JSON.stringify({
             resource: 'checkout-actions',
             action: 'checkin',
@@ -1054,7 +1051,7 @@ export default function Inventory() {
       setCheckoutWizardSubmitting(true);
       const res = await fetch('/api/inventory', {
         method: 'POST',
-        headers: getHeaders(),
+        headers: await getHeaders(),
         body: JSON.stringify({
           resource: 'checkouts',
           item_id: selectedProductDetail.id,
@@ -1096,7 +1093,7 @@ export default function Inventory() {
       setLoading(true);
       const res = await fetch('/api/inventory', {
         method: 'POST',
-        headers: getHeaders(),
+        headers: await getHeaders(),
         body: JSON.stringify({
           resource: 'checkout-actions',
           action: 'checkin',
@@ -1125,7 +1122,7 @@ export default function Inventory() {
       setLoading(true);
       const res = await fetch('/api/inventory', {
         method: 'POST',
-        headers: getHeaders(),
+        headers: await getHeaders(),
         body: JSON.stringify({
           resource: 'checkout-actions',
           action: 'update-unit-condition',

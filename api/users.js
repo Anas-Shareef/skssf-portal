@@ -65,11 +65,33 @@ export default async function handler(req, res) {
     // METHOD: GET (get-users.js logic)
     // ==========================================
     if (req.method === 'GET') {
-      // Fetch profiles
-      const { data: profiles, error: profilesError } = await supabase
+      // Authorize: only admins and super admins may read the user directory.
+      const { data: requesterProfile, error: requesterError } = await supabase
         .from('profiles')
-        .select('*')
-        .order('created_at');
+        .select('role, branch')
+        .eq('id', requester.id)
+        .maybeSingle();
+
+      if (requesterError) {
+        console.error('Error fetching requester profile:', requesterError);
+        return res.status(500).json({ message: 'Failed to verify requester' });
+      }
+      if (!requesterProfile) {
+        return res.status(403).json({ message: 'Forbidden - No portal profile' });
+      }
+
+      const isSuper = requesterProfile.role === 'super';
+      const isAdmin = requesterProfile.role === 'admin';
+      if (!isSuper && !isAdmin) {
+        return res.status(403).json({ message: 'Forbidden - Admins only' });
+      }
+
+      // Super admins see every profile. Admins are scoped to their own branch
+      // so one branch never exposes another branch's member data.
+      let profilesQuery = supabase.from('profiles').select('*').order('created_at');
+      if (!isSuper) profilesQuery = profilesQuery.eq('branch', requesterProfile.branch);
+
+      const { data: profiles, error: profilesError } = await profilesQuery;
 
       if (profilesError) {
         console.error('Error fetching profiles:', profilesError);
@@ -111,9 +133,13 @@ export default async function handler(req, res) {
         .from('profiles')
         .select('role, branch, perms')
         .eq('id', requester.id)
-        .single();
+        .maybeSingle();
 
-      if (profileErr || !requesterProfile || (requesterProfile.role !== 'admin' && requesterProfile.role !== 'super')) {
+      if (profileErr) {
+        console.error('Error fetching requester profile:', profileErr);
+        return res.status(500).json({ message: 'Failed to verify requester' });
+      }
+      if (!requesterProfile || (requesterProfile.role !== 'admin' && requesterProfile.role !== 'super')) {
         return res.status(403).json({ message: 'Forbidden - Admins only' });
       }
 
@@ -213,7 +239,11 @@ export default async function handler(req, res) {
         .from('profiles')
         .select('*')
         .eq('id', newUser.id)
-        .single();
+        .maybeSingle();
+
+      if (!finalProfile) {
+        return res.status(500).json({ message: 'Profile initialization failed: profile missing after creation' });
+      }
 
       return res.status(200).json({
         success: true,
@@ -239,9 +269,13 @@ export default async function handler(req, res) {
         .from('profiles')
         .select('role, branch, perms')
         .eq('id', requester.id)
-        .single();
+        .maybeSingle();
 
-      if (profileErr || !requesterProfile) {
+      if (profileErr) {
+        console.error('Error fetching requester profile:', profileErr);
+        return res.status(500).json({ message: 'Failed to verify requester' });
+      }
+      if (!requesterProfile) {
         return res.status(401).json({ message: 'Unauthorized - Requester profile not found' });
       }
 
@@ -287,9 +321,13 @@ export default async function handler(req, res) {
         .from('profiles')
         .select('role, branch, perms')
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
-      if (targetErr || !targetProfile) {
+      if (targetErr) {
+        console.error('Error fetching target profile:', targetErr);
+        return res.status(500).json({ message: 'Failed to fetch target profile' });
+      }
+      if (!targetProfile) {
         return res.status(404).json({ message: 'User profile not found' });
       }
 
@@ -414,7 +452,11 @@ export default async function handler(req, res) {
         .from('profiles')
         .select('*')
         .eq('id', id)
-        .single();
+        .maybeSingle();
+
+      if (!finalProfile) {
+        return res.status(404).json({ message: 'User profile not found' });
+      }
 
       const { data: authData } = await supabase.auth.admin.getUserById(id);
       const freshAuthUser = authData?.user;
@@ -438,9 +480,13 @@ export default async function handler(req, res) {
         .from('profiles')
         .select('role')
         .eq('id', requester.id)
-        .single();
+        .maybeSingle();
 
-      if (profileErr || !requesterProfile || (requesterProfile.role !== 'admin' && requesterProfile.role !== 'super')) {
+      if (profileErr) {
+        console.error('Error fetching requester profile:', profileErr);
+        return res.status(500).json({ message: 'Failed to verify requester' });
+      }
+      if (!requesterProfile || (requesterProfile.role !== 'admin' && requesterProfile.role !== 'super')) {
         return res.status(403).json({ message: 'Forbidden - Admins only' });
       }
 

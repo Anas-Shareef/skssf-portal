@@ -1,4 +1,5 @@
 import { supabase } from './supabaseClient';
+import { getAccessToken, getAuthHeaders } from './authSession';
 
 const isTableMissingError = (err: any) => {
   return err && (err.code === 'PGRST204' || err.code === 'PGRST205' || String(err.message || '').includes('relation') || String(err.message || '').includes('does not exist'));
@@ -61,56 +62,70 @@ export const api = {
 
   get: async <T>(path: string, _token?: string): Promise<T> => {
     if (path === '/auth/me') {
-      const token = _token || sessionStorage.getItem('active_api_token') || '';
+      const token = _token || await getAccessToken();
       if (!token) throw new Error('Unauthenticated');
-      try {
-        const { data: { user }, error: userError } = await supabase.auth.getUser(token);
-        if (!userError && user) {
-          const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
-          if (profile) {
-            return { user: { ...profile, email: user.email, address: profile.addr } } as T;
-          }
-        }
-      } catch (err) {
-        console.warn('/auth/me network/Supabase error, using active_user_id fallback:', err);
+
+      const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+      if (userError || !user) throw new Error('Unauthenticated');
+
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .maybeSingle();
+
+      if (!profile) {
+        throw new Error('Your account is authenticated but has no portal profile.');
       }
 
-      const activeUserId = sessionStorage.getItem('active_user_id');
-      if (activeUserId) {
-        const localUser = localDb.getUserById(activeUserId);
-        if (localUser) {
-          return { user: localUser } as T;
-        }
-      }
-
-      throw new Error('Unauthenticated');
+      return { user: { ...profile, email: user.email, address: profile.addr } } as T;
     }
 
     if (path === '/bootstrap') {
-      const token = sessionStorage.getItem('active_api_token') || '';
-      let activeUser: any = null;
-      if (token) {
-        try {
-          const { data: { user } } = await supabase.auth.getUser(token);
-          if (user) {
-            const { data: prof } = await supabase.from('profiles').select('*').eq('id', user.id).single();
-            activeUser = prof;
-          }
-        } catch (e) {
-          console.warn('Bootstrap auth fetch failed:', e);
-        }
+      const token = _token || await getAccessToken();
+      if (!token) throw new Error('Unauthenticated');
+
+      const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+      if (userError || !user) throw new Error('Unauthenticated');
+
+      const { data: activeUser, error: profileError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .maybeSingle();
+
+      if (profileError) throw profileError;
+      if (!activeUser) {
+        throw new Error('Your account is authenticated but has no portal profile.');
       }
 
-      // For members: fetch via service-role API to bypass RLS
-      // For admins/super: use anon client (they have full access via RLS)
+      const isPrivileged = activeUser.role === 'admin' || activeUser.role === 'super';
+
+      // For members: fetch via service-role API to bypass RLS.
+      // For admins/super: use the RLS-scoped anon client.
       let loanFetchPromise: Promise<{ data: any[] }>;
-      if (activeUser && activeUser.role === 'member') {
+      if (activeUser.role === 'member') {
         loanFetchPromise = fetch('/api/get-member-loans', {
           headers: { 'Authorization': `Bearer ${token}` }
         }).then(r => r.json()).then(j => ({ data: j.loans || [] })).catch(() => ({ data: [] }));
       } else {
         loanFetchPromise = supabase.from('loans').select('*').order('created_at', { ascending: false }) as unknown as Promise<{ data: any[] }>;
       }
+
+      // Only privileged roles may call the admin user directory. Members get
+      // their own profile (already loaded above) and no other users' PII.
+      const usersPromise: Promise<{ data: any[] }> = isPrivileged
+        ? fetch('/api/users', { headers: { 'Authorization': `Bearer ${token}` } })
+            .then(async (res) => {
+              if (!res.ok) throw new Error(`/api/users returned ${res.status}`);
+              const json = await res.json();
+              return { data: json.users || [] };
+            })
+            .catch((err) => {
+              console.warn('Bootstrap user directory fetch failed:', err);
+              return { data: [] };
+            })
+        : Promise.resolve({ data: [] });
 
       const [
         { data: portalConfig },
@@ -124,11 +139,7 @@ export const api = {
         { data: inventoryTransactions }
       ] = await Promise.all([
         supabase.from('portal_configs').select('*').maybeSingle(),
-        fetch('/api/users', {
-          headers: {
-            'Authorization': `Bearer ${sessionStorage.getItem('active_api_token')}`
-          }
-        }).then(res => res.json()).then(json => ({ data: json.users || [] })).catch(() => ({ data: [] })),
+        usersPromise,
         loanFetchPromise,
         supabase.from('campaigns').select('*').order('created_at', { ascending: false }),
         supabase.from('donations').select('*').order('created_at', { ascending: false }),
@@ -329,7 +340,7 @@ export const api = {
     }
 
     if (path === '/notifications') {
-      const token = _token || sessionStorage.getItem('active_api_token') || '';
+      const token = _token || await getAccessToken() || '';
       const { data: { user } } = await supabase.auth.getUser(token);
       if (!user) throw new Error('Unauthenticated');
 
@@ -397,7 +408,7 @@ export const api = {
     }
 
     if (path === '/member/inbox') {
-      const token = _token || sessionStorage.getItem('active_api_token') || '';
+      const token = _token || await getAccessToken() || '';
       const { data: { user } } = await supabase.auth.getUser(token);
       if (!user) throw new Error('Unauthenticated');
       try {
@@ -477,19 +488,24 @@ export const api = {
 
       if (!authError && authData?.user) {
         const user = authData.user;
-        const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
-        const token = authData.session?.access_token || `token-${user.id}-${Date.now()}`;
-        sessionStorage.setItem('active_api_token', token);
-        sessionStorage.setItem('active_user_id', profile?.code || profile?.id || user.id);
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', user.id)
+          .maybeSingle();
 
-        const userObj = profile ? { ...profile, email: user.email, address: profile.addr } : {
-          id: user.id,
-          email: user.email,
-          name: user.user_metadata?.name || 'User',
-          role: user.user_metadata?.role || 'member'
-        };
+        if (!profile) {
+          // Never fabricate a profile or let an orphan auth user into the app.
+          await supabase.auth.signOut().catch(() => {});
+          throw new Error('Your account is authenticated but has no portal profile. Please contact an administrator.');
+        }
 
-        return { token, user: userObj } as T;
+        const token = authData.session?.access_token || '';
+
+        return {
+          token,
+          user: { ...profile, email: user.email, address: profile.addr }
+        } as T;
       }
 
       throw new Error(authError?.message || 'Invalid email or password. Please try again.');
@@ -499,6 +515,7 @@ export const api = {
       const { error } = await supabase.auth.signOut();
       if (error) throw new Error(error.message);
       sessionStorage.removeItem('active_api_token');
+      sessionStorage.removeItem('active_user_id');
       return { success: true } as T;
     }
 
@@ -542,10 +559,7 @@ export const api = {
     if (path === '/users') {
       const res = await fetch('/api/users', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${sessionStorage.getItem('active_api_token')}`
-        },
+        headers: await getAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(body)
       });
       const json = await res.json();
@@ -1308,10 +1322,7 @@ export const api = {
       const id = path.split('/')[2];
       const res = await fetch(`/api/users?id=${id}`, {
         method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${sessionStorage.getItem('active_api_token')}`
-        },
+        headers: await getAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(body)
       });
       const json = await res.json();
@@ -1464,7 +1475,7 @@ export const api = {
     }
 
     if (path === '/notifications/read') {
-      const token = _token || sessionStorage.getItem('active_api_token') || '';
+      const token = _token || await getAccessToken() || '';
       const { data: { user } } = await supabase.auth.getUser(token);
       if (!user) throw new Error('Unauthenticated');
 
@@ -1486,7 +1497,7 @@ export const api = {
     }
 
     if (path === '/settings/notifications') {
-      const token = _token || sessionStorage.getItem('active_api_token') || '';
+      const token = _token || await getAccessToken() || '';
       const { data: { user } } = await supabase.auth.getUser(token);
       
       try {
@@ -1583,9 +1594,7 @@ export const api = {
       const id = path.split('/')[2];
       const res = await fetch(`/api/users?id=${id}`, {
         method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${sessionStorage.getItem('active_api_token')}`
-        }
+        headers: await getAuthHeaders()
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.message || 'Failed to delete user');

@@ -27,9 +27,13 @@ export default async function handler(req, res) {
     .from('profiles')
     .select('id')
     .eq('id', user.id)
-    .single();
+    .maybeSingle();
 
-  if (profError || !profile) return res.status(401).json({ error: 'Profile not found' });
+  if (profError) {
+    console.error('Repayment profile lookup failed:', profError);
+    return res.status(500).json({ error: 'Failed to verify profile' });
+  }
+  if (!profile) return res.status(403).json({ error: 'Forbidden - No portal profile' });
 
   const { selectedInstId, amtPaid, payMethod, payNote } = req.body;
   if (!selectedInstId || !amtPaid || !payMethod) {

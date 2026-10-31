@@ -19,8 +19,30 @@ const DEFAULT_PORTAL_CONFIG = {
   defaultCommittee: []    // Array of Admin IDs auto-assigned to every new request
 };
 
-const getToken = () => sessionStorage.getItem('active_api_token') || '';
-const hasBackendSession = () => !!getToken();
+// AuthContext marks the backend session active after Supabase restores a
+// session. Until then the cache must not attempt authenticated requests.
+let backendSessionActive = false;
+export const setBackendSessionActive = (active: boolean) => {
+  backendSessionActive = active;
+};
+const hasBackendSession = () => backendSessionActive;
+
+const CACHE_KEYS = [
+  'db_users',
+  'db_loans',
+  'db_campaigns',
+  'db_donations',
+  'db_products',
+  'db_units',
+  'db_kits',
+  'db_inventory_tx',
+  'db_notifications',
+  'db_notification_settings',
+  'db_inbox_submissions',
+  'db_checkout_requests',
+  'db_return_requests',
+  'portal_config',
+];
 
 const memoryCache = new Map<string, string>();
 const backendCacheStorage = {
@@ -40,7 +62,9 @@ const backendCacheStorage = {
     localStorage.removeItem(key);
   },
   clear: () => {
-    localStorage.clear();
+    // Never call localStorage.clear() here: it would delete the Supabase
+    // auth session (`skssf_auth_session`) and break login persistence.
+    CACHE_KEYS.forEach((key) => localStorage.removeItem(key));
   },
 };
 
@@ -326,10 +350,6 @@ const syncLater = (task: Promise<any>) => {
     console.warn('Laravel API write failed; reverting frontend cache from backend', err);
     void syncFromBackend();
   });
-};
-
-export const initLocalDb = () => {
-  void syncFromBackend();
 };
 
 export const localDb = {
@@ -1784,6 +1804,5 @@ export const localDb = {
   }
 };
 
-initLocalDb();
 export default localDb;
 
