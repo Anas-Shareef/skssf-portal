@@ -250,19 +250,31 @@ export default function PublicLoanRequest() {
 
       let insertedRecord: any = null;
 
-      // Primary serverless submission
+      // Primary serverless submission — routes to loan_requests table so member inbox shows it
       try {
         const res = await fetch('/api/submit-loan-application', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            is_public_referral: true,
+            referred_member_id: member ? member.id : null,
+            referred_member_name: member ? member.name : null,
             applicant_name: fullName.trim(),
             applicant_phone: phone.trim(),
             applicant_address: fullAddressStr,
             amount: amtVal,
             months: monthsVal,
             purpose: fullDetailsSummary,
-            submitted_by_member_id: member ? member.id : null
+            loan_purpose_category: finalCategory,
+            loan_purpose_detail: purposeDetail.trim(),
+            father_name: fatherName.trim(),
+            dob,
+            gender,
+            whatsapp: whatsapp.trim() || null,
+            income_source: incomeSource.trim(),
+            monthly_income: parseFloat(monthlyIncome) || null,
+            existing_debts: existingDebts,
+            existing_debts_detail: existingDebts ? existingDebtsDetail.trim() : null
           })
         });
 
@@ -276,44 +288,35 @@ export default function PublicLoanRequest() {
         console.warn('API submission fallback to direct Supabase client insert:', apiErr);
       }
 
-      // Direct client fallback if API endpoint was bypassed
+      // Direct client fallback — insert into loan_requests so member inbox shows it
       if (!insertedRecord) {
-        const payload: any = {
-          loan_no: generatedRef,
-          name: fullName.trim(),
-          amount: amtVal,
-          amt: amtVal,
-          loan_amount_requested: amtVal,
-          loan_amount_approved: amtVal,
-          requester_name: fullName.trim(),
-          requester_phone: phone.trim(),
-          requester_address: fullAddressStr,
-          purpose: fullDetailsSummary.slice(0, 220),
-          repayment_period_months: monthsVal,
-          submitted_by_member_id: member ? member.id : null,
-          status: 'pending'
-        };
+        const reasonStr = `Referred By: ${member?.name || ''}\nCategory: ${finalCategory}\nDetails: ${purposeDetail.trim()}\nPeriod: ${monthsVal} Months\nIncome: ₹${monthlyIncome} (${incomeSource.trim()})\nDebts: ${existingDebts ? existingDebtsDetail.trim() : 'None'}\nWitness 1: ${witness1Name.trim()} (${witness1Phone.trim()})\nWitness 2: ${witness2Name.trim()} (${witness2Phone.trim()})\nDOB: ${dob} (${gender})`;
 
-        const { data: dbData, error: dbErr } = await supabase
-          .from('loans')
-          .insert([payload])
-          .select();
-
-        if (dbErr) {
-          // Alternative request table insert
+        try {
           await supabase.from('loan_requests').insert([{
-            applicant_name: fullName.trim(),
-            applicant_phone: phone.trim(),
             requester_name: fullName.trim(),
             requester_phone: phone.trim(),
             requester_address: fullAddressStr,
+            reason: reasonStr.slice(0, 500),
+            approximate_amount: amtVal,
             loan_amount_requested: amtVal,
             loan_purpose_category: finalCategory,
             loan_purpose_detail: purposeDetail.trim(),
             repayment_period_months: monthsVal,
+            applicant_name: fullName.trim(),
+            applicant_phone: phone.trim(),
+            monthly_income: parseFloat(monthlyIncome) || null,
+            income_source: incomeSource.trim() || null,
+            existing_debts: existingDebts,
+            existing_debts_detail: existingDebts ? existingDebtsDetail.trim() : null,
+            declaration_agreed: true,
             referred_member_id: member ? member.id : null,
-            status: 'submitted'
+            referred_member_name: member ? member.name : null,
+            status: 'DRAFT_UNASSIGNED'
           }]);
+          insertedRecord = true;
+        } catch (reqErr: any) {
+          console.warn('loan_requests fallback failed:', reqErr.message);
         }
       }
 
@@ -1022,32 +1025,7 @@ export default function PublicLoanRequest() {
                   </label>
                 </div>
 
-                {/* HTML5 Canvas Signature Pad */}
-                <div style={{ background: '#fff', padding: '18px', borderRadius: '18px', border: '1.5px solid #e2e8f0', marginTop: '8px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                    <label className="fl2" style={{ fontWeight: 800, margin: 0 }}>Applicant Digital Signature * (അപേക്ഷകന്റെ ഒപ്പ്)</label>
-                    <button type="button" onClick={clearSignature} style={{ background: '#f1f5f9', border: 'none', padding: '4px 10px', borderRadius: '8px', fontSize: '11px', fontWeight: 800, cursor: 'pointer', color: '#64748b' }}>
-                      Clear Signature
-                    </button>
-                  </div>
-
-                  <div style={{ border: '2px dashed #cbd5e1', borderRadius: '14px', background: '#f8fafc', overflow: 'hidden' }}>
-                    <canvas
-                      ref={canvasRef}
-                      width={600}
-                      height={140}
-                      onMouseDown={startDrawing}
-                      onMouseMove={draw}
-                      onMouseUp={stopDrawing}
-                      onMouseLeave={stopDrawing}
-                      onTouchStart={startDrawing}
-                      onTouchMove={draw}
-                      onTouchEnd={stopDrawing}
-                      style={{ width: '100%', height: '140px', touchAction: 'none', cursor: 'crosshair' }}
-                    />
-                  </div>
-                  <div style={{ fontSize: '11px', color: '#64748b', marginTop: '6px', textAlign: 'center' }}>Use mouse or touch finger to draw your signature inside the box above</div>
-                </div>
+                {/* Signature pad removed as per user request */}
               </div>
             </div>
           )}
@@ -1120,13 +1098,7 @@ export default function PublicLoanRequest() {
                   </div>
                 </div>
 
-                {/* Signature Preview */}
-                {signatureData && (
-                  <div style={{ background: '#fff', padding: '14px', borderRadius: '14px', border: '1px solid #e2e8f0', textAlign: 'center' }}>
-                    <div style={{ fontSize: '11px', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', marginBottom: '6px' }}>Attached Digital Signature</div>
-                    <img src={signatureData} alt="Signature" style={{ maxHeight: '60px', border: '1px solid #cbd5e1', borderRadius: '8px', padding: '4px' }} />
-                  </div>
-                )}
+                {/* Signature Preview removed */}
               </div>
             </div>
           )}

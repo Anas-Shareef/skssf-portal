@@ -116,3 +116,4 @@ BEGIN
       ADD CONSTRAINT uq_loan_installment_number UNIQUE (loan_id, installment_number);
   END IF;
 END $$;
+

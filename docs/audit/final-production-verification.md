@@ -228,3 +228,4 @@ A complete database audit was performed comparing `public.repayment_installments
 
 - **Readiness:** The frontend application, backend serverless APIs, build system, inventory flows, and repayment synchronization are fully verified and stable on production.
 - **Known Limitation:** The database administrator must run the migration `supabase/migrations/20261031_security_and_rls_hardening.sql` in the Supabase Dashboard SQL Editor to activate strict Row Level Security policies on `repayment_installments` and `loan_requests`. Once executed, production security is 100% complete.
+

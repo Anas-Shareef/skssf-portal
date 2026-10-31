@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import { clearFrontendCache, syncFromBackend, localDb } from '../lib/localDb';
 import { api } from '../lib/api';
+import { supabase } from '../lib/supabaseClient';
 
 export type Profile = {
   id: string;
@@ -58,6 +59,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let mounted = true;
     const restoreSession = async () => {
+      // First try to restore from Supabase's own persisted session (handles refresh token rotation)
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          const user = session.user;
+          // Sync the current access token to sessionStorage so backend API calls work
+          sessionStorage.setItem('active_api_token', session.access_token);
+          sessionStorage.setItem('active_user_id', user.id);
+
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', user.id)
+            .maybeSingle();
+
+          if (mounted && profile) {
+            setProfile({
+              ...profile,
+              email: user.email || '',
+              address: profile.addr,
+              role: (profile.role || 'member').toLowerCase() as Profile['role'],
+              id: profile.code || profile.id,
+              db_id: profile.id,
+              unit: profile.branch || profile.unit,
+              admin_title: profile.admin_title,
+              assigned_zone: profile.assigned_zone,
+              member_unique_code: profile.member_unique_code,
+              is_panel_coordinator: profile.is_panel_coordinator || false,
+            } as Profile);
+            if (mounted) setLoading(false);
+            return;
+          }
+        }
+      } catch (sessionErr) {
+        console.warn('Supabase getSession error:', sessionErr);
+      }
+
+      // Fallback: try sessionStorage token
       const token = sessionStorage.getItem('active_api_token');
       if (token) {
         try {
@@ -85,8 +124,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
 
     void restoreSession();
+
+    // Subscribe to auth state changes (token refresh, sign-out)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.access_token) {
+        sessionStorage.setItem('active_api_token', session.access_token);
+        sessionStorage.setItem('active_user_id', session.user.id);
+      } else if (_event === 'SIGNED_OUT') {
+        sessionStorage.removeItem('active_api_token');
+        sessionStorage.removeItem('active_user_id');
+      }
+    });
+
     return () => {
       mounted = false;
+      subscription.unsubscribe();
     };
   }, []);
 

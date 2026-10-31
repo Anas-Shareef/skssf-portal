@@ -27,7 +27,26 @@ export default async function handler(req, res) {
       relationship,
       member_notes,
       purpose,
-      submitted_by_member_id
+      submitted_by_member_id,
+      // public form fields (sent from PublicLoanRequest.tsx)
+      is_public_referral,
+      referred_member_id,
+      referred_member_name,
+      loan_purpose_category,
+      loan_purpose_detail,
+      father_name,
+      dob,
+      gender,
+      aadhaar_last4,
+      whatsapp,
+      income_source,
+      monthly_income,
+      existing_debts,
+      existing_debts_detail,
+      witness1_name,
+      witness1_phone,
+      witness2_name,
+      witness2_phone
     } = req.body || {};
 
     const nameVal = applicant_name || 'Applicant';
@@ -39,12 +58,71 @@ export default async function handler(req, res) {
     // Truncate purpose & notes to <= 220 chars to guarantee VARCHAR(255) compliance
     const cleanPurpose = (purpose || 'Loan Request').slice(0, 220);
     const cleanNotes = (member_notes || '').slice(0, 220);
+
+    // ====================================================================
+    // PATH A: Public referral form (from /request/:memberCode)
+    // Creates a loan_request entry so the referring member sees it in inbox.
+    // ====================================================================
+    if (is_public_referral) {
+      const referredId = referred_member_id || submitted_by_member_id || null;
+
+      // Build the `reason` summary string that the inbox filter uses
+      const referredName = referred_member_name || '';
+      const reasonStr = [
+        referredName ? `Referred By: ${referredName}` : '',
+        loan_purpose_category ? `Category: ${loan_purpose_category}` : '',
+        loan_purpose_detail ? `Details: ${loan_purpose_detail}` : '',
+        `Period: ${monthsVal} Months`,
+        monthly_income ? `Income: ₹${monthly_income} (${income_source || ''})` : '',
+        existing_debts ? `Debts: ${existing_debts_detail || 'Yes'}` : 'Debts: None',
+        aadhaar_last4 ? `Aadhaar Last 4: ${aadhaar_last4}` : '',
+        dob ? `DOB: ${dob}${gender ? ` (${gender})` : ''}` : ''
+      ].filter(Boolean).join('\n');
+
+      const requestPayload = {
+        requester_name: nameVal,
+        requester_phone: phoneVal,
+        requester_address: addressVal,
+        reason: reasonStr || cleanPurpose,
+        approximate_amount: amtVal,
+        loan_amount_requested: amtVal,
+        loan_purpose_category: loan_purpose_category || null,
+        loan_purpose_detail: loan_purpose_detail || null,
+        repayment_period_months: monthsVal,
+        applicant_name: nameVal,
+        applicant_phone: phoneVal,
+        monthly_income: monthly_income ? parseFloat(monthly_income) : null,
+        income_source: income_source || null,
+        existing_debts: !!existing_debts,
+        existing_debts_detail: existing_debts_detail || null,
+        declaration_agreed: true,
+        referred_member_id: referredId,
+        referred_member_name: referredName || null,
+        status: 'DRAFT_UNASSIGNED'
+      };
+
+      const { data: reqData, error: reqErr } = await supabase
+        .from('loan_requests')
+        .insert([requestPayload])
+        .select();
+
+      if (reqErr) {
+        console.error('loan_requests insert error:', reqErr.message);
+        throw new Error('Failed to save application: ' + reqErr.message);
+      }
+
+      return res.status(200).json({ success: true, record: reqData ? reqData[0] : null });
+    }
+
+    // ====================================================================
+    // PATH B: Member formally submits an inbox request to admin (loans table)
+    // ====================================================================
     const loanNo = 'PYD-IL-2026-' + Math.floor(10000 + Math.random() * 90000);
 
     // Candidates in order of preference.
     // Mandatory NOT NULL columns provided in ALL candidates: `loan_no`, `name`, `amount`, `purpose`, `status`.
     const candidates = [
-      // Candidate A: Full PRD Schema with all column aliases
+      // Candidate A: Full PRD Schema
       {
         loan_no: loanNo,
         name: nameVal,
@@ -59,12 +137,11 @@ export default async function handler(req, res) {
         repayment_period_months: monthsVal,
         member_notes: cleanNotes,
         submitted_by_member_id: submitted_by_member_id || null,
-        filed_by_member_id: submitted_by_member_id || null,
         source_request_id: source_request_id || null,
         workflow_status: 'PENDING_COORDINATOR_REVIEW',
         status: 'pending'
       },
-      // Candidate B: Extended schema without source_request_id / filed_by_member_id
+      // Candidate B: without source_request_id
       {
         loan_no: loanNo,
         name: nameVal,
@@ -81,7 +158,7 @@ export default async function handler(req, res) {
         workflow_status: 'PENDING_COORDINATOR_REVIEW',
         status: 'pending'
       },
-      // Candidate C: Legacy DB Schema (loan_no, name, amount, amt, purpose, status, submitted_by_member_id)
+      // Candidate C: Legacy DB Schema
       {
         loan_no: loanNo,
         name: nameVal,
@@ -91,7 +168,7 @@ export default async function handler(req, res) {
         submitted_by_member_id: submitted_by_member_id || null,
         status: 'pending'
       },
-      // Candidate D: Universal Base Schema (loan_no, name, amount, purpose, status)
+      // Candidate D: Universal Base Schema
       {
         loan_no: loanNo,
         name: nameVal,
