@@ -17,12 +17,12 @@ export default async function handler(req, res) {
 
     // 1. Fetch pending, partial, or overdue installments
     const { data: installments, error: fetchInstError } = await supabase
-      .from('repayment_instalments')
+      .from('repayment_installments')
       .select('*, loans(*)')
       .in('status', ['PENDING', 'PARTIAL', 'OVERDUE']);
 
     if (fetchInstError) {
-      console.warn('repayment_instalments query failed:', fetchInstError.message);
+      console.warn('repayment_installments query failed:', fetchInstError.message);
       return res.status(500).json({ success: false, error: fetchInstError.message });
     }
 
@@ -118,7 +118,7 @@ export default async function handler(req, res) {
           // 3. Mark instalment status as OVERDUE if past due date
           if (daysUntilDue < 0) {
             await supabase
-              .from('repayment_instalments')
+              .from('repayment_installments')
               .update({ status: 'OVERDUE' })
               .eq('id', inst.id);
           }

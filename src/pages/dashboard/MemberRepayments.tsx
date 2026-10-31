@@ -48,9 +48,9 @@ export default function MemberRepayments() {
         return;
       }
 
-      // 2. Fetch repayment_instalments for these loans
+      // 2. Fetch repayment_installments for these loans
       const { data: instData, error: instErr } = await supabase
-        .from('repayment_instalments')
+        .from('repayment_installments')
         .select('*')
         .in('loan_id', loanIds)
         .order('due_date', { ascending: true });
@@ -133,7 +133,7 @@ export default function MemberRepayments() {
       const newStatus = isFullyPaid ? 'PAID' : 'PARTIAL';
 
       const { error: updateErr } = await supabase
-        .from('repayment_instalments')
+        .from('repayment_installments')
         .update({
           amount_paid: newPaidAmt,
           status: newStatus,

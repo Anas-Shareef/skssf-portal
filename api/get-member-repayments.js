@@ -34,7 +34,7 @@ export default async function handler(req, res) {
   const { data: installments, error: instError } = await supabase
     .from('repayment_installments')
     .select('*, loans!inner(*)')
-    .eq('loans.submitted_by_member_id', profile.id)
+    .or(`loans.submitted_by_member_id.eq.${profile.id},loans.filed_by_member_id.eq.${profile.id}`)
     .order('due_date');
 
   if (instError) return res.status(500).json({ error: instError.message });

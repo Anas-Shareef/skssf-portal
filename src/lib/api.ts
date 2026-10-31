@@ -132,10 +132,22 @@ export const api = {
         loanFetchPromise,
         supabase.from('campaigns').select('*').order('created_at', { ascending: false }),
         supabase.from('donations').select('*').order('created_at', { ascending: false }),
-        supabase.from('products').select('*').order('created_at', { ascending: false }),
-        supabase.from('units').select('*').order('created_at', { ascending: false }),
+        fetch('/api/inventory?resource=items', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        }).then(r => r.json()).then(j => ({ data: j.items || [] })).catch(async () => {
+          const { data: directItems } = await supabase.from('inventory_items').select('*');
+          if (directItems && directItems.length > 0) return { data: directItems };
+          return supabase.from('products').select('*').order('created_at', { ascending: false });
+        }),
+        supabase.from('inventory_units').select('*').order('created_at', { ascending: false }).then(res => {
+          if (res.data && res.data.length > 0) return res;
+          return supabase.from('units').select('*').order('created_at', { ascending: false });
+        }),
         supabase.from('kits').select('*').order('created_at', { ascending: false }),
-        supabase.from('inventory_transactions').select('*').order('happened_at', { ascending: false })
+        supabase.from('inventory_checkouts').select('*').order('created_at', { ascending: false }).then(res => {
+          if (res.data && res.data.length > 0) return res;
+          return supabase.from('inventory_transactions').select('*').order('happened_at', { ascending: false });
+        })
       ]);
 
       let config = portalConfig;
@@ -181,22 +193,25 @@ export const api = {
         const { data, error } = await supabase.from('repayment_installments').select('*').eq('loan_id', loan.id).order('installment_number');
         if (error) throw error;
         
-        const mapped = (data || []).map((r: any) => ({
-          id: r.id,
-          loan_id: r.loan_id,
-          installment_number: r.installment_number,
-          due_date: r.due_date,
-          amount_due: r.amount_due,
-          status: (r.status || '').toLowerCase(),
-          paid_date: r.payment_date || null,
-          paid_amount: r.amount_paid || null,
-          payment_method: r.payment_method || null,
-          payment_reference: r.reference_note || null,
-          notes: r.reference_note || null
-        }));
-        return { data: mapped } as T;
+        if (data && data.length > 0) {
+          const mapped = (data || []).map((r: any) => ({
+            id: r.id,
+            loan_id: r.loan_id,
+            installment_number: r.installment_number,
+            due_date: r.due_date,
+            amount_due: r.amount_due,
+            status: (r.status || '').toLowerCase(),
+            paid_date: r.payment_date || null,
+            paid_amount: r.amount_paid || null,
+            payment_method: r.payment_method || null,
+            payment_reference: r.reference_note || null,
+            notes: r.reference_note || null
+          }));
+          return { data: mapped } as T;
+        }
+        throw new Error('FallbackToLoanRepayments');
       } catch (err: any) {
-        if (isTableMissingError(err)) {
+        if (isTableMissingError(err) || err.message === 'FallbackToLoanRepayments') {
           const { data: loan } = await supabase.from('loans').select('id, amt, months, repayments').eq('loan_no', loanId).maybeSingle();
           if (loan) {
             const installments = (loan.repayments || []).map((r: any, idx: number) => ({
@@ -226,15 +241,18 @@ export const api = {
       try {
         const { data: installments, error } = await supabase.from('repayment_installments').select('*');
         if (error) throw error;
-        const mapped = (installments || []).map((r: any) => ({
-          status: (r.status || '').toLowerCase(),
-          amount_due: r.amount_due,
-          paid_amount: r.amount_paid || 0,
-          paid_date: r.payment_date || null
-        }));
-        return { data: calculateRepaymentsOverview(mapped) } as T;
+        if (installments && installments.length > 0) {
+          const mapped = (installments || []).map((r: any) => ({
+            status: (r.status || '').toLowerCase(),
+            amount_due: r.amount_due,
+            paid_amount: r.amount_paid || 0,
+            paid_date: r.payment_date || null
+          }));
+          return { data: calculateRepaymentsOverview(mapped) } as T;
+        }
+        throw new Error('FallbackToLoanRepayments');
       } catch (err: any) {
-        if (isTableMissingError(err)) {
+        if (isTableMissingError(err) || err.message === 'FallbackToLoanRepayments') {
           const { data: loans } = await supabase.from('loans').select('id, amt, repayments');
           const allInsts: any[] = [];
           (loans || []).forEach((loan: any) => {
@@ -258,23 +276,26 @@ export const api = {
       try {
         const { data, error } = await supabase.from('repayment_installments').select('*, loans(*)').order('due_date');
         if (error) throw error;
-        const mapped = (data || []).map((r: any, idx: number) => ({
-          id: r.id,
-          loan_id: r.loan_id,
-          loan: r.loans,
-          installment_number: r.installment_number,
-          due_date: r.due_date,
-          amount_due: r.amount_due,
-          status: (r.status || '').toLowerCase(),
-          paid_date: r.payment_date || null,
-          paid_amount: r.amount_paid || null,
-          payment_method: r.payment_method || null,
-          payment_reference: r.reference_note || null,
-          notes: r.reference_note || null
-        }));
-        return { data: mapped } as T;
+        if (data && data.length > 0) {
+          const mapped = (data || []).map((r: any, idx: number) => ({
+            id: r.id,
+            loan_id: r.loan_id,
+            loan: r.loans,
+            installment_number: r.installment_number,
+            due_date: r.due_date,
+            amount_due: r.amount_due,
+            status: (r.status || '').toLowerCase(),
+            paid_date: r.payment_date || null,
+            paid_amount: r.amount_paid || null,
+            payment_method: r.payment_method || null,
+            payment_reference: r.reference_note || null,
+            notes: r.reference_note || null
+          }));
+          return { data: mapped } as T;
+        }
+        throw new Error('FallbackToLoanRepayments');
       } catch (err: any) {
-        if (isTableMissingError(err)) {
+        if (isTableMissingError(err) || err.message === 'FallbackToLoanRepayments') {
           const { data: loans } = await supabase.from('loans').select('*');
           const allInsts: any[] = [];
           (loans || []).forEach((loan: any) => {
@@ -660,6 +681,32 @@ export const api = {
       loan.status = loanStatus;
       if (loanStatus === 'approved') {
         loan.approved_date = new Date().toISOString().split('T')[0];
+        if (!loan.repayments || loan.repayments.length === 0) {
+          const months = Number(loan.repayment_period_months || loan.months || 12);
+          const amt = Number(loan.amount || loan.amt || 0);
+          const emi = Math.round(amt / Math.max(1, months));
+          const schedule = [];
+          const now = new Date();
+          for (let i = 1; i <= months; i++) {
+            const dueDate = new Date(now.getFullYear(), now.getMonth() + i, 1).toISOString().split('T')[0];
+            schedule.push({ amt: emi, due: dueDate, paid: null });
+          }
+          loan.repayments = schedule;
+          try {
+            for (let i = 0; i < schedule.length; i++) {
+              await supabase.from('repayment_installments').upsert({
+                loan_id: loan.id,
+                installment_number: i + 1,
+                due_date: schedule[i].due,
+                amount_due: schedule[i].amt,
+                amount_paid: 0,
+                status: 'PENDING'
+              }, { onConflict: 'loan_id,installment_number' });
+            }
+          } catch (instErr) {
+            console.warn('Failed to auto-generate repayment_installments table rows:', instErr);
+          }
+        }
       }
 
       const audit = loan.audit ?? [];
@@ -686,6 +733,7 @@ export const api = {
         approved_date: loan.approved_date,
         request: loan.request,
         audit: loan.audit,
+        repayments: loan.repayments,
         workflow_status: workflowStatus
       }).eq('id', loan.id).select().single();
       if (updateErr) throw new Error(updateErr.message);

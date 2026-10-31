@@ -52,7 +52,7 @@ export default function FiledLoans() {
       const loanIds = loanList.map(l => l.id);
       if (loanIds.length > 0) {
         const { count, error: instErr } = await supabase
-          .from('repayment_instalments')
+          .from('repayment_installments')
           .select('id', { count: 'exact', head: true })
           .in('loan_id', loanIds)
           .eq('status', 'OVERDUE');

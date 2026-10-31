@@ -33,18 +33,18 @@ const SKSSF_LOGO = `data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9Ij
 const buildNav = (role: string, isPanelCoordinator: boolean, hasPermission: (perm: string) => boolean) => {
   const pending = localDb.getLoans().filter((l: any) => l.status === 'pending').length;
 
-  const showInventory = hasPermission('inventory.view') || 
-                        hasPermission('catalogue.view') || 
-                        hasPermission('barcode.view') || 
-                        hasPermission('scanner.use') || 
-                        hasPermission('checkout.view') || 
-                        hasPermission('missions.view');
+  const showInventory = hasPermission('inventory.view') ||
+    hasPermission('catalogue.view') ||
+    hasPermission('barcode.view') ||
+    hasPermission('scanner.use') ||
+    hasPermission('checkout.view') ||
+    hasPermission('missions.view');
 
   const showSahachari = role === 'super' || hasPermission('sahachari');
   const showDonations = role === 'super' || hasPermission('donations');
 
   const mainSection = { sec: 'Main', items: [{ ic: BarChart3, lbl: 'Dashboard', path: '' }] };
-  
+
   // Build items lists conditionally
   const loanItems = [];
   if (role === 'super' || hasPermission('loan')) {
@@ -124,12 +124,14 @@ const buildNav = (role: string, isPanelCoordinator: boolean, hasPermission: (per
   // Member
   const memberNav = [
     { sec: 'Main', items: [{ ic: BarChart3, lbl: 'My Dashboard', path: '' }] },
-    { sec: 'Tasks', items: [
-      { ic: Inbox, lbl: 'Requests Inbox', path: '/inbox' },
-      { ic: CircleDollarSign, lbl: 'Loans I Filed', path: '/filed-loans' },
-      { ic: CalendarCheck, lbl: 'Repayments', path: '/repayments' },
-      { ic: ClipboardPenLine, lbl: 'New Application', path: '/apply' }
-    ]}
+    {
+      sec: 'Tasks', items: [
+        { ic: Inbox, lbl: 'Requests Inbox', path: '/inbox' },
+        { ic: CircleDollarSign, lbl: 'Loans I Filed', path: '/filed-loans' },
+        { ic: CalendarCheck, lbl: 'Repayments', path: '/repayments' },
+        { ic: ClipboardPenLine, lbl: 'New Application', path: '/apply' }
+      ]
+    }
   ];
 
   const memberLogistics = [];
@@ -208,13 +210,13 @@ export default function DashboardLayout() {
 
   const role = profile?.role || 'member';
   const prefix = role === 'super' ? '/super-admin/dashboard' : role === 'admin' ? '/admin/dashboard' : role === 'coordinator' ? '/coordinator/dashboard' : '/member/dashboard';
-  
+
   const nav = buildNav(role, profile?.is_panel_coordinator || false, hasPermission);
   const roleLabel = ROLE_LABELS[role] || ROLE_LABELS.member;
   const initials = (profile?.name || 'U').split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase();
 
   const isActive = (path: string) => path === '' ? location.pathname === prefix : location.pathname.startsWith(`${prefix}${path}`);
-  
+
   const [activeCheckoutsCount, setActiveCheckoutsCount] = useState(0);
   const [isInventoryOpen, setIsInventoryOpen] = useState(location.pathname.includes('/inventory'));
 
@@ -245,7 +247,7 @@ export default function DashboardLayout() {
       setIsInventoryOpen(true);
     }
   }, [location.pathname]);
-  
+
   const getPageTitle = () => {
     if (location.pathname === prefix) return 'Dashboard';
     const seg = location.pathname.split('/').pop() || '';
@@ -294,7 +296,7 @@ export default function DashboardLayout() {
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: '#f8fafc', fontFamily: '"Outfit", "Inter", sans-serif' }}>
-      
+
       {/* ─── SIDEBAR NAVIGATION (Desktop/Tablet) ─── */}
       {!isMobile && (
         <aside style={{
@@ -321,7 +323,7 @@ export default function DashboardLayout() {
                 {g.items.map((item: any, ii: number) => {
                   const Icon = item.ic;
                   const active = isActive(item.path);
-                  
+
                   if (item.path === '/inventory') {
                     const inventorySubItems = role === 'member' ? [
                       { lbl: '🛍️ Product Catalog', tab: 'catalogue' },
@@ -364,23 +366,23 @@ export default function DashboardLayout() {
                             {!isTablet && <span>Inventory &amp; Catalog</span>}
                           </div>
                           {!isTablet && (
-                            <ChevronRight 
-                              size={16} 
-                              style={{ 
-                                transform: isInventoryOpen ? 'rotate(90deg)' : 'none', 
+                            <ChevronRight
+                              size={16}
+                              style={{
+                                transform: isInventoryOpen ? 'rotate(90deg)' : 'none',
                                 transition: 'transform 0.2s',
                                 color: '#94a3b8'
-                              }} 
+                              }}
                             />
                           )}
                         </button>
 
                         {isInventoryOpen && !isTablet && (
-                          <div style={{ 
-                            display: 'flex', 
-                            flexDirection: 'column', 
-                            gap: '4px', 
-                            paddingLeft: '16px', 
+                          <div style={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '4px',
+                            paddingLeft: '16px',
                             marginTop: '6px',
                             borderLeft: '1.5px solid #1e293b',
                             marginLeft: '20px'
@@ -408,13 +410,13 @@ export default function DashboardLayout() {
                                 >
                                   <span>{sub.lbl}</span>
                                   {sub.badge !== undefined && sub.badge > 0 && (
-                                    <span style={{ 
-                                      background: '#ef4444', 
-                                      color: '#fff', 
-                                      fontSize: '9.5px', 
-                                      fontWeight: 900, 
-                                      padding: '1px 6px', 
-                                      borderRadius: '50px' 
+                                    <span style={{
+                                      background: '#ef4444',
+                                      color: '#fff',
+                                      fontSize: '9.5px',
+                                      fontWeight: 900,
+                                      padding: '1px 6px',
+                                      borderRadius: '50px'
                                     }}>
                                       {sub.badge}
                                     </span>
@@ -486,7 +488,7 @@ export default function DashboardLayout() {
 
       {/* ─── MAIN CONTENT WRAPPER ─── */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, paddingBottom: isMobile ? '70px' : 0 }}>
-        
+
         {/* Top Header Bar */}
         <header style={{
           height: '64px',

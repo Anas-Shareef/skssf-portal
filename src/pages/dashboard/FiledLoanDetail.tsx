@@ -49,10 +49,10 @@ export default function FiledLoanDetail() {
       const status = loanData.workflow_status || loanData.status;
       if (status === 'APPROVED' || status === 'DISBURSED' || status === 'REPAYMENT_COMPLETE') {
         const { data: instData, error: instErr } = await supabase
-          .from('repayment_instalments')
+          .from('repayment_installments')
           .select('*')
           .eq('loan_id', id)
-          .order('instalment_number', { ascending: true });
+          .order('installment_number', { ascending: true });
 
         if (!instErr && instData) {
           // Sort OVERDUE first, then by instalment_number
@@ -97,9 +97,9 @@ export default function FiledLoanDetail() {
       const newStatus = isFullyPaid ? 'PAID' : 'PARTIAL';
       const todayStr = new Date().toISOString().split('T')[0];
 
-      // Update repayment_instalment in Supabase
+      // Update repayment_installment in Supabase
       const { error: updateErr } = await supabase
-        .from('repayment_instalments')
+        .from('repayment_installments')
         .update({
           amount_paid: newPaidAmt,
           status: newStatus,
@@ -114,7 +114,7 @@ export default function FiledLoanDetail() {
 
       // Check if all instalments for this loan are now PAID
       const { data: allInsts } = await supabase
-        .from('repayment_instalments')
+        .from('repayment_installments')
         .select('status')
         .eq('loan_id', id);
 

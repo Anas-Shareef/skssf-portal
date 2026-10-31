@@ -168,22 +168,22 @@ const mapProductFromApi = (p: any) => ({
   id: p.product_no || String(p.id),
   name: p.name,
   sku: p.product_no || p.sku || String(p.id),
-  category: p.category,
+  category: p.category || p.categories?.name || '',
   unit: p.unit || '',
-  total_quantity: Number(p.total_quantity || 0),
-  available_quantity: Number(p.available_quantity || 0),
+  total_quantity: Number(p.total_quantity ?? p.total_stock ?? 0),
+  available_quantity: Number(p.available_quantity ?? p.available_stock ?? 0),
   // Support wide range of backend field names
-  photo: p.photo || p.image_url || p.image || p.image_path || p.picture || p.thumbnail || null,
+  photo: p.photo || p.image_url || p.image || p.image_path || p.picture || p.thumbnail || p.photo_url || null,
   created_at: p.created_at || '',
 });
 
 const mapUnitFromApi = (u: any) => ({
-  _id: u.id, // original numeric id
+  _id: u.id, // original id
   id: u.unit_no || u.id,
-  product_id: u.product?.product_no || u.product_no || u.product_id,
-  product_db_id: u.product_id, // Map to string ID for frontend consistency
-  unit_code: u.unit_no || '',
-  barcode: u.barcode,
+  product_id: u.product?.product_no || u.product_no || u.product_id || u.item_id,
+  product_db_id: u.product_id || u.item_id, // Map to string ID for frontend consistency
+  unit_code: u.unit_no || (u.unit_number ? `Unit #${u.unit_number}` : '') || '',
+  barcode: u.barcode || u.barcode_value || '',
   status: u.status,
   current_holder_id: u.current_holder?.code || u.current_holder_id || null,
   current_mission_id: u.current_mission?.campaign_no || u.current_mission_id || null,

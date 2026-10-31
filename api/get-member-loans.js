@@ -33,11 +33,11 @@ export default async function handler(req, res) {
 
   if (profError || !profile) return res.status(401).json({ error: 'Profile not found' });
 
-  // Fetch loans submitted by this member (service role = bypasses RLS)
+  // Fetch loans submitted or filed by this member (service role = bypasses RLS)
   const { data: loans, error: loansError } = await supabase
     .from('loans')
     .select('*')
-    .eq('submitted_by_member_id', profile.id)
+    .or(`submitted_by_member_id.eq.${profile.id},filed_by_member_id.eq.${profile.id}`)
     .order('created_at', { ascending: false });
 
   if (loansError) return res.status(500).json({ error: loansError.message });

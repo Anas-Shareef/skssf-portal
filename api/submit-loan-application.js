@@ -134,7 +134,7 @@ export default async function handler(req, res) {
         await supabase
           .from('loan_requests')
           .update({
-            status: 'forwarded',
+            status: 'CONVERTED',
             converted_to_loan_id: insertedLoan.id
           })
           .eq('id', source_request_id);
