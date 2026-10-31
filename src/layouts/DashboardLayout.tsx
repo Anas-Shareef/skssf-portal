@@ -271,8 +271,8 @@ export default function DashboardLayout() {
     return t[seg] || seg;
   };
 
-  const handleSignOut = () => {
-    signOut();
+  const handleSignOut = async () => {
+    await signOut();
     navigate('/');
   };
 

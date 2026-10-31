@@ -901,7 +901,7 @@ const [pConfig, setPConfig] = useState(() => localDb.getPortalConfig());
         message="You will be returned to the portal selector. You can log back in anytime."
         confirmLabel="Yes, Sign Out"
         cancelLabel="Stay"
-        onConfirm={() => { signOut(); window.location.href = '/'; }}
+        onConfirm={() => { void signOut().finally(() => { window.location.href = '/'; }); }}
         onCancel={() => setConfirmLogout(false)}
       />
     </>
