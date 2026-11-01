@@ -4,7 +4,7 @@
 **Supabase project:** `jgxzdwbixqhkjrdbhnlc`  
 **Test reference supplied:** `PYD-IL-2026-35814`  
 **Referring member:** Rizwan (`0bb52e0c-4a26-42de-af84-f48663a22016`)  
-**Fix commit:** `619fe1a`  
+**Fix commits:** `619fe1a`, `43826e6`, `61ea702`  
 **Date:** 2026-11-01
 
 ## 1. Executive result
@@ -20,6 +20,8 @@ The page was **dynamic but broken**, not static:
 - Copy Link called `navigator.clipboard.writeText()` without awaiting or handling rejection.
 
 The fix uses the live `referred_member_id` relationship, persists the application reference in the existing `loan_requests.reason` trace field, makes success conditional on a confirmed API insert, hardens member actions, and adds a clipboard fallback with visible failure handling.
+
+The public referral API also creates a `notifications` row for the referred member after the application insert succeeds. The notification links to `/member/dashboard/inbox`; notification failure is logged without causing an applicant retry and duplicate application.
 
 No database schema or RLS policy was changed. No duplicate production application was created.
 
@@ -115,7 +117,7 @@ The formal member submission endpoint now requires an authenticated member and v
 4. The success screen is shown only after the API returns success.
 5. The unsafe direct anonymous fallback insert was removed.
 6. Formal member submission requires a bearer token and verifies ownership of `source_request_id`.
-7. Member review/dismiss actions now use authenticated `api/update-member-request.js`, which verifies `referred_member_id` before updating.
+7. Member review/dismiss actions now use authenticated POST actions on `api/get-member-inbox.js`, which verifies `referred_member_id` before updating.
 
 ## 5. Copy Link fix
 
@@ -210,15 +212,30 @@ The page refetches on mount, profile restoration, window focus, and visible-tab 
 - `src/pages/PublicLoanRequest.tsx`
 - `src/pages/dashboard/MemberInbox.tsx`
 - `api/submit-loan-application.js`
-- `api/update-member-request.js`
+- `api/get-member-inbox.js`
+- `src/layouts/DashboardLayout.tsx`
 
 ## 9. Deployment
 
 ```text
-Commit: 619fe1a
-Message: fix(referrals): persist public references and repair member application counters
+Commits: 619fe1a, 43826e6, 61ea702
+Deployment commit: 61ea702
 Branch: main
 Build: PASS
 ```
 
-Production deployment is triggered from GitHub `main`. Final production browser verification must confirm the deployed bundle contains the new counter query and clipboard handler. The old supplied reference cannot be retroactively recovered because it was never persisted; new submissions now persist the reference in the request trace and return it from the API.
+The initial `619fe1a` deployment failed; consolidating authenticated review/dismiss actions into the existing inbox endpoint in `61ea702` resolved deployment. Production is now serving bundle `assets/index-DgZVe0Fh.js`.
+
+Production browser verification after deployment:
+
+```text
+Apply page authenticated as Rizwan: Total 2, Pending 2, Submitted 0
+Counter request: HTTP 200, filtered by referred_member_id = Rizwan UUID
+Refresh: counters return 2 / 2 / 0 again
+Referral URL: https://skssf-portal.vercel.app/request/MBR-0BB5
+Referral form resolution: HTTP 200, referred member Rizwan
+```
+
+The browser automation environment denied clipboard access because the evaluated click was not a trusted focused user gesture (`NotAllowedError: Document is not focused`). The production handler now reports that failure rather than falsely claiming success; a real focused user click uses the Clipboard API and the fallback path.
+
+The old supplied reference cannot be retroactively recovered because it was never persisted; new submissions now persist the reference in the request trace and return it from the API.
