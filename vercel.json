@@ -60,6 +60,14 @@
       "destination": "/api/inventory?resource=checkout-actions"
     },
     {
+      "source": "/api/get-member-loans",
+      "destination": "/api/get-member-data?resource=loans"
+    },
+    {
+      "source": "/api/get-member-repayments",
+      "destination": "/api/get-member-data?resource=repayments"
+    },
+    {
       "source": "/api/(.*)",
       "destination": "/api/$1"
     },
