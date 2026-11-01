@@ -11,6 +11,7 @@ export default function LoanApplication() {
   const [memberCode, setMemberCode] = useState('');
   const [copied, setCopied] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [statsError, setStatsError] = useState<string | null>(null);
   const qrRef = useRef<HTMLImageElement | null>(null);
 
   // Link Stats
@@ -29,32 +30,48 @@ export default function LoanApplication() {
     if (profile) {
       const code = profile.member_unique_code || profile.member_code || `MBR-${(profile.db_id || profile.id || '001').slice(0, 4).toUpperCase()}`;
       setMemberCode(code);
-      loadLinkStats(profile.db_id || profile.id);
+      void loadLinkStats(profile.db_id || profile.id);
     }
+  }, [profile]);
+
+  useEffect(() => {
+    if (!profile) return;
+    const refresh = () => {
+      if (document.visibilityState === 'visible') void loadLinkStats(profile.db_id || profile.id);
+    };
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    return () => {
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', refresh);
+    };
   }, [profile]);
 
   async function loadLinkStats(memberId: string) {
     try {
-      const { data, error } = await supabase
-        .from('loan_requests')
-        .select('id, status')
-        .or(`member_id.eq.${memberId},referred_member_id.eq.${memberId}`);
+       const { data, error } = await supabase
+         .from('loan_requests')
+         .select('id, status, converted_to_loan_id')
+         .eq('referred_member_id', memberId);
 
-      if (error) throw error;
+       if (error) throw error;
 
-      const total = (data || []).length;
-      const pending = (data || []).filter(r => r.status === 'NEW' || r.status === 'REVIEWED' || r.status === 'DRAFT_UNASSIGNED' || r.status === 'DRAFT').length;
-      const submitted = (data || []).filter(r => r.status === 'SUBMITTED' || r.status === 'CONVERTED').length;
+       setStatsError(null);
+       const unique = Array.from(new Map((data || []).map(r => [r.id, r])).values());
+       const total = unique.length;
+       const pending = unique.filter(r => ['NEW', 'REVIEWED', 'DRAFT_UNASSIGNED', 'DRAFT'].includes(r.status)).length;
+       const submitted = unique.filter(r => r.converted_to_loan_id != null || ['SUBMITTED', 'CONVERTED'].includes(r.status)).length;
 
-      setStats({
+       setStats({
         totalReceived: total,
         pendingInbox: pending,
         submittedToAdmin: submitted
       });
-    } catch (err) {
-      console.error('Error loading link stats:', err);
-    }
-  }
+     } catch (err) {
+       console.error('Error loading link stats:', err);
+       setStatsError('Unable to load live application counts.');
+     }
+   }
 
   // Construct full request URL
   const requestUrl = memberCode
@@ -64,11 +81,29 @@ export default function LoanApplication() {
   // QR Code URL via QuickChart API
   const qrImageUrl = `https://quickchart.io/qr?text=${encodeURIComponent(requestUrl)}&size=240&margin=2`;
 
-  const handleCopyLink = () => {
-    navigator.clipboard.writeText(requestUrl);
-    setCopied(true);
-    showToast('Link copied to clipboard!');
-    setTimeout(() => setCopied(false), 2500);
+  const handleCopyLink = async () => {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(requestUrl);
+      } else {
+        const input = document.createElement('textarea');
+        input.value = requestUrl;
+        input.setAttribute('readonly', '');
+        input.style.position = 'fixed';
+        input.style.opacity = '0';
+        document.body.appendChild(input);
+        input.select();
+        const copiedByFallback = document.execCommand('copy');
+        document.body.removeChild(input);
+        if (!copiedByFallback) throw new Error('Clipboard access was denied.');
+      }
+      setCopied(true);
+      showToast('Link copied to clipboard!');
+      setTimeout(() => setCopied(false), 2500);
+    } catch (err) {
+      console.error('Copy referral link failed:', err);
+      showToast('Copy failed. Please select and copy the link manually.');
+    }
   };
 
   const handleDownloadQr = () => {
@@ -112,6 +147,7 @@ export default function LoanApplication() {
       </div>
 
       {/* Stats Cards */}
+      {statsError && <div style={{ marginBottom: '16px', padding: '12px 16px', borderRadius: '12px', background: '#fef2f2', color: '#b91c1c', fontWeight: 700, fontSize: '13px' }}>{statsError}</div>}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '28px' }}>
         <div className="card" style={{ padding: '20px', textAlign: 'center', borderRadius: '20px', background: '#fff', border: '1.5px solid #e2e8f0' }}>
           <div style={{ fontSize: '11px', fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>Total Applications Received</div>

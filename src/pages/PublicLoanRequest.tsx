@@ -257,8 +257,8 @@ export default function PublicLoanRequest() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             is_public_referral: true,
-            referred_member_id: member ? member.id : null,
-            referred_member_name: member ? member.name : null,
+            referral_code: code || null,
+            application_reference: generatedRef,
             applicant_name: fullName.trim(),
             applicant_phone: phone.trim(),
             applicant_address: fullAddressStr,
@@ -282,43 +282,14 @@ export default function PublicLoanRequest() {
           const apiData = await res.json();
           if (apiData.success) {
             insertedRecord = apiData.record || true;
+            setRefNumber(apiData.reference || generatedRef);
           }
         }
       } catch (apiErr) {
         console.warn('API submission fallback to direct Supabase client insert:', apiErr);
       }
 
-      // Direct client fallback — insert into loan_requests so member inbox shows it
-      if (!insertedRecord) {
-        const reasonStr = `Referred By: ${member?.name || ''}\nCategory: ${finalCategory}\nDetails: ${purposeDetail.trim()}\nPeriod: ${monthsVal} Months\nIncome: ₹${monthlyIncome} (${incomeSource.trim()})\nDebts: ${existingDebts ? existingDebtsDetail.trim() : 'None'}\nWitness 1: ${witness1Name.trim()} (${witness1Phone.trim()})\nWitness 2: ${witness2Name.trim()} (${witness2Phone.trim()})\nDOB: ${dob} (${gender})`;
-
-        try {
-          await supabase.from('loan_requests').insert([{
-            requester_name: fullName.trim(),
-            requester_phone: phone.trim(),
-            requester_address: fullAddressStr,
-            reason: reasonStr.slice(0, 500),
-            approximate_amount: amtVal,
-            loan_amount_requested: amtVal,
-            loan_purpose_category: finalCategory,
-            loan_purpose_detail: purposeDetail.trim(),
-            repayment_period_months: monthsVal,
-            applicant_name: fullName.trim(),
-            applicant_phone: phone.trim(),
-            monthly_income: parseFloat(monthlyIncome) || null,
-            income_source: incomeSource.trim() || null,
-            existing_debts: existingDebts,
-            existing_debts_detail: existingDebts ? existingDebtsDetail.trim() : null,
-            declaration_agreed: true,
-            referred_member_id: member ? member.id : null,
-            referred_member_name: member ? member.name : null,
-            status: 'DRAFT_UNASSIGNED'
-          }]);
-          insertedRecord = true;
-        } catch (reqErr: any) {
-          console.warn('loan_requests fallback failed:', reqErr.message);
-        }
-      }
+      if (!insertedRecord) throw new Error('The application could not be saved. Please try again.');
 
       setSuccess(true);
       window.scrollTo({ top: 0, behavior: 'smooth' });

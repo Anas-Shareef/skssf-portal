@@ -30,6 +30,8 @@ export default async function handler(req, res) {
       submitted_by_member_id,
       // public form fields (sent from PublicLoanRequest.tsx)
       is_public_referral,
+      referral_code,
+      application_reference,
       referred_member_id,
       referred_member_name,
       loan_purpose_category,
@@ -64,11 +66,38 @@ export default async function handler(req, res) {
     // Creates a loan_request entry so the referring member sees it in inbox.
     // ====================================================================
     if (is_public_referral) {
-      const referredId = referred_member_id || submitted_by_member_id || null;
+      let referredId = null;
+      let referredName = null;
+      if (referral_code) {
+        const cleanCode = String(referral_code).trim().toUpperCase();
+        const { data: profiles, error: profileError } = await supabase
+          .from('profiles')
+          .select('id, name, member_unique_code, code')
+          .or(`member_unique_code.ilike.${cleanCode},code.ilike.${cleanCode}`);
+        if (profileError) throw profileError;
+        const direct = (profiles || [])[0];
+        if (direct) {
+          referredId = direct.id;
+          referredName = direct.name;
+        } else if (cleanCode.startsWith('MBR-')) {
+          const prefix = cleanCode.slice(4).toLowerCase();
+          const { data: allProfiles, error: allProfilesError } = await supabase
+            .from('profiles')
+            .select('id, name, member_unique_code, code');
+          if (allProfilesError) throw allProfilesError;
+          const match = (allProfiles || []).find(p => String(p.id || '').toLowerCase().startsWith(prefix));
+          if (match) {
+            referredId = match.id;
+            referredName = match.name;
+          }
+        }
+        if (!referredId) return res.status(400).json({ error: 'Invalid referral link' });
+      }
 
       // Build the `reason` summary string that the inbox filter uses
-      const referredName = referred_member_name || '';
+      const reference = String(application_reference || `PYD-IL-2026-${Math.floor(10000 + Math.random() * 90000)}`).trim();
       const reasonStr = [
+        `Application Reference: ${reference}`,
         referredName ? `Referred By: ${referredName}` : '',
         loan_purpose_category ? `Category: ${loan_purpose_category}` : '',
         loan_purpose_detail ? `Details: ${loan_purpose_detail}` : '',
@@ -97,7 +126,7 @@ export default async function handler(req, res) {
         existing_debts_detail: existing_debts_detail || null,
         declaration_agreed: true,
         referred_member_id: referredId,
-        referred_member_name: referredName || null,
+        referred_member_name: referredName,
         status: 'DRAFT_UNASSIGNED'
       };
 
@@ -111,7 +140,24 @@ export default async function handler(req, res) {
         throw new Error('Failed to save application: ' + reqErr.message);
       }
 
-      return res.status(200).json({ success: true, record: reqData ? reqData[0] : null });
+      return res.status(200).json({ success: true, reference, record: reqData ? reqData[0] : null });
+    }
+
+    // Formal member submission must be authenticated and must own the source request.
+    const authHeader = req.headers.authorization || '';
+    const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+    if (!token) return res.status(401).json({ error: 'Authentication required' });
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    if (authError || !user) return res.status(401).json({ error: 'Unauthenticated' });
+    if (!source_request_id) return res.status(400).json({ error: 'Source request is required' });
+    const { data: sourceRequest, error: sourceError } = await supabase
+      .from('loan_requests')
+      .select('id, referred_member_id, status')
+      .eq('id', source_request_id)
+      .maybeSingle();
+    if (sourceError) throw sourceError;
+    if (!sourceRequest || sourceRequest.referred_member_id !== user.id) {
+      return res.status(403).json({ error: 'You may only submit your own referred applications' });
     }
 
     // ====================================================================
@@ -136,7 +182,7 @@ export default async function handler(req, res) {
         requester_address: addressVal,
         repayment_period_months: monthsVal,
         member_notes: cleanNotes,
-        submitted_by_member_id: submitted_by_member_id || null,
+        submitted_by_member_id: user.id,
         source_request_id: source_request_id || null,
         workflow_status: 'PENDING_COORDINATOR_REVIEW',
         status: 'pending'
@@ -154,7 +200,7 @@ export default async function handler(req, res) {
         requester_phone: phoneVal,
         requester_address: addressVal,
         repayment_period_months: monthsVal,
-        submitted_by_member_id: submitted_by_member_id || null,
+        submitted_by_member_id: user.id,
         workflow_status: 'PENDING_COORDINATOR_REVIEW',
         status: 'pending'
       },
@@ -165,7 +211,7 @@ export default async function handler(req, res) {
         amount: amtVal,
         amt: amtVal,
         purpose: cleanPurpose,
-        submitted_by_member_id: submitted_by_member_id || null,
+        submitted_by_member_id: user.id,
         status: 'pending'
       },
       // Candidate D: Universal Base Schema

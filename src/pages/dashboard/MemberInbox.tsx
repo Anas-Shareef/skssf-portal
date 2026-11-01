@@ -52,17 +52,17 @@ export default function MemberInbox() {
         console.warn('API get-member-inbox fallback to direct client query:', apiErr);
       }
 
-      // 2. Direct client query fallback if API not used
-      if (dataList.length === 0) {
-        const memberId = profile.db_id || profile.id;
-        const memberName = profile.name || '';
-        const memberCode = profile.member_unique_code || profile.code || '';
+        // 2. Direct client query fallback if API not used. Only the
+        // authoritative referral UUID is accepted; names/reason text are not
+        // ownership controls.
+        if (dataList.length === 0) {
+          const memberId = profile.db_id || profile.id;
 
-        const { data: clientData, error } = await supabase
-          .from('loan_requests')
-          .select('*')
-          .or(`member_id.eq.${memberId},referred_member_id.eq.${memberId},referred_member_name.ilike.%${memberName}%,reason.ilike.%${memberName}%,reason.ilike.%${memberCode}%`)
-          .order('created_at', { ascending: false });
+          const { data: clientData, error } = await supabase
+            .from('loan_requests')
+            .select('*')
+            .eq('referred_member_id', memberId)
+            .order('created_at', { ascending: false });
 
         if (!error && clientData) {
           dataList = clientData;
@@ -106,14 +106,17 @@ export default function MemberInbox() {
     
     if (req.normalizedStatus === 'NEW') {
       try {
-        await supabase
-          .from('loan_requests')
-          .update({ status: 'pending' })
-          .eq('id', req.id);
-        
+        const token = await getAccessToken();
+        const response = await fetch('/api/update-member-request', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ requestId: req.id, action: 'review' })
+        });
+        if (!response.ok) throw new Error((await response.json()).error || 'Review update failed');
         req.normalizedStatus = 'REVIEWED';
+        setRequests(current => current.map(item => item.id === req.id ? { ...item, status: 'REVIEWED', normalizedStatus: 'REVIEWED' } : item));
       } catch (err) {
-        console.warn('Silent update request status fallback:', err);
+        showToast('e', err instanceof Error ? err.message : 'Review update failed.');
       }
     }
   };
@@ -132,21 +135,17 @@ export default function MemberInbox() {
 
     setActioning(true);
     try {
-      const memberId = profile?.db_id || profile?.id;
-      const applicantName = selectedRequest.applicant_name || selectedRequest.requester_name || selectedRequest.name || 'Applicant';
+       const applicantName = selectedRequest.applicant_name || selectedRequest.requester_name || selectedRequest.name || 'Applicant';
       const applicantPhone = selectedRequest.applicant_phone || selectedRequest.requester_phone || selectedRequest.phone || '';
       const applicantAddress = selectedRequest.requester_address || selectedRequest.applicant_address_house || '';
       const rawPurpose = selectedRequest.loan_purpose_detail || selectedRequest.reason || selectedRequest.purpose || 'Loan Request';
       const months = selectedRequest.repayment_period_months || 12;
 
-      let submissionSuccess = false;
-
-      // 1. Primary: Serverless Service Role API Endpoint
-      try {
-        const apiRes = await fetch('/api/submit-loan-application', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+       const token = await getAccessToken();
+       const apiRes = await fetch('/api/submit-loan-application', {
+           method: 'POST',
+           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+           body: JSON.stringify({
             source_request_id: selectedRequest.id,
             applicant_name: applicantName,
             applicant_phone: applicantPhone,
@@ -156,81 +155,12 @@ export default function MemberInbox() {
             relationship: relationship,
             member_notes: memberNotes.trim(),
             purpose: rawPurpose,
-            submitted_by_member_id: memberId
-          })
-        });
-
-        if (apiRes.ok) {
-          const apiData = await apiRes.json();
-          if (apiData.success) {
-            submissionSuccess = true;
-          }
-        }
-      } catch (apiErr) {
-        console.warn('API submission fallback to direct client retry:', apiErr);
-      }
-
-      // 2. Client-side fallback if server endpoint is unreachable
-      if (!submissionSuccess) {
-        const generatedLoanNo = 'LN-' + Math.floor(100000 + Math.random() * 900000);
-        const safePurpose = rawPurpose.slice(0, 200);
-        const safeNotes = memberNotes.trim().slice(0, 200);
-
-        // Candidate 1: Standard PRD schema with mandatory `amount`, `name`, `loan_no`
-        const c1Payload: any = {
-          loan_no: generatedLoanNo,
-          name: applicantName,
-          amount: recAmt,
-          amt: recAmt,
-          loan_amount_requested: recAmt,
-          loan_amount_approved: recAmt,
-          requester_name: applicantName,
-          requester_phone: applicantPhone,
-          requester_address: applicantAddress,
-          purpose: safePurpose,
-          repayment_period_months: months,
-          member_notes: safeNotes,
-          submitted_by_member_id: memberId,
-          status: 'pending'
-        };
-
-        const { data: c1Data, error: c1Err } = await supabase
-          .from('loans')
-          .insert([c1Payload])
-          .select();
-
-        if (!c1Err && c1Data && c1Data.length > 0) {
-          submissionSuccess = true;
-        } else {
-          // Candidate 2: Universal Base schema with `loan_no`, `name`, `amount`, `purpose`, `status`
-          const c2Payload: any = {
-            loan_no: generatedLoanNo,
-            name: applicantName,
-            amount: recAmt,
-            amt: recAmt,
-            purpose: safePurpose,
-            status: 'pending'
-          };
-
-          const { data: c2Data, error: c2Err } = await supabase
-            .from('loans')
-            .insert([c2Payload])
-            .select();
-
-          if (c2Err) throw new Error(c2Err.message || 'Submission failed.');
-          submissionSuccess = true;
-        }
-
-        // Update status of loan_requests item
-        try {
-          await supabase
-            .from('loan_requests')
-            .update({ status: 'forwarded' })
-            .eq('id', selectedRequest.id);
-        } catch (updErr) {
-          console.warn('Silent update loan_requests status fallback:', updErr);
-        }
-      }
+             submitted_by_member_id: profile?.db_id || profile?.id
+           })
+         });
+       if (!apiRes.ok) throw new Error((await apiRes.json()).error || 'Submission to admin failed.');
+       const apiData = await apiRes.json();
+       if (!apiData.success) throw new Error('Submission to admin failed.');
 
       showToast('s', 'Loan request submitted successfully to Admin Review Panel!');
       setShowSubmitModal(false);
@@ -252,13 +182,13 @@ export default function MemberInbox() {
 
     setActioning(true);
     try {
-      await supabase
-        .from('loan_requests')
-        .update({
-          status: 'DISMISSED',
-          dismissal_reason: dismissalReason.trim()
-        })
-        .eq('id', selectedRequest.id);
+       const token = await getAccessToken();
+       const response = await fetch('/api/update-member-request', {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+         body: JSON.stringify({ requestId: selectedRequest.id, action: 'dismiss', dismissalReason: dismissalReason.trim() })
+       });
+       if (!response.ok) throw new Error((await response.json()).error || 'Dismissal update failed.');
 
       showToast('s', 'Request dismissed.');
       setShowDismissModal(false);
