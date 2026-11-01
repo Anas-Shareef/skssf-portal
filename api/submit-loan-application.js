@@ -165,123 +165,151 @@ export default async function handler(req, res) {
     if (!source_request_id) return res.status(400).json({ error: 'Source request is required' });
     const { data: sourceRequest, error: sourceError } = await supabase
       .from('loan_requests')
-      .select('id, referred_member_id, status')
+      .select('id, referred_member_id, status, converted_to_loan_id, reason')
       .eq('id', source_request_id)
       .maybeSingle();
-    if (sourceError) throw sourceError;
+    if (sourceError) {
+      console.error('Source request lookup failed:', sourceError);
+      return res.status(500).json({ error: 'Unable to verify the source request.' });
+    }
     if (!sourceRequest || sourceRequest.referred_member_id !== user.id) {
       return res.status(403).json({ error: 'You may only submit your own referred applications' });
+    }
+    if (sourceRequest.status === 'DISMISSED') {
+      return res.status(409).json({ error: 'This request was dismissed and cannot be submitted.' });
+    }
+    if (sourceRequest.status === 'CONVERTED' || sourceRequest.converted_to_loan_id) {
+      return res.status(409).json({ error: 'This request has already been submitted to Admin.' });
+    }
+
+    const recommendedAmount = Number(amount);
+    const repaymentMonths = Number(months);
+    const relationshipValue = String(relationship || '').trim();
+    const assessmentNotes = String(member_notes || '').trim();
+    if (!Number.isFinite(recommendedAmount) || recommendedAmount <= 0) {
+      return res.status(400).json({ error: 'A valid recommended amount is required.' });
+    }
+    if (!Number.isInteger(repaymentMonths) || repaymentMonths <= 0) {
+      return res.status(400).json({ error: 'A valid repayment period is required.' });
+    }
+    if (!relationshipValue) {
+      return res.status(400).json({ error: 'Your relationship to the applicant is required.' });
+    }
+    if (assessmentNotes.length < 20) {
+      return res.status(400).json({ error: 'Member assessment notes must be at least 20 characters.' });
+    }
+
+    // Idempotency guard for retries/double-clicks. The production schema has
+    // source_request_id on loans; never create a second loan for one inbox row.
+    const { data: existingLoan, error: duplicateCheckError } = await supabase
+      .from('loans')
+      .select('id')
+      .eq('source_request_id', source_request_id)
+      .maybeSingle();
+    if (duplicateCheckError) {
+      console.error('Duplicate loan check failed:', duplicateCheckError);
+      return res.status(500).json({ error: 'Unable to verify whether this request was already submitted.' });
+    }
+    if (existingLoan) {
+      return res.status(409).json({ error: 'This request has already been submitted to Admin.' });
     }
 
     // ====================================================================
     // PATH B: Member formally submits an inbox request to admin (loans table)
     // ====================================================================
     const loanNo = 'PYD-IL-2026-' + Math.floor(10000 + Math.random() * 90000);
-
-    // Candidates in order of preference.
-    // Mandatory NOT NULL columns provided in ALL candidates: `loan_no`, `name`, `amount`, `purpose`, `status`.
-    const candidates = [
-      // Candidate A: Full PRD Schema
-      {
-        loan_no: loanNo,
-        name: nameVal,
-        amount: amtVal,
-        amt: amtVal,
-        loan_amount_requested: amtVal,
-        loan_amount_approved: amtVal,
-        purpose: cleanPurpose,
-        requester_name: nameVal,
-        requester_phone: phoneVal,
-        requester_address: addressVal,
-        repayment_period_months: monthsVal,
-        member_notes: cleanNotes,
-        submitted_by_member_id: user.id,
-        source_request_id: source_request_id || null,
-        workflow_status: 'PENDING_COORDINATOR_REVIEW',
-        status: 'pending'
-      },
-      // Candidate B: without source_request_id
-      {
-        loan_no: loanNo,
-        name: nameVal,
-        amount: amtVal,
-        amt: amtVal,
-        loan_amount_requested: amtVal,
-        loan_amount_approved: amtVal,
-        purpose: cleanPurpose,
-        requester_name: nameVal,
-        requester_phone: phoneVal,
-        requester_address: addressVal,
-        repayment_period_months: monthsVal,
-        submitted_by_member_id: user.id,
-        workflow_status: 'PENDING_COORDINATOR_REVIEW',
-        status: 'pending'
-      },
-      // Candidate C: Legacy DB Schema
-      {
-        loan_no: loanNo,
-        name: nameVal,
-        amount: amtVal,
-        amt: amtVal,
-        purpose: cleanPurpose,
-        submitted_by_member_id: user.id,
-        status: 'pending'
-      },
-      // Candidate D: Universal Base Schema
-      {
-        loan_no: loanNo,
-        name: nameVal,
-        amount: amtVal,
-        purpose: cleanPurpose,
-        status: 'pending'
-      }
-    ];
-
-    let insertedLoan = null;
-    let lastError = null;
-
-    for (const payload of candidates) {
-      const cleanPayload = {};
-      for (const [k, v] of Object.entries(payload)) {
-        if (v !== undefined && v !== null) cleanPayload[k] = v;
-      }
-
-      const { data, error } = await supabase
-        .from('loans')
-        .insert([cleanPayload])
-        .select();
-
-      if (!error && data && data.length > 0) {
-        insertedLoan = data[0];
-        break;
-      } else if (error) {
-        lastError = error;
-        console.warn(`Candidate payload failed (${error.message}), trying next candidate...`);
-      }
+    const referenceMatch = String(sourceRequest.reason || '').match(/Application Reference:\s*([^\n]+)/i);
+    const applicationReference = referenceMatch ? referenceMatch[1].trim() : null;
+    const requestSnapshot = {
+      status: 'pending',
+      source_request_id,
+      application_reference: applicationReference,
+      referred_member_id: sourceRequest.referred_member_id,
+      relationship: relationshipValue,
+      member_notes: assessmentNotes,
+      recommended_amount: recommendedAmount
+    };
+    const loanPayload = {
+      loan_no: loanNo,
+      user_id: user.id,
+      name: nameVal,
+      amount: recommendedAmount,
+      amt: recommendedAmount,
+      purpose: cleanPurpose,
+      purpose_desc: cleanPurpose,
+      months: repaymentMonths,
+      status: 'pending',
+      submitted_date: new Date().toISOString().slice(0, 10),
+      requester_name: nameVal,
+      requester_phone: phoneVal,
+      requester_address: addressVal,
+      repayment_period_months: repaymentMonths,
+      loan_amount_requested: recommendedAmount,
+      loan_amount_approved: recommendedAmount,
+      member_notes: assessmentNotes.slice(0, 220),
+      submitted_by_member_id: user.id,
+      submission_source: 'MEMBER_INBOX',
+      inbox_submission_id: source_request_id,
+      source_request_id,
+      workflow_status: 'PENDING_COORDINATOR_REVIEW',
+      request: requestSnapshot
+    };
+    const { data: insertedRows, error: loanError } = await supabase
+      .from('loans')
+      .insert([loanPayload])
+      .select();
+    if (loanError || !insertedRows?.[0]) {
+      console.error('Member loan submission insert failed:', loanError);
+      return res.status(500).json({ error: 'Unable to submit the application to Admin.' });
     }
-
-    if (!insertedLoan) {
-      throw new Error(lastError ? lastError.message : 'Failed to insert loan record.');
-    }
+    const insertedLoan = insertedRows[0];
 
     // Update loan_requests if source_request_id is provided
     if (source_request_id) {
       try {
-        await supabase
+        const { data: convertedRequest, error: requestUpdateError } = await supabase
           .from('loan_requests')
           .update({
             status: 'CONVERTED',
             converted_to_loan_id: insertedLoan.id
           })
-          .eq('id', source_request_id);
+          .eq('id', source_request_id)
+          .eq('referred_member_id', user.id)
+          .eq('status', 'DRAFT_UNASSIGNED')
+          .is('converted_to_loan_id', null)
+          .select('id');
+        if (requestUpdateError || !convertedRequest?.length) {
+          console.error('Source request conversion failed:', requestUpdateError || 'request already changed');
+          await supabase.from('loans').delete().eq('id', insertedLoan.id);
+          return res.status(409).json({ error: 'This request was changed by another submission. No duplicate was created.' });
+        }
       } catch (updErr) {
-        console.warn('Silent loan_requests update error:', updErr);
+        console.error('Source request conversion failed:', updErr);
+        await supabase.from('loans').delete().eq('id', insertedLoan.id);
+        return res.status(500).json({ error: 'The loan was saved but the inbox request could not be updated.' });
       }
+    }
+
+    // Notify admins after the loan is visible in the admin review queue.
+    const { data: admins, error: adminLookupError } = await supabase
+      .from('profiles')
+      .select('id')
+      .in('role', ['admin', 'super']);
+    if (!adminLookupError && admins?.length) {
+      const { error: adminNotificationError } = await supabase.from('notifications').insert(
+        admins.map(admin => ({
+          user_id: admin.id,
+          title: 'New loan application for review',
+          message: `${nameVal} submitted a referred loan application for Admin review.`,
+          link_url: '/admin/dashboard/loans'
+        }))
+      );
+      if (adminNotificationError) console.warn('Admin notification insert failed:', adminNotificationError.message);
     }
 
     return res.status(200).json({ success: true, loan: insertedLoan });
   } catch (err) {
     console.error('Error in submit-loan-application handler:', err);
-    return res.status(500).json({ error: err.message || 'Server error' });
+    return res.status(500).json({ error: 'Unable to complete the loan application.' });
   }
 }

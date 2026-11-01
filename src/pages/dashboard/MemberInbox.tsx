@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { Inbox, Eye, ArrowRight, XCircle, CheckCircle2, Clock, Search, AlertCircle, FileText, UserCheck } from 'lucide-react';
-import { supabase } from '../../lib/supabaseClient';
 import { getAccessToken } from '../../lib/authSession';
 
 export default function MemberInbox() {
@@ -33,41 +32,18 @@ export default function MemberInbox() {
     if (!profile) return;
     try {
       setLoading(true);
-      let dataList: any[] = [];
-
-      // 1. Try Service Role Endpoint (Bypasses RLS & handles all schema variations)
-      try {
-        const token = await getAccessToken();
-        if (!token) throw new Error('No active session');
-        const res = await fetch('/api/get-member-inbox', {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        if (res.ok) {
-          const apiRes = await res.json();
-          if (apiRes.success && Array.isArray(apiRes.requests)) {
-            dataList = apiRes.requests;
-          }
-        }
-      } catch (apiErr) {
-        console.warn('API get-member-inbox fallback to direct client query:', apiErr);
+      const token = await getAccessToken();
+      if (!token) throw new Error('Your session has expired. Please sign in again.');
+      const res = await fetch('/api/get-member-inbox', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const apiRes = await res.json().catch(() => ({}));
+      if (!res.ok || !apiRes.success) {
+        throw new Error(apiRes.error || 'Unable to load the member inbox.');
       }
-
-        // 2. Direct client query fallback if API not used. Only the
-        // authoritative referral UUID is accepted; names/reason text are not
-        // ownership controls.
-        if (dataList.length === 0) {
-          const memberId = profile.db_id || profile.id;
-
-          const { data: clientData, error } = await supabase
-            .from('loan_requests')
-            .select('*')
-            .eq('referred_member_id', memberId)
-            .order('created_at', { ascending: false });
-
-        if (!error && clientData) {
-          dataList = clientData;
-        }
-      }
+      const dataList: any[] = Array.isArray(apiRes.data)
+        ? apiRes.data
+        : (Array.isArray(apiRes.requests) ? apiRes.requests : []);
 
       // Normalize statuses for display
       const normalized = dataList.map(item => {
@@ -89,6 +65,7 @@ export default function MemberInbox() {
       setRequests(normalized);
     } catch (err) {
       console.error('Failed to load member inbox:', err);
+      showToast('e', err instanceof Error ? err.message : 'Unable to load the member inbox.');
     } finally {
       setLoading(false);
     }
@@ -104,21 +81,6 @@ export default function MemberInbox() {
     setRecommendedAmount(String(req.loan_amount_requested || req.approximate_amount || ''));
     setMemberNotes('');
     
-    if (req.normalizedStatus === 'NEW') {
-      try {
-        const token = await getAccessToken();
-          const response = await fetch('/api/get-member-inbox', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ requestId: req.id, action: 'review' })
-        });
-        if (!response.ok) throw new Error((await response.json()).error || 'Review update failed');
-        req.normalizedStatus = 'REVIEWED';
-        setRequests(current => current.map(item => item.id === req.id ? { ...item, status: 'REVIEWED', normalizedStatus: 'REVIEWED' } : item));
-      } catch (err) {
-        showToast('e', err instanceof Error ? err.message : 'Review update failed.');
-      }
-    }
   };
 
   const handleFormalSubmitToAdmin = async (e: React.FormEvent) => {
