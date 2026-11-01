@@ -35,6 +35,11 @@ export default function MemberInbox() {
     setTimeout(() => setToast(null), 3000);
   };
 
+  const applicationReference = (request: any) => {
+    const match = String(request?.reason || '').match(/Application Reference:\s*([^\n]+)/i);
+    return match?.[1]?.trim() || `REF-${String(request?.id || '').slice(0, 8).toUpperCase()}`;
+  };
+
   async function loadInbox() {
     if (!profile) return;
     try {
@@ -379,7 +384,7 @@ export default function MemberInbox() {
                     <div>
                       <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 900, color: '#0f172a' }}>{name}</h3>
                       <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 700, marginTop: '2px' }}>
-                        REF-{(String(req.id)).slice(0, 8).toUpperCase()} • {dateStr}
+                         {applicationReference(req)} • {dateStr}
                       </div>
                     </div>
                     {getStatusBadge(req.normalizedStatus)}
@@ -421,7 +426,7 @@ export default function MemberInbox() {
                   {selectedRequest.applicant_name || selectedRequest.requester_name || 'Applicant'}
                 </h3>
                 <div style={{ fontSize: '12px', color: '#64748b', fontWeight: 700 }}>
-                  Reference: REF-{(String(selectedRequest.id)).slice(0, 8).toUpperCase()}
+                   Reference: {applicationReference(selectedRequest)}
                 </div>
               </div>
               <button onClick={() => setSelectedRequest(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}><XCircle size={24} /></button>
