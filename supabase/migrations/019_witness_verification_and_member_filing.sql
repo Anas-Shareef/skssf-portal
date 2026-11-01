@@ -44,7 +44,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS loan_requests_client_request_unique
 CREATE TABLE IF NOT EXISTS public.witness_verifications (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   loan_request_id UUID NOT NULL REFERENCES public.loan_requests(id) ON DELETE CASCADE,
-  loan_id UUID REFERENCES public.loans(id) ON DELETE SET NULL,
+  loan_id BIGINT REFERENCES public.loans(id) ON DELETE SET NULL,
   witness_index SMALLINT NOT NULL CHECK (witness_index IN (1, 2)),
   witness_name TEXT,
   witness_phone_last4 TEXT,
@@ -214,7 +214,7 @@ AS $$
 DECLARE
   v_previous UUID;
   v_id UUID;
-  v_loan_id UUID;
+  v_loan_id BIGINT;
 BEGIN
   IF p_witness_index NOT IN (1, 2) THEN
     RAISE EXCEPTION 'witness index must be 1 or 2';
