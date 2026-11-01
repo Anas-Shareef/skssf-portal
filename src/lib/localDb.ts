@@ -143,6 +143,11 @@ const mapLoanFromApi = (l: any, usersByUuid: Map<string, any>) => {
     submitted_by_member_id: l.submitted_by_member_id || null,
     submission_source: l.submission_source || 'manual',
     inbox_submission_id: l.inbox_submission_id || null,
+    source_request_id: l.source_request_id || null,
+    loan_amount_requested: l.loan_amount_requested || null,
+    loan_amount_approved: l.loan_amount_approved || null,
+    member_notes: l.member_notes || l.request?.member_notes || '',
+    application_reference: l.request?.application_reference || null,
     db_id: l.id,   // original numeric Supabase row ID, for member detail navigation
     workflow_status: l.workflow_status || null
   };
@@ -1805,4 +1810,3 @@ export const localDb = {
 };
 
 export default localDb;
-

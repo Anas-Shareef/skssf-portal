@@ -4,7 +4,9 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { localDb, syncFromBackend } from '../../lib/localDb';
 import { supabase } from '../../lib/supabaseClient';
+import { getAuthHeaders } from '../../lib/authSession';
 import ConfirmDialog from '../../components/ConfirmDialog';
+import { History as HistoryIcon } from 'lucide-react';
 
 
 
@@ -73,6 +75,9 @@ export default function LoanManagement() {
     return () => window.removeEventListener('appDataUpdated', handleUpdate);
   }, []);
   const [showReview, setShowReview] = useState(false);
+  const [applicationHistory, setApplicationHistory] = useState<any[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [selectedLoanId, setSelectedLoanId] = useState<string | null>(null);
   const [actionStatus, setActionStatus] = useState('pending');
   const [actionNote, setActionNote] = useState('');
@@ -110,6 +115,31 @@ export default function LoanManagement() {
   const config = localDb.getPortalConfig();
 
   const refreshLoans = () => setLoans(localDb.getLoans());
+
+  const loadApplicationHistory = async (loan: any) => {
+    if (!loan?.source_request_id) {
+      setApplicationHistory([]);
+      setHistoryOpen(true);
+      return;
+    }
+    setHistoryLoading(true);
+    try {
+      const response = await fetch('/api/get-member-inbox', {
+        method: 'POST',
+        headers: await getAuthHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ requestId: loan.source_request_id, action: 'history' })
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.success) throw new Error(result.error || 'Unable to load application history.');
+      setApplicationHistory(result.versions || []);
+      setHistoryOpen(true);
+    } catch (err: any) {
+      setToast({ m: err.message || 'Unable to load application history.', t: 'r' });
+      setTimeout(() => setToast(null), 3000);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
   
   // Real-time permission check (Global)
   const isGlobalApprover = profile?.role === 'super' || config.authorizedReviewers?.includes(profile?.id || '') || localDb.getUserById(profile?.id || '')?.is_approver;
@@ -446,7 +476,7 @@ export default function LoanManagement() {
                         <button
                           className={`bsm ${l.status === 'pending' && isAdminOrSuper ? 's' : 'g'}`}
                           style={{ fontSize: '11px', padding: '5px 12px' }}
-                          onClick={() => { setSelectedLoanId(l.id); setActionStatus(l.status); setActionNote(''); setShowReview(true); }}
+                           onClick={() => { setSelectedLoanId(l.id); setActionStatus(l.status); setActionNote(''); setHistoryOpen(false); setApplicationHistory([]); setShowReview(true); }}
                         >
                           {l.status === 'pending' && isAdminOrSuper ? 'Review & Act →' : 'View Details'}
                         </button>
@@ -517,8 +547,11 @@ export default function LoanManagement() {
                       <div className="rv-sec">
                         <div className="rv-sec-t">Applicant Details</div>
                         <div className="rv-row"><div className="rv-k">Name</div><div className="rv-v">{selectedLoan.name}</div></div>
+                        <div className="rv-row"><div className="rv-k">Application Reference</div><div className="rv-v">{selectedLoan.application_reference || selectedLoan.request?.application_reference || `REF-${String(selectedLoan.source_request_id || selectedLoan.id).slice(0, 8).toUpperCase()}`}</div></div>
                         <div className="rv-row"><div className="rv-k">Contact</div><div className="rv-v">{contactVal}</div></div>
                         <div className="rv-row"><div className="rv-k">Monthly Salary</div><div className="rv-v">{salaryVal}</div></div>
+                        {selectedLoan.request?.relationship && <div className="rv-row"><div className="rv-k">Member Relationship</div><div className="rv-v">{selectedLoan.request.relationship}</div></div>}
+                        {selectedLoan.member_notes && <div className="rv-row"><div className="rv-k">Member Assessment</div><div className="rv-v">{selectedLoan.member_notes}</div></div>}
                         {filingHelper && (
                           <div className="rv-row" style={{ background: 'var(--teal-pale)', padding: '6px 10px', borderRadius: '8px', marginTop: '10px' }}>
                             <div className="rv-k" style={{ color: 'var(--teal)' }}>Filing Helper</div>
@@ -689,6 +722,25 @@ export default function LoanManagement() {
                 <button className="modal-close" onClick={() => setShowReview(false)}>✕</button>
               </div>
               <div className="modal-body" style={{ flex: 1, overflowY: 'auto', padding: '24px' }}>
+                {!isMember && (
+                  <div style={{ marginBottom: '16px' }}>
+                    <button className="bsm o" style={{ fontSize: '11px', padding: '7px 12px' }} onClick={() => void loadApplicationHistory(selectedLoan)} disabled={historyLoading}>
+                      <HistoryIcon size={14} /> {historyLoading ? 'Loading History…' : 'View Change History'}
+                    </button>
+                    {historyOpen && (
+                      <div style={{ marginTop: '10px', padding: '12px', borderRadius: '12px', background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+                        <div style={{ fontSize: '11px', fontWeight: 900, textTransform: 'uppercase', color: '#64748b', marginBottom: '8px' }}>Application History</div>
+                        {applicationHistory.length === 0 ? <div style={{ fontSize: '12px', color: '#64748b' }}>No edits recorded. This is the original submitted application.</div> : applicationHistory.map((version: any) => (
+                          <div key={version.id} style={{ borderTop: '1px solid #e2e8f0', paddingTop: '8px', marginTop: '8px' }}>
+                            <div style={{ fontSize: '12px', fontWeight: 800 }}>Version {version.application_version} — {version.editor_role === 'applicant' ? 'Original Submission' : 'Edited by Member'}</div>
+                            <div style={{ fontSize: '11px', color: '#64748b', marginTop: '3px' }}>{version.editor?.name || version.edited_by || 'Applicant'} · {new Date(version.created_at).toLocaleString()}</div>
+                            {(version.changed_fields || []).map((change: any) => <div key={change.field} style={{ fontSize: '11px', color: '#475569', marginTop: '3px' }}><b>{change.field}</b>: {String(change.previous_value ?? '—')} → {String(change.new_value ?? '—')}</div>)}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
                 
                 {/* PRD Section 28: Applicant Previous Loan History Detector */}
                 {(() => {

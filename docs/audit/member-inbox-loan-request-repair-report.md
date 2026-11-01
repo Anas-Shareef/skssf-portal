@@ -29,6 +29,10 @@ That invalid transition produced the reported
 broader status list, but its `loan_requests` extension was not applied to the
 production schema; it also references columns absent from the live table.
 
+A second, independent submission 500 was found in the repaired submission
+payload: it sent `loans.amt`, but the live `loans` table has `amount` and no
+`amt` column. The payload now uses only columns confirmed in production.
+
 ## Implemented lifecycle
 
 `loan_requests` now remains compatible with the live constraint:
@@ -61,6 +65,9 @@ Admin approval/rejection remains on `loans.status` and
   - Checks `source_request_id` before insert and converts the source request
     only through an ownership/status-guarded update.
   - Notifies admins after the loan is saved.
+- `api/get-member-inbox.js` also provides authenticated edit/history actions;
+  edits are restricted to `DRAFT_UNASSIGNED` requests and use optimistic
+  version checks.
 - `api/submit-loan-application.js` also handles final-decision notifications
   - Only authenticated admin/super users can notify the submitting member
     after a final approval/rejection. This path is consolidated into the
@@ -74,6 +81,12 @@ Admin approval/rejection remains on `loans.status` and
 - A partial unique index preventing duplicate loans per source request.
 - RLS policies using `referred_member_id` rather than nonexistent `member_id`.
 - Admin-only management and member-owned read access for repayment rows.
+
+`supabase/migrations/016_application_versions_and_member_editing.sql` adds
+append-only `loan_application_versions`, server timestamps/version columns,
+witness fields, RLS read policies, and a transactional
+`apply_loan_request_edit` function. Member and admin history views use the
+same source request and loan record.
 
 The migration intentionally fails on pre-existing duplicate source loans rather
 than deleting or merging production data. It must be run in the Supabase SQL

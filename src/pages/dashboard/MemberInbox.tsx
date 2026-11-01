@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { Inbox, Eye, ArrowRight, XCircle, CheckCircle2, Clock, Search, AlertCircle, FileText, UserCheck } from 'lucide-react';
+import { Inbox, Eye, ArrowRight, XCircle, CheckCircle2, Clock, Search, AlertCircle, FileText, UserCheck, Pencil, History as HistoryIcon, Save } from 'lucide-react';
 import { getAccessToken } from '../../lib/authSession';
 
 export default function MemberInbox() {
@@ -22,6 +22,13 @@ export default function MemberInbox() {
   const [relationship, setRelationship] = useState('Neighbour / Community Member');
   const [dismissalReason, setDismissalReason] = useState('');
   const [actioning, setActioning] = useState(false);
+  const [editMode, setEditMode] = useState(false);
+  const [editForm, setEditForm] = useState<any>({});
+  const [editVersion, setEditVersion] = useState(1);
+  const [editReason, setEditReason] = useState('');
+  const [historyVersions, setHistoryVersions] = useState<any[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyUnavailable, setHistoryUnavailable] = useState(false);
 
   const showToast = (type: 's' | 'e', msg: string) => {
     setToast({ type, msg });
@@ -75,12 +82,94 @@ export default function MemberInbox() {
     loadInbox();
   }, [profile]);
 
-  // Open item & mark status as REVIEWED if currently NEW
+  const loadHistory = async (requestId: string) => {
+    setHistoryLoading(true);
+    setHistoryUnavailable(false);
+    try {
+      const token = await getAccessToken();
+      const response = await fetch('/api/get-member-inbox', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ requestId, action: 'history' })
+      });
+      const result = await response.json().catch(() => ({}));
+      if (response.status === 503) {
+        setHistoryUnavailable(true);
+        setHistoryVersions([]);
+        return;
+      }
+      if (!response.ok || !result.success) throw new Error(result.error || 'Unable to load application history.');
+      setHistoryVersions(result.versions || []);
+      setEditVersion(Number(result.request?.application_version || 1));
+    } catch (err) {
+      console.warn('Application history unavailable:', err);
+      setHistoryVersions([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
   const handleOpenDetail = async (req: any) => {
     setSelectedRequest(req);
+    setEditMode(false);
     setRecommendedAmount(String(req.loan_amount_requested || req.approximate_amount || ''));
     setMemberNotes('');
-    
+    setEditForm({
+      applicant_name: req.applicant_name || req.requester_name || '',
+      applicant_phone: req.applicant_phone || req.requester_phone || '',
+      applicant_whatsapp: req.applicant_whatsapp || '',
+      applicant_dob: req.applicant_dob || '',
+      applicant_gender: req.applicant_gender || '',
+      requester_address: req.requester_address || '',
+      loan_amount_requested: req.loan_amount_requested || req.approximate_amount || '',
+      repayment_period_months: req.repayment_period_months || 12,
+      monthly_income: req.monthly_income ?? '',
+      income_source: req.income_source || '',
+      existing_debts: !!req.existing_debts,
+      existing_debts_detail: req.existing_debts_detail || '',
+      loan_purpose_detail: req.loan_purpose_detail || '',
+      witness1_name: req.witness1_name || '',
+      witness1_phone: req.witness1_phone || '',
+      witness1_status: req.witness1_status || '',
+      witness2_name: req.witness2_name || '',
+      witness2_phone: req.witness2_phone || '',
+      witness2_status: req.witness2_status || ''
+    });
+    setEditVersion(Number(req.application_version || 1));
+    setEditReason('');
+    void loadHistory(req.id);
+  };
+
+  const handleBeginEdit = () => {
+    if (!selectedRequest || selectedRequest.normalizedStatus !== 'NEW') return;
+    setEditMode(true);
+  };
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedRequest) return;
+    setActioning(true);
+    try {
+      const token = await getAccessToken();
+      const response = await fetch('/api/get-member-inbox', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ requestId: selectedRequest.id, action: 'edit', expectedVersion: editVersion, changes: editForm, editReason })
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.success) throw new Error(result.error || 'Unable to save application changes.');
+      const edit = result.edit || {};
+      setSelectedRequest((current: any) => ({ ...current, ...editForm, application_version: edit.application_version, last_edited_at: edit.last_edited_at }));
+      setEditVersion(Number(edit.application_version || editVersion + 1));
+      setEditMode(false);
+      setEditReason('');
+      await Promise.all([loadInbox(), loadHistory(selectedRequest.id)]);
+      showToast('s', 'Application changes saved successfully.');
+    } catch (err: any) {
+      showToast('e', err.message || 'Unable to save application changes.');
+    } finally {
+      setActioning(false);
+    }
   };
 
   const handleFormalSubmitToAdmin = async (e: React.FormEvent) => {
@@ -338,6 +427,51 @@ export default function MemberInbox() {
               <button onClick={() => setSelectedRequest(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}><XCircle size={24} /></button>
             </div>
 
+            {editMode ? (
+              <form onSubmit={handleSaveEdit} style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '24px' }}>
+                <div style={{ padding: '14px', borderRadius: '14px', background: '#fffbeb', border: '1px solid #fde68a', fontSize: '12px', color: '#92400e' }}>
+                  Editing version {editVersion}. Reference number, ownership, approval decisions, and repayment data are locked.
+                </div>
+                <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '16px', border: '1px solid #e2e8f0' }}>
+                  <h4 style={{ margin: '0 0 10px 0', fontSize: '13px', fontWeight: 900, color: '#0f172a', textTransform: 'uppercase' }}>Section A — Personal Details</h4>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                    <input className="fi2" placeholder="Applicant name" value={editForm.applicant_name || ''} onChange={e => setEditForm((v: any) => ({ ...v, applicant_name: e.target.value }))} />
+                    <input className="fi2" placeholder="Phone" value={editForm.applicant_phone || ''} onChange={e => setEditForm((v: any) => ({ ...v, applicant_phone: e.target.value }))} />
+                    <input className="fi2" placeholder="WhatsApp" value={editForm.applicant_whatsapp || ''} onChange={e => setEditForm((v: any) => ({ ...v, applicant_whatsapp: e.target.value }))} />
+                    <input className="fi2" type="date" value={editForm.applicant_dob || ''} onChange={e => setEditForm((v: any) => ({ ...v, applicant_dob: e.target.value }))} />
+                    <input className="fi2" placeholder="Gender" value={editForm.applicant_gender || ''} onChange={e => setEditForm((v: any) => ({ ...v, applicant_gender: e.target.value }))} />
+                    <textarea className="ta2" placeholder="Address" value={editForm.requester_address || ''} onChange={e => setEditForm((v: any) => ({ ...v, requester_address: e.target.value }))} style={{ gridColumn: '1 / -1' }} rows={2} />
+                  </div>
+                </div>
+                <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '16px', border: '1px solid #e2e8f0' }}>
+                  <h4 style={{ margin: '0 0 10px 0', fontSize: '13px', fontWeight: 900, color: '#0f172a', textTransform: 'uppercase' }}>Section B — Loan Specifications</h4>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                    <input className="fi2" type="number" min="1" placeholder="Requested amount" value={editForm.loan_amount_requested ?? ''} onChange={e => setEditForm((v: any) => ({ ...v, loan_amount_requested: e.target.value }))} />
+                    <input className="fi2" type="number" min="1" placeholder="Repayment months" value={editForm.repayment_period_months ?? ''} onChange={e => setEditForm((v: any) => ({ ...v, repayment_period_months: e.target.value }))} />
+                    <input className="fi2" type="number" min="0" placeholder="Monthly income" value={editForm.monthly_income ?? ''} onChange={e => setEditForm((v: any) => ({ ...v, monthly_income: e.target.value }))} />
+                    <input className="fi2" placeholder="Income source" value={editForm.income_source || ''} onChange={e => setEditForm((v: any) => ({ ...v, income_source: e.target.value }))} />
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: 700, gridColumn: '1 / -1' }}><input type="checkbox" checked={!!editForm.existing_debts} onChange={e => setEditForm((v: any) => ({ ...v, existing_debts: e.target.checked }))} /> Existing debts</label>
+                    {editForm.existing_debts && <textarea className="ta2" placeholder="Existing debt details" value={editForm.existing_debts_detail || ''} onChange={e => setEditForm((v: any) => ({ ...v, existing_debts_detail: e.target.value }))} style={{ gridColumn: '1 / -1' }} rows={2} />}
+                    <textarea className="ta2" placeholder="Purpose details" value={editForm.loan_purpose_detail || ''} onChange={e => setEditForm((v: any) => ({ ...v, loan_purpose_detail: e.target.value }))} style={{ gridColumn: '1 / -1' }} rows={3} />
+                  </div>
+                </div>
+                <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '16px', border: '1px solid #e2e8f0' }}>
+                  <h4 style={{ margin: '0 0 10px 0', fontSize: '13px', fontWeight: 900, color: '#0f172a', textTransform: 'uppercase' }}>Section C — Witness Verifications</h4>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                    <input className="fi2" placeholder="Witness 1 name" value={editForm.witness1_name || ''} onChange={e => setEditForm((v: any) => ({ ...v, witness1_name: e.target.value }))} />
+                    <input className="fi2" placeholder="Witness 1 phone" value={editForm.witness1_phone || ''} onChange={e => setEditForm((v: any) => ({ ...v, witness1_phone: e.target.value }))} />
+                    <input className="fi2" placeholder="Witness 2 name" value={editForm.witness2_name || ''} onChange={e => setEditForm((v: any) => ({ ...v, witness2_name: e.target.value }))} />
+                    <input className="fi2" placeholder="Witness 2 phone" value={editForm.witness2_phone || ''} onChange={e => setEditForm((v: any) => ({ ...v, witness2_phone: e.target.value }))} />
+                  </div>
+                </div>
+                <input className="fi2" placeholder="Edit reason (optional)" value={editReason} onChange={e => setEditReason(e.target.value)} maxLength={500} />
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <button type="button" className="bsm g" style={{ flex: 1, padding: '12px' }} onClick={() => setEditMode(false)}>Cancel</button>
+                  <button type="submit" className="bsm s" style={{ flex: 2, padding: '12px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '6px' }} disabled={actioning}><Save size={16} /> {actioning ? 'Saving...' : 'Save Changes'}</button>
+                </div>
+              </form>
+            ) : (
+            <>
             {/* Applicant Detail Fields */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '24px' }}>
               <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '16px', border: '1px solid #e2e8f0' }}>
@@ -402,9 +536,28 @@ export default function MemberInbox() {
                 </div>
               </div>
             </div>
+            </>
+            )}
+
+            {!editMode && (
+              <div style={{ marginBottom: '20px', padding: '14px', borderRadius: '16px', background: '#fff', border: '1px solid #e2e8f0' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                  <div style={{ fontSize: '13px', fontWeight: 900, display: 'flex', alignItems: 'center', gap: '6px' }}><HistoryIcon size={16} /> Application History {historyVersions.length > 1 && <span className="bdg bdg-a">EDITED</span>}</div>
+                  {selectedRequest.normalizedStatus === 'NEW' && <button className="bsm o" style={{ fontSize: '11px', padding: '6px 10px' }} onClick={handleBeginEdit}><Pencil size={13} /> Edit Application</button>}
+                </div>
+                {historyLoading ? <div style={{ fontSize: '12px', color: '#64748b' }}>Loading history…</div> : historyUnavailable ? <div style={{ fontSize: '12px', color: '#92400e' }}>History migration is pending. Editing will be available after the database migration is applied.</div> : historyVersions.length === 0 ? <div style={{ fontSize: '12px', color: '#64748b' }}>Version 1 — Original submission. No edits recorded.</div> : historyVersions.map((version: any) => (
+                  <div key={version.id} style={{ borderTop: '1px solid #f1f5f9', paddingTop: '9px', marginTop: '9px' }}>
+                    <div style={{ fontSize: '12px', fontWeight: 800 }}>Version {version.application_version} — {version.editor_role === 'applicant' ? 'Original Submission' : 'Edited by Member'}</div>
+                    <div style={{ fontSize: '11px', color: '#64748b', marginTop: '3px' }}>{version.editor?.name || version.edited_by || 'Applicant'} · {new Date(version.created_at).toLocaleString()}</div>
+                    {version.changed_fields?.length > 0 && <div style={{ marginTop: '6px', display: 'flex', flexDirection: 'column', gap: '3px' }}>{version.changed_fields.map((change: any) => <div key={change.field} style={{ fontSize: '11px', color: '#475569' }}><b>{change.field}</b>: {String(change.previous_value ?? '—')} → {String(change.new_value ?? '—')}</div>)}</div>}
+                    {version.edit_reason && <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>Reason: {version.edit_reason}</div>}
+                  </div>
+                ))}
+              </div>
+            )}
 
             {/* Modal Actions */}
-            {selectedRequest.normalizedStatus !== 'SUBMITTED' && selectedRequest.normalizedStatus !== 'DISMISSED' ? (
+            {!editMode && selectedRequest.normalizedStatus !== 'SUBMITTED' && selectedRequest.normalizedStatus !== 'DISMISSED' ? (
               <div style={{ display: 'flex', gap: '12px' }}>
                 <button
                   onClick={() => setShowDismissModal(true)}

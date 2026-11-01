@@ -176,10 +176,26 @@ export default async function handler(req, res) {
         existing_debts: !!existing_debts,
         existing_debts_detail: existing_debts_detail || null,
         declaration_agreed: true,
-        referred_member_id: referredId,
-        referred_member_name: referredName,
-        status: 'DRAFT_UNASSIGNED'
+      referred_member_id: referredId,
+      referred_member_name: referredName,
+      status: 'DRAFT_UNASSIGNED'
       };
+
+      // Witness columns are added by the version-history migration. Keep the
+      // live legacy schema working while preserving them automatically once
+      // that migration is present.
+      const { error: witnessSchemaError } = await supabase
+        .from('loan_requests')
+        .select('witness1_name, witness1_phone, witness1_status, witness2_name, witness2_phone, witness2_status')
+        .limit(1);
+      if (!witnessSchemaError) {
+        Object.assign(requestPayload, {
+          witness1_name: witness1_name || null,
+          witness1_phone: witness1_phone || null,
+          witness2_name: witness2_name || null,
+          witness2_phone: witness2_phone || null
+        });
+      }
 
       const { data: reqData, error: reqErr } = await supabase
         .from('loan_requests')
@@ -285,7 +301,6 @@ export default async function handler(req, res) {
       user_id: user.id,
       name: nameVal,
       amount: recommendedAmount,
-      amt: recommendedAmount,
       purpose: cleanPurpose,
       purpose_desc: cleanPurpose,
       months: repaymentMonths,
@@ -311,7 +326,8 @@ export default async function handler(req, res) {
       .select();
     if (loanError || !insertedRows?.[0]) {
       console.error('Member loan submission insert failed:', loanError);
-      return res.status(500).json({ error: 'Unable to submit the application to Admin.' });
+      const safeCode = loanError?.code ? ` (${loanError.code})` : '';
+      return res.status(500).json({ error: `Unable to submit the application to Admin.${safeCode}` });
     }
     const insertedLoan = insertedRows[0];
 
