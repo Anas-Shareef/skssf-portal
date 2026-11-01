@@ -2,14 +2,19 @@
 -- 019_witness_verification_and_member_filing.sql
 -- ============================================================
 --
--- Adds the minimum schema required for:
---   1. Server-issued, hashed, single-use, expiring witness verification links.
---   2. An append-only witness verification event history.
---   3. A member-filed application marker + idempotency key on loan_requests.
+-- Adds the complete schema required for:
+--   1. Server-issued, hashed, single-use, expiring witness
+--      verification links with revocation / regeneration.
+--   2. Append-only witness verification event history.
+--   3. Member-filed application marker + idempotency key.
 --
--- Existing data is preserved. Nothing is truncated, reset or rewritten.
--- Tokens are never stored in plain text; only a SHA-256 hash is persisted.
--- All functions are SECURITY DEFINER and executable by service_role only.
+-- Safety rules honoured:
+--   - Existing data is preserved; nothing is truncated/reset/deleted.
+--   - Witness tokens are never stored in plain text (SHA-256 hash only).
+--   - Witness verification events are append-only (UPDATE/DELETE blocked).
+--   - Client (anon/authenticated) writes to witness tables are denied by RLS.
+--   - All security definer functions use an explicit, hardened search_path.
+--   - Issuance is serialised per request via a transaction-scoped advisory lock.
 
 BEGIN;
 
@@ -70,7 +75,7 @@ CREATE INDEX IF NOT EXISTS witness_verifications_status_idx
 CREATE INDEX IF NOT EXISTS witness_verifications_loan_idx
   ON public.witness_verifications(loan_id);
 
--- At most one live (PENDING) verification per witness.
+-- At most one live (PENDING) verification per witness per request.
 CREATE UNIQUE INDEX IF NOT EXISTS witness_verifications_one_pending
   ON public.witness_verifications(loan_request_id, witness_index)
   WHERE status = 'PENDING';
@@ -107,7 +112,7 @@ CREATE INDEX IF NOT EXISTS witness_verification_events_verification_idx
 CREATE INDEX IF NOT EXISTS witness_verification_events_request_idx
   ON public.witness_verification_events(loan_request_id, created_at DESC);
 
--- Append-only guard: events can never be updated or deleted by clients.
+-- Append-only guard: verification events can never be updated or deleted.
 CREATE OR REPLACE FUNCTION public.witness_verification_events_no_mutation()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -119,6 +124,7 @@ $$;
 
 DROP TRIGGER IF EXISTS witness_verification_events_block_update
   ON public.witness_verification_events;
+
 CREATE TRIGGER witness_verification_events_block_update
   BEFORE UPDATE OR DELETE ON public.witness_verification_events
   FOR EACH ROW EXECUTE FUNCTION public.witness_verification_events_no_mutation();
@@ -132,11 +138,12 @@ ALTER TABLE public.witness_verification_events ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "witness_verifications_member_select" ON public.witness_verifications;
 CREATE POLICY "witness_verifications_member_select"
-ON public.witness_verifications
-FOR SELECT TO authenticated
+  ON public.witness_verifications
+  FOR SELECT TO authenticated
 USING (
   EXISTS (
-    SELECT 1 FROM public.loan_requests r
+    SELECT 1
+    FROM public.loan_requests r
     WHERE r.id = witness_verifications.loan_request_id
       AND r.referred_member_id = auth.uid()
   )
@@ -144,22 +151,24 @@ USING (
 
 DROP POLICY IF EXISTS "witness_verifications_admin_select" ON public.witness_verifications;
 CREATE POLICY "witness_verifications_admin_select"
-ON public.witness_verifications
-FOR SELECT TO authenticated
+  ON public.witness_verifications
+  FOR SELECT TO authenticated
 USING (
   EXISTS (
-    SELECT 1 FROM public.profiles p
+    SELECT 1
+    FROM public.profiles p
     WHERE p.id = auth.uid() AND p.role IN ('admin', 'super')
   )
 );
 
 DROP POLICY IF EXISTS "witness_events_member_select" ON public.witness_verification_events;
 CREATE POLICY "witness_events_member_select"
-ON public.witness_verification_events
+  ON public.witness_verification_events
 FOR SELECT TO authenticated
 USING (
   EXISTS (
-    SELECT 1 FROM public.loan_requests r
+    SELECT 1
+    FROM public.loan_requests r
     WHERE r.id = witness_verification_events.loan_request_id
       AND r.referred_member_id = auth.uid()
   )
@@ -167,19 +176,25 @@ USING (
 
 DROP POLICY IF EXISTS "witness_events_admin_select" ON public.witness_verification_events;
 CREATE POLICY "witness_events_admin_select"
-ON public.witness_verification_events
+  ON public.witness_verification_events
 FOR SELECT TO authenticated
 USING (
   EXISTS (
-    SELECT 1 FROM public.profiles p
+    SELECT 1
+    FROM public.profiles p
     WHERE p.id = auth.uid() AND p.role IN ('admin', 'super')
   )
 );
+
+-- No INSERT / UPDATE / DELETE policies exist for clients, so members and
+-- admins can only ever read. Writes happen exclusively through SECURITY
+-- DEFINER functions executed by the service role.
 
 -- ------------------------------------------------------------
 -- 5. issue_witness_verification
 --    Revokes any live link for the witness, then issues a new one.
 --    The raw token is generated by the API; only its hash reaches the DB.
+--    Serialised per request via a transaction-scoped advisory lock.
 -- ------------------------------------------------------------
 
 CREATE OR REPLACE FUNCTION public.issue_witness_verification(
@@ -208,6 +223,8 @@ BEGIN
     RAISE EXCEPTION 'invalid token hash';
   END IF;
 
+  PERFORM pg_advisory_xact_lock(hashtextextended(p_request_id::text, 0));
+
   SELECT id INTO v_previous
   FROM public.witness_verifications
   WHERE loan_request_id = p_request_id
@@ -230,7 +247,10 @@ BEGIN
        jsonb_build_object('reason', 'regenerated'));
   END IF;
 
-  SELECT id INTO v_loan_id FROM public.loans WHERE source_request_id = p_request_id;
+  SELECT id INTO v_loan_id
+  FROM public.loans
+  WHERE source_request_id = p_request_id
+  LIMIT 1;
 
   INSERT INTO public.witness_verifications
     (loan_request_id, loan_id, witness_index, witness_name, witness_phone_last4,
@@ -253,7 +273,7 @@ $$;
 
 -- ------------------------------------------------------------
 -- 6. respond_witness_verification
---    Atomic single-use transition. Server owns the timestamp and status.
+--    Atomic single-use transition. Server owns timestamps/status.
 -- ------------------------------------------------------------
 
 CREATE OR REPLACE FUNCTION public.respond_witness_verification(
@@ -303,11 +323,7 @@ BEGIN
       (verification_id, loan_request_id, event_type, actor_type, metadata)
     VALUES (v_row.id, v_row.loan_request_id, 'EXPIRED', 'system', '{}'::jsonb);
 
-    RETURN jsonb_build_object(
-      'ok', false,
-      'reason', 'expired',
-      'witness_index', v_row.witness_index
-    );
+    RETURN jsonb_build_object('ok', false, 'reason', 'expired', 'witness_index', v_row.witness_index);
   END IF;
 
   UPDATE public.witness_verifications
@@ -320,7 +336,6 @@ BEGIN
 
   v_witness_status := v_decision;
 
-  -- Mirror onto the canonical request row.
   IF v_row.witness_index = 1 THEN
     UPDATE public.loan_requests
     SET witness1_status = v_witness_status,
@@ -347,7 +362,6 @@ BEGIN
     WHERE id = v_row.loan_request_id;
   END IF;
 
-  -- Mirror onto the formal loan row when the application was forwarded.
   IF v_row.witness_index = 1 THEN
     UPDATE public.loans
     SET witness1_status = v_witness_status,
@@ -406,10 +420,15 @@ AS $$
 DECLARE
   v_row public.witness_verifications%ROWTYPE;
 BEGIN
-  SELECT * INTO v_row FROM public.witness_verifications WHERE id = p_verification_id FOR UPDATE;
+  SELECT * INTO v_row
+  FROM public.witness_verifications
+  WHERE id = p_verification_id
+  FOR UPDATE;
+
   IF v_row.id IS NULL THEN
     RETURN FALSE;
   END IF;
+
   IF v_row.status <> 'PENDING' THEN
     RETURN FALSE;
   END IF;
@@ -449,7 +468,11 @@ AS $$
 DECLARE
   v_row public.witness_verifications%ROWTYPE;
 BEGIN
-  SELECT * INTO v_row FROM public.witness_verifications WHERE id = p_verification_id FOR UPDATE;
+  SELECT * INTO v_row
+  FROM public.witness_verifications
+  WHERE id = p_verification_id
+  FOR UPDATE;
+
   IF v_row.id IS NULL THEN
     RETURN FALSE;
   END IF;
