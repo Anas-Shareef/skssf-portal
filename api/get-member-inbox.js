@@ -8,6 +8,30 @@ const supabase = supabaseUrl && supabaseServiceKey
   ? createClient(supabaseUrl, supabaseServiceKey, { auth: { persistSession: false } })
   : null;
 
+const asTrimmed = (value) => value === null || value === undefined ? '' : String(value).trim();
+
+const ageFromDate = (value) => {
+  const date = new Date(`${value}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) return null;
+  const now = new Date();
+  let age = now.getUTCFullYear() - date.getUTCFullYear();
+  const month = now.getUTCMonth() - date.getUTCMonth();
+  if (month < 0 || (month === 0 && now.getUTCDate() < date.getUTCDate())) age -= 1;
+  return age;
+};
+
+const requestWitnesses = (request) => {
+  if (Array.isArray(request?.witnesses) && request.witnesses.length) return request.witnesses.map((witness, index) => ({
+    ...witness,
+    status: witness.status || request[`witness${index + 1}_status`] || null,
+    verified_at: witness.verified_at || request[`witness${index + 1}_verified_at`] || null
+  }));
+  const result = [];
+  if (request?.witness1_name || request?.witness1_phone) result.push({ name: request.witness1_name || '', phone: request.witness1_phone || '', member_no: request.witness1_member_no || '', status: request.witness1_status || null, verified_at: request.witness1_verified_at || null });
+  if (request?.witness2_name || request?.witness2_phone) result.push({ name: request.witness2_name || '', phone: request.witness2_phone || '', member_no: request.witness2_member_no || '', status: request.witness2_status || null, verified_at: request.witness2_verified_at || null });
+  return result;
+};
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -105,11 +129,13 @@ export default async function handler(req, res) {
 
       const allowedFields = [
         'applicant_name', 'applicant_phone', 'applicant_whatsapp', 'applicant_dob',
-        'applicant_gender', 'requester_address', 'loan_amount_requested',
-        'repayment_period_months', 'monthly_income', 'income_source',
-        'existing_debts', 'existing_debts_detail', 'loan_purpose_detail',
-        'witness1_name', 'witness1_phone',
-        'witness2_name', 'witness2_phone'
+        'applicant_gender', 'requester_address', 'applicant_address_house',
+        'applicant_address_street', 'applicant_address_city', 'applicant_address_pin',
+        'applicant_father_name', 'applicant_occupation', 'applicant_employer_name',
+        'loan_amount_requested', 'loan_purpose_category', 'repayment_period_months',
+        'monthly_income', 'income_source', 'existing_debts', 'existing_debts_detail',
+        'loan_purpose_detail', 'witnesses', 'witness1_name', 'witness1_phone',
+        'witness1_member_no', 'witness2_name', 'witness2_phone', 'witness2_member_no'
       ];
       const changes = {};
       for (const field of Object.keys(inputChanges)) {
@@ -117,11 +143,17 @@ export default async function handler(req, res) {
         changes[field] = inputChanges[field];
       }
       if (changes.loan_amount_requested !== undefined && (!Number.isFinite(Number(changes.loan_amount_requested)) || Number(changes.loan_amount_requested) <= 0)) return res.status(400).json({ error: 'Requested amount must be greater than zero.' });
+      if (changes.loan_amount_requested !== undefined && Number(changes.loan_amount_requested) > 50000) return res.status(400).json({ error: 'Requested amount exceeds the branch maximum limit.' });
       if (changes.repayment_period_months !== undefined && (!Number.isInteger(Number(changes.repayment_period_months)) || Number(changes.repayment_period_months) <= 0)) return res.status(400).json({ error: 'Repayment period must be a positive whole number.' });
-      if (changes.monthly_income !== undefined && changes.monthly_income !== '' && (!Number.isFinite(Number(changes.monthly_income)) || Number(changes.monthly_income) < 0)) return res.status(400).json({ error: 'Monthly income is invalid.' });
-      if (changes.applicant_phone !== undefined && String(changes.applicant_phone).length > 40) return res.status(400).json({ error: 'Phone number is too long.' });
+      if (changes.monthly_income !== undefined && (!Number.isFinite(Number(changes.monthly_income)) || Number(changes.monthly_income) < 1000)) return res.status(400).json({ error: 'Monthly income must be at least 1,000.' });
+      if (changes.applicant_name !== undefined && asTrimmed(changes.applicant_name).length < 3) return res.status(400).json({ error: 'Applicant name is required.' });
+      if (changes.applicant_phone !== undefined && !/^\d{10}$/.test(asTrimmed(changes.applicant_phone))) return res.status(400).json({ error: 'Phone number must contain 10 digits.' });
+      if (changes.applicant_whatsapp !== undefined && changes.applicant_whatsapp !== '' && !/^\d{10}$/.test(asTrimmed(changes.applicant_whatsapp))) return res.status(400).json({ error: 'WhatsApp number must contain 10 digits.' });
+      if (changes.applicant_dob !== undefined && (ageFromDate(changes.applicant_dob) === null || ageFromDate(changes.applicant_dob) < 18)) return res.status(400).json({ error: 'Applicant must be at least 18 years old.' });
       if (changes.requester_address !== undefined && String(changes.requester_address).trim().length < 5) return res.status(400).json({ error: 'Address is required.' });
-      if (changes.loan_purpose_detail !== undefined && String(changes.loan_purpose_detail).trim().length < 3) return res.status(400).json({ error: 'Purpose details are required.' });
+      if (changes.applicant_address_pin !== undefined && !/^\d{6}$/.test(asTrimmed(changes.applicant_address_pin))) return res.status(400).json({ error: 'PIN code must contain 6 digits.' });
+      if (changes.income_source !== undefined && asTrimmed(changes.income_source).length < 1) return res.status(400).json({ error: 'Source of income is required.' });
+      if (changes.loan_purpose_detail !== undefined && String(changes.loan_purpose_detail).trim().length < 20) return res.status(400).json({ error: 'Purpose details must be at least 20 characters.' });
 
       // Normalize types before passing them to the transactional PostgreSQL
       // function so history JSON reflects the actual stored values.
@@ -129,10 +161,46 @@ export default async function handler(req, res) {
       if (changes.repayment_period_months !== undefined) changes.repayment_period_months = Number(changes.repayment_period_months);
       if (changes.monthly_income !== undefined && changes.monthly_income !== '') changes.monthly_income = Number(changes.monthly_income);
       if (changes.existing_debts !== undefined) changes.existing_debts = changes.existing_debts === true || changes.existing_debts === 'true';
-      for (const field of ['applicant_name', 'applicant_phone', 'applicant_whatsapp', 'applicant_gender', 'requester_address', 'income_source', 'existing_debts_detail', 'loan_purpose_detail', 'witness1_name', 'witness1_phone', 'witness2_name', 'witness2_phone']) {
+      for (const field of ['applicant_name', 'applicant_phone', 'applicant_whatsapp', 'applicant_gender', 'requester_address', 'applicant_address_house', 'applicant_address_street', 'applicant_address_city', 'applicant_address_pin', 'applicant_father_name', 'applicant_occupation', 'applicant_employer_name', 'loan_purpose_category', 'income_source', 'existing_debts_detail', 'loan_purpose_detail', 'witness1_name', 'witness1_phone', 'witness1_member_no', 'witness2_name', 'witness2_phone', 'witness2_member_no']) {
         if (changes[field] !== undefined && changes[field] !== null) changes[field] = String(changes[field]).trim();
       }
       if (changes.applicant_dob !== undefined) changes.applicant_dob = changes.applicant_dob ? String(changes.applicant_dob).trim() : null;
+
+      const submittedWitnesses = Array.isArray(inputChanges.witnesses)
+        ? inputChanges.witnesses
+        : requestWitnesses({
+            ...request,
+            witness1_name: changes.witness1_name ?? request.witness1_name,
+            witness1_phone: changes.witness1_phone ?? request.witness1_phone,
+            witness1_member_no: changes.witness1_member_no ?? request.witness1_member_no,
+            witness2_name: changes.witness2_name ?? request.witness2_name,
+            witness2_phone: changes.witness2_phone ?? request.witness2_phone,
+            witness2_member_no: changes.witness2_member_no ?? request.witness2_member_no
+          });
+      if (!Array.isArray(submittedWitnesses) || submittedWitnesses.length < 2) return res.status(400).json({ error: 'Two witnesses are required.' });
+      const existingWitnesses = requestWitnesses(request);
+      const witnesses = submittedWitnesses.map((witness, index) => {
+        const prior = existingWitnesses[index] || {};
+        return {
+          name: asTrimmed(witness?.name),
+          phone: asTrimmed(witness?.phone),
+          member_no: asTrimmed(witness?.member_no),
+          // Verification state is server-owned and cannot be changed by edit input.
+          status: prior.status || null,
+          verified_at: prior.verified_at || null
+        };
+      });
+      for (const witness of witnesses) {
+        if (witness.name.length < 3) return res.status(400).json({ error: 'Each witness name is required.' });
+        if (!/^\d{10}$/.test(witness.phone)) return res.status(400).json({ error: 'Each witness phone must contain 10 digits.' });
+      }
+      changes.witnesses = witnesses;
+      delete changes.witness1_name;
+      delete changes.witness1_phone;
+      delete changes.witness1_member_no;
+      delete changes.witness2_name;
+      delete changes.witness2_phone;
+      delete changes.witness2_member_no;
 
       const { data: editResult, error: editError } = await supabase.rpc('apply_loan_request_edit', {
         p_request_id: requestId,

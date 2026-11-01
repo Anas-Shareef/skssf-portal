@@ -33,6 +33,13 @@ A second, independent submission 500 was found in the repaired submission
 payload: it sent `loans.amt`, but the live `loans` table has `amount` and no
 `amt` column. The payload now uses only columns confirmed in production.
 
+The applicant-details audit found a separate persistence gap: the public form
+held DOB, gender and witness data in React state, but the public API did not
+include those values in its `loan_requests` insert. Witness fields were
+destructured but never written, and the detail view only read nullable witness
+columns. This caused the blank DOB/gender and empty Section C shown in the
+production screenshot.
+
 ## Implemented lifecycle
 
 `loan_requests` now remains compatible with the live constraint:
@@ -87,6 +94,13 @@ append-only `loan_application_versions`, server timestamps/version columns,
 witness fields, RLS read policies, and a transactional
 `apply_loan_request_edit` function. Member and admin history views use the
 same source request and loan record.
+
+`supabase/migrations/017_complete_applicant_details.sql` adds the missing
+applicant, address, employment, declaration and witness fields to the source
+request and formal loan rows; stores a canonical `witnesses` JSONB collection;
+backfills only values recoverable from the existing saved `reason` text; and
+replaces the edit RPC with the complete editable-field set. See
+`docs/audit/applicant-details-field-mapping-report.md` for the full mapping.
 
 The migration intentionally fails on pre-existing duplicate source loans rather
 than deleting or merging production data. It must be run in the Supabase SQL

@@ -90,8 +90,9 @@ export default function WitnessVerify() {
 
         setLoan(targetLoan);
 
-        const wName = wIdx === 2 ? (targetLoan.witness2_name || 'Witness 2') : (targetLoan.witness1_name || 'Witness 1');
-        const wPhone = wIdx === 2 ? (targetLoan.witness2_phone || '') : (targetLoan.witness1_phone || '');
+        const witnessFromCollection = Array.isArray(targetLoan.witnesses) ? targetLoan.witnesses[wIdx - 1] : targetLoan.request?.witnesses?.[wIdx - 1];
+        const wName = wIdx === 2 ? (targetLoan.witness2_name || witnessFromCollection?.name || 'Witness 2') : (targetLoan.witness1_name || witnessFromCollection?.name || 'Witness 1');
+        const wPhone = wIdx === 2 ? (targetLoan.witness2_phone || witnessFromCollection?.phone || '') : (targetLoan.witness1_phone || witnessFromCollection?.phone || '');
         const currentSt = wIdx === 2 ? targetLoan.witness2_status : targetLoan.witness1_status;
 
         setWitnessName(wName);
@@ -125,16 +126,22 @@ export default function WitnessVerify() {
       // Update localDb
       localDb.updateLoan(loan.id, updatePayload);
 
-      // Update Supabase backend
-      await supabase
+      // Update Supabase backend. The request key is the source request UUID,
+      // not the numeric loan ID.
+      const { error: loanUpdateError } = await supabase
         .from('loans')
         .update(updatePayload)
         .eq('id', loan.id);
+      if (loanUpdateError) throw loanUpdateError;
 
-      await supabase
-        .from('loan_requests')
-        .update(updatePayload)
-        .eq('id', loan.id);
+      const sourceRequestId = loan.source_request_id || loan.request?.source_request_id || (String(loan.id).includes('-') ? loan.id : null);
+      if (sourceRequestId) {
+        const { error: requestUpdateError } = await supabase
+          .from('loan_requests')
+          .update(updatePayload)
+          .eq('id', sourceRequestId);
+        if (requestUpdateError) throw requestUpdateError;
+      }
 
       setStatusResult(action);
       setAlreadyProcessed(true);

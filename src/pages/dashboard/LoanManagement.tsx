@@ -57,6 +57,32 @@ export function parseLoanPurpose(purposeStr: string, rawLoan?: any) {
   };
 }
 
+const formatDateOnly = (value: any) => {
+  if (!value) return 'Not provided';
+  const date = new Date(`${String(value).slice(0, 10)}T00:00:00`);
+  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleDateString();
+};
+
+const historyValue = (value: any) => {
+  if (value === null || value === undefined || value === '') return '—';
+  return typeof value === 'object' ? JSON.stringify(value) : String(value);
+};
+
+const getLoanWitnesses = (loan: any) => {
+  if (Array.isArray(loan?.witnesses) && loan.witnesses.length) return loan.witnesses.map((witness: any, index: number) => ({
+    ...witness,
+    status: witness.status || loan[`witness${index + 1}_status`] || null,
+    verified_at: witness.verified_at || loan[`witness${index + 1}_verified_at`] || null
+  }));
+  return [1, 2].map(index => ({
+    name: loan?.[`witness${index}_name`] || '',
+    phone: loan?.[`witness${index}_phone`] || '',
+    member_no: loan?.[`witness${index}_member_no`] || '',
+    status: loan?.[`witness${index}_status`] || null,
+    verified_at: loan?.[`witness${index}_verified_at`] || null
+  })).filter(witness => witness.name || witness.phone || witness.member_no);
+};
+
 export default function LoanManagement() {
   const { profile } = useAuth();
   const navigate = useNavigate();
@@ -546,10 +572,19 @@ export default function LoanManagement() {
                     <>
                       <div className="rv-sec">
                         <div className="rv-sec-t">Applicant Details</div>
-                        <div className="rv-row"><div className="rv-k">Name</div><div className="rv-v">{selectedLoan.name}</div></div>
+                        <div className="rv-row"><div className="rv-k">Name</div><div className="rv-v">{selectedLoan.applicant_name || selectedLoan.name}</div></div>
                         <div className="rv-row"><div className="rv-k">Application Reference</div><div className="rv-v">{selectedLoan.application_reference || selectedLoan.request?.application_reference || `REF-${String(selectedLoan.source_request_id || selectedLoan.id).slice(0, 8).toUpperCase()}`}</div></div>
                         <div className="rv-row"><div className="rv-k">Contact</div><div className="rv-v">{contactVal}</div></div>
+                        {selectedLoan.applicant_whatsapp && <div className="rv-row"><div className="rv-k">WhatsApp</div><div className="rv-v">{selectedLoan.applicant_whatsapp}</div></div>}
+                        <div className="rv-row"><div className="rv-k">Date of Birth</div><div className="rv-v">{formatDateOnly(selectedLoan.applicant_dob)}</div></div>
+                        <div className="rv-row"><div className="rv-k">Gender</div><div className="rv-v">{selectedLoan.applicant_gender || 'Not provided'}</div></div>
+                        {selectedLoan.applicant_father_name && <div className="rv-row"><div className="rv-k">Father's Name</div><div className="rv-v">{selectedLoan.applicant_father_name}</div></div>}
+                        {selectedLoan.applicant_address && <div className="rv-row"><div className="rv-k">Address</div><div className="rv-v">{selectedLoan.applicant_address}</div></div>}
+                        {selectedLoan.applicant_address_pin && <div className="rv-row"><div className="rv-k">PIN</div><div className="rv-v">{selectedLoan.applicant_address_pin}</div></div>}
+                        {selectedLoan.applicant_occupation && <div className="rv-row"><div className="rv-k">Occupation</div><div className="rv-v">{selectedLoan.applicant_occupation}</div></div>}
+                        {selectedLoan.applicant_employer_name && <div className="rv-row"><div className="rv-k">Employer</div><div className="rv-v">{selectedLoan.applicant_employer_name}</div></div>}
                         <div className="rv-row"><div className="rv-k">Monthly Salary</div><div className="rv-v">{salaryVal}</div></div>
+                        {selectedLoan.income_source && <div className="rv-row"><div className="rv-k">Income Source</div><div className="rv-v">{selectedLoan.income_source}</div></div>}
                         {selectedLoan.request?.relationship && <div className="rv-row"><div className="rv-k">Member Relationship</div><div className="rv-v">{selectedLoan.request.relationship}</div></div>}
                         {selectedLoan.member_notes && <div className="rv-row"><div className="rv-k">Member Assessment</div><div className="rv-v">{selectedLoan.member_notes}</div></div>}
                         {filingHelper && (
@@ -644,15 +679,14 @@ export default function LoanManagement() {
                   </div>
                 )}
                 {/* PRD Witness / Guarantor Verification Cards with WhatsApp 1-Click triggers */}
-                <div className="rv-sec">
-                  <div className="rv-sec-t">Witness / Guarantor Verifications</div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    {[1, 2].map((idx) => {
-                      const wName = idx === 2 ? (selectedLoan.witness2_name || selectedLoan.witnesses?.[1]?.name) : (selectedLoan.witness1_name || selectedLoan.witnesses?.[0]?.name);
-                      const wPhone = idx === 2 ? (selectedLoan.witness2_phone || selectedLoan.witnesses?.[1]?.phone) : (selectedLoan.witness1_phone || selectedLoan.witnesses?.[0]?.phone);
-                      const wStatus = idx === 2 ? selectedLoan.witness2_status : selectedLoan.witness1_status;
-                      
-                      if (!wName && !wPhone) return null;
+                 <div className="rv-sec">
+                   <div className="rv-sec-t">Witness / Guarantor Verifications</div>
+                   <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                     {getLoanWitnesses(selectedLoan).map((witness: any, index: number) => {
+                       const idx = index + 1;
+                       const wName = witness.name;
+                       const wPhone = witness.phone;
+                       const wStatus = witness.status;
 
                       const cleanPhone = (wPhone || '').replace(/\D/g, '');
                       const token = `WV-${selectedLoan.id || 'PYD'}-${idx}`;
@@ -664,7 +698,7 @@ export default function LoanManagement() {
                         <div key={idx} style={{ background: '#fff', padding: '12px 14px', borderRadius: '12px', border: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
                           <div>
                             <div style={{ fontWeight: 800, fontSize: '13px', color: '#0f172a' }}>
-                              Witness {idx}: {wName || '—'} {wPhone && <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>({wPhone})</span>}
+                               Witness {idx}: {wName || '—'} {wPhone && <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>({wPhone})</span>} {witness.member_no && <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>· Member {witness.member_no}</span>}
                             </div>
                             <div style={{ marginTop: '4px' }}>
                               {wStatus === 'VERIFIED' ? (
@@ -695,10 +729,11 @@ export default function LoanManagement() {
                             </a>
                           )}
                         </div>
-                      );
-                    })}
-                  </div>
-                </div>
+                       );
+                     })}
+                     {getLoanWitnesses(selectedLoan).length === 0 && <div style={{ fontSize: '12px', color: '#92400e' }}>No witness information was saved for this application.</div>}
+                   </div>
+                 </div>
 
                 {selectedLoan.signature && (
                   <div className="rv-sec">
@@ -734,7 +769,7 @@ export default function LoanManagement() {
                           <div key={version.id} style={{ borderTop: '1px solid #e2e8f0', paddingTop: '8px', marginTop: '8px' }}>
                             <div style={{ fontSize: '12px', fontWeight: 800 }}>Version {version.application_version} — {version.editor_role === 'applicant' ? 'Original Submission' : 'Edited by Member'}</div>
                             <div style={{ fontSize: '11px', color: '#64748b', marginTop: '3px' }}>{version.editor?.name || version.edited_by || 'Applicant'} · {new Date(version.created_at).toLocaleString()}</div>
-                            {(version.changed_fields || []).map((change: any) => <div key={change.field} style={{ fontSize: '11px', color: '#475569', marginTop: '3px' }}><b>{change.field}</b>: {String(change.previous_value ?? '—')} → {String(change.new_value ?? '—')}</div>)}
+                            {(version.changed_fields || []).map((change: any) => <div key={change.field} style={{ fontSize: '11px', color: '#475569', marginTop: '3px' }}><b>{change.field}</b>: {historyValue(change.previous_value)} → {historyValue(change.new_value)}</div>)}
                           </div>
                         ))}
                       </div>

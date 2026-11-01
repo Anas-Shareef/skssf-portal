@@ -6,6 +6,17 @@ const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABAS
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
+const trimmed = (value) => value === null || value === undefined ? '' : String(value).trim();
+const applicantAge = (value) => {
+  const date = new Date(`${value}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) return null;
+  const now = new Date();
+  let age = now.getUTCFullYear() - date.getUTCFullYear();
+  const month = now.getUTCMonth() - date.getUTCMonth();
+  if (month < 0 || (month === 0 && now.getUTCDate() < date.getUTCDate())) age -= 1;
+  return age;
+};
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -36,19 +47,30 @@ export default async function handler(req, res) {
       referred_member_name,
       loan_purpose_category,
       loan_purpose_detail,
-      father_name,
-      dob,
-      gender,
-      aadhaar_last4,
-      whatsapp,
-      income_source,
-      monthly_income,
-      existing_debts,
-      existing_debts_detail,
-      witness1_name,
-      witness1_phone,
-      witness2_name,
-      witness2_phone,
+       father_name,
+       dob,
+       gender,
+       aadhaar_last4,
+       whatsapp,
+       address_house,
+       address_place,
+       address_post,
+       address_pin,
+       address_district,
+       occupation,
+       employer_name,
+       income_source,
+       monthly_income,
+       existing_debts,
+       existing_debts_detail,
+       witness1_name,
+       witness1_phone,
+       witness1_member_no,
+       witness2_name,
+       witness2_phone,
+       witness2_member_no,
+       confirm_truth,
+       confirm_schedule,
       decision_notification,
       loan_id,
       decision_status
@@ -57,8 +79,10 @@ export default async function handler(req, res) {
     const nameVal = applicant_name || 'Applicant';
     const phoneVal = applicant_phone || '';
     const addressVal = applicant_address || '';
-    const amtVal = parseFloat(amount) || 1000;
-    const monthsVal = parseInt(months) || 12;
+    const parsedAmount = parseFloat(amount);
+    const amtVal = Number.isFinite(parsedAmount) ? parsedAmount : NaN;
+    const parsedMonths = parseInt(months);
+    const monthsVal = Number.isInteger(parsedMonths) ? parsedMonths : NaN;
 
     // Truncate purpose & notes to <= 220 chars to guarantee VARCHAR(255) compliance
     const cleanPurpose = (purpose || 'Loan Request').slice(0, 220);
@@ -117,6 +141,19 @@ export default async function handler(req, res) {
     // Creates a loan_request entry so the referring member sees it in inbox.
     // ====================================================================
     if (is_public_referral) {
+      if (trimmed(applicant_name).length < 3) return res.status(400).json({ error: 'Applicant full name is required.' });
+      if (!/^\d{10}$/.test(trimmed(applicant_phone))) return res.status(400).json({ error: 'A valid 10-digit phone number is required.' });
+      if (!dob || applicantAge(dob) === null || applicantAge(dob) < 18) return res.status(400).json({ error: 'Applicant must be at least 18 years old.' });
+      if (!trimmed(gender)) return res.status(400).json({ error: 'Gender is required.' });
+      if (!trimmed(applicant_address) || trimmed(applicant_address).length < 10) return res.status(400).json({ error: 'Complete address is required.' });
+      if (!Number.isFinite(amtVal) || amtVal < 1000 || amtVal > 50000) return res.status(400).json({ error: 'Requested amount must be between 1,000 and 50,000.' });
+      if (!Number.isInteger(monthsVal) || monthsVal <= 0) return res.status(400).json({ error: 'A valid repayment period is required.' });
+      if (trimmed(loan_purpose_detail).length < 20) return res.status(400).json({ error: 'Purpose details must be at least 20 characters.' });
+      if (!Number.isFinite(Number(monthly_income)) || Number(monthly_income) < 1000) return res.status(400).json({ error: 'Monthly income must be at least 1,000.' });
+      if (!trimmed(income_source)) return res.status(400).json({ error: 'Source of income is required.' });
+      if (!trimmed(witness1_name) || !/^\d{10}$/.test(trimmed(witness1_phone)) || !trimmed(witness2_name) || !/^\d{10}$/.test(trimmed(witness2_phone))) return res.status(400).json({ error: 'Two valid witnesses are required.' });
+      if (confirm_truth !== true || confirm_schedule !== true) return res.status(400).json({ error: 'Both declaration confirmations are required.' });
+
       let referredId = null;
       let referredName = null;
       if (referral_code) {
@@ -169,33 +206,52 @@ export default async function handler(req, res) {
         loan_purpose_category: loan_purpose_category || null,
         loan_purpose_detail: loan_purpose_detail || null,
         repayment_period_months: monthsVal,
-        applicant_name: nameVal,
-        applicant_phone: phoneVal,
-        monthly_income: monthly_income ? parseFloat(monthly_income) : null,
-        income_source: income_source || null,
-        existing_debts: !!existing_debts,
-        existing_debts_detail: existing_debts_detail || null,
-        declaration_agreed: true,
-      referred_member_id: referredId,
-      referred_member_name: referredName,
-      status: 'DRAFT_UNASSIGNED'
-      };
+         applicant_name: nameVal,
+         applicant_phone: phoneVal,
+         applicant_dob: dob || null,
+         applicant_gender: gender || null,
+         applicant_whatsapp: whatsapp || null,
+         applicant_address_house: address_house || null,
+         applicant_address_street: address_place || null,
+         applicant_address_city: address_district || null,
+         applicant_address_pin: address_pin || null,
+         monthly_income: monthly_income ? parseFloat(monthly_income) : null,
+         income_source: income_source || null,
+         existing_debts: !!existing_debts,
+         existing_debts_detail: existing_debts_detail || null,
+         declaration_agreed: confirm_truth === true && confirm_schedule === true,
+         referred_member_id: referredId,
+         referred_member_name: referredName,
+         status: 'DRAFT_UNASSIGNED'
+       };
 
       // Witness columns are added by the version-history migration. Keep the
       // live legacy schema working while preserving them automatically once
       // that migration is present.
-      const { error: witnessSchemaError } = await supabase
-        .from('loan_requests')
-        .select('witness1_name, witness1_phone, witness1_status, witness2_name, witness2_phone, witness2_status')
-        .limit(1);
-      if (!witnessSchemaError) {
-        Object.assign(requestPayload, {
-          witness1_name: witness1_name || null,
-          witness1_phone: witness1_phone || null,
-          witness2_name: witness2_name || null,
-          witness2_phone: witness2_phone || null
-        });
-      }
+       const { error: detailSchemaError } = await supabase
+         .from('loan_requests')
+         .select('application_reference, applicant_father_name, applicant_occupation, applicant_employer_name, declaration_truth_confirmed, declaration_schedule_confirmed, witness1_name, witness1_phone, witness1_member_no, witness1_status, witness2_name, witness2_phone, witness2_member_no, witness2_status, witnesses')
+         .limit(1);
+       if (!detailSchemaError) {
+         Object.assign(requestPayload, {
+           application_reference: reference,
+           applicant_father_name: father_name || null,
+           applicant_occupation: occupation || null,
+           applicant_employer_name: employer_name || null,
+           declaration_truth_confirmed: confirm_truth === true,
+           declaration_schedule_confirmed: confirm_schedule === true,
+           witness1_name: witness1_name || null,
+           witness1_phone: witness1_phone || null,
+           witness1_member_no: witness1_member_no || null,
+           witness2_name: witness2_name || null,
+           witness2_phone: witness2_phone || null,
+           witness2_member_no: witness2_member_no || null,
+           witnesses: [
+             { name: witness1_name || null, phone: witness1_phone || null, member_no: witness1_member_no || null, status: null, verified_at: null },
+             { name: witness2_name || null, phone: witness2_phone || null, member_no: witness2_member_no || null, status: null, verified_at: null }
+           ]
+         });
+       }
 
       const { data: reqData, error: reqErr } = await supabase
         .from('loan_requests')
@@ -219,8 +275,16 @@ export default async function handler(req, res) {
           applicant_whatsapp: original.applicant_whatsapp || null,
           applicant_dob: original.applicant_dob || null,
           applicant_gender: original.applicant_gender || null,
+          applicant_address_house: original.applicant_address_house || null,
+          applicant_address_street: original.applicant_address_street || null,
+          applicant_address_city: original.applicant_address_city || null,
+          applicant_address_pin: original.applicant_address_pin || null,
           requester_address: original.requester_address || null,
+          applicant_father_name: original.applicant_father_name || null,
+          applicant_occupation: original.applicant_occupation || null,
+          applicant_employer_name: original.applicant_employer_name || null,
           loan_amount_requested: original.loan_amount_requested ?? original.approximate_amount ?? null,
+          loan_purpose_category: original.loan_purpose_category || null,
           repayment_period_months: original.repayment_period_months || null,
           monthly_income: original.monthly_income ?? null,
           income_source: original.income_source || null,
@@ -232,7 +296,8 @@ export default async function handler(req, res) {
           witness1_status: original.witness1_status || null,
           witness2_name: original.witness2_name || null,
           witness2_phone: original.witness2_phone || null,
-          witness2_status: original.witness2_status || null
+          witness2_status: original.witness2_status || null,
+          witnesses: original.witnesses || []
         };
         const { error: versionError } = await supabase.from('loan_application_versions').insert({
           loan_request_id: original.id,
@@ -272,9 +337,9 @@ export default async function handler(req, res) {
     const { data: { user }, error: authError } = await supabase.auth.getUser(token);
     if (authError || !user) return res.status(401).json({ error: 'Unauthenticated' });
     if (!source_request_id) return res.status(400).json({ error: 'Source request is required' });
-    const { data: sourceRequest, error: sourceError } = await supabase
-      .from('loan_requests')
-      .select('id, referred_member_id, status, converted_to_loan_id, reason')
+      const { data: sourceRequest, error: sourceError } = await supabase
+        .from('loan_requests')
+        .select('*')
       .eq('id', source_request_id)
       .maybeSingle();
     if (sourceError) {
@@ -329,29 +394,64 @@ export default async function handler(req, res) {
     const loanNo = 'PYD-IL-2026-' + Math.floor(10000 + Math.random() * 90000);
     const referenceMatch = String(sourceRequest.reason || '').match(/Application Reference:\s*([^\n]+)/i);
     const applicationReference = referenceMatch ? referenceMatch[1].trim() : null;
+    const canonicalApplicantName = sourceRequest.applicant_name || sourceRequest.requester_name || nameVal;
+    const canonicalApplicantPhone = sourceRequest.applicant_phone || sourceRequest.requester_phone || phoneVal;
+    const canonicalApplicantAddress = sourceRequest.requester_address || applicant_address || '';
+    const canonicalMonths = Number(sourceRequest.repayment_period_months || months || 12);
+    const canonicalPurpose = sourceRequest.loan_purpose_detail || sourceRequest.reason || cleanPurpose;
     const requestSnapshot = {
       status: 'pending',
       source_request_id,
-      application_reference: applicationReference,
+      application_reference: sourceRequest.application_reference || applicationReference,
       referred_member_id: sourceRequest.referred_member_id,
       relationship: relationshipValue,
       member_notes: assessmentNotes,
-      recommended_amount: recommendedAmount
+      recommended_amount: recommendedAmount,
+      applicant_name: canonicalApplicantName,
+      applicant_phone: canonicalApplicantPhone,
+      applicant_whatsapp: sourceRequest.applicant_whatsapp || null,
+      applicant_dob: sourceRequest.applicant_dob || null,
+      applicant_gender: sourceRequest.applicant_gender || null,
+      requester_address: canonicalApplicantAddress,
+      applicant_address_house: sourceRequest.applicant_address_house || null,
+      applicant_address_street: sourceRequest.applicant_address_street || null,
+      applicant_address_city: sourceRequest.applicant_address_city || null,
+      applicant_address_pin: sourceRequest.applicant_address_pin || null,
+      applicant_father_name: sourceRequest.applicant_father_name || null,
+      applicant_occupation: sourceRequest.applicant_occupation || null,
+      applicant_employer_name: sourceRequest.applicant_employer_name || null,
+      loan_amount_requested: sourceRequest.loan_amount_requested ?? sourceRequest.approximate_amount ?? null,
+      loan_purpose_category: sourceRequest.loan_purpose_category || null,
+      loan_purpose_detail: sourceRequest.loan_purpose_detail || canonicalPurpose,
+      repayment_period_months: canonicalMonths,
+      monthly_income: sourceRequest.monthly_income ?? null,
+      income_source: sourceRequest.income_source || null,
+      existing_debts: !!sourceRequest.existing_debts,
+      existing_debts_detail: sourceRequest.existing_debts_detail || null,
+      witnesses: sourceRequest.witnesses || [],
+      witness1_name: sourceRequest.witness1_name || null,
+      witness1_phone: sourceRequest.witness1_phone || null,
+      witness1_member_no: sourceRequest.witness1_member_no || null,
+      witness1_status: sourceRequest.witness1_status || null,
+      witness2_name: sourceRequest.witness2_name || null,
+      witness2_phone: sourceRequest.witness2_phone || null,
+      witness2_member_no: sourceRequest.witness2_member_no || null,
+      witness2_status: sourceRequest.witness2_status || null
     };
     const loanPayload = {
       loan_no: loanNo,
       user_id: user.id,
-      name: nameVal,
+      name: canonicalApplicantName,
       amount: recommendedAmount,
-      purpose: cleanPurpose,
-      purpose_desc: cleanPurpose,
-      months: repaymentMonths,
+      purpose: canonicalPurpose,
+      purpose_desc: canonicalPurpose,
+      months: canonicalMonths,
       status: 'pending',
       submitted_date: new Date().toISOString().slice(0, 10),
-      requester_name: nameVal,
-      requester_phone: phoneVal,
-      requester_address: addressVal,
-      repayment_period_months: repaymentMonths,
+      requester_name: canonicalApplicantName,
+      requester_phone: canonicalApplicantPhone,
+      requester_address: canonicalApplicantAddress,
+      repayment_period_months: canonicalMonths,
       loan_amount_requested: recommendedAmount,
       loan_amount_approved: recommendedAmount,
       member_notes: assessmentNotes.slice(0, 220),
@@ -362,6 +462,46 @@ export default async function handler(req, res) {
       workflow_status: 'PENDING_COORDINATOR_REVIEW',
       request: requestSnapshot
     };
+
+    // These columns are added by migration 017. Keep the legacy submission
+    // path compatible until that migration is installed, then persist the
+    // complete canonical application on the same authoritative loan row.
+    const { error: loanDetailSchemaError } = await supabase
+      .from('loans')
+      .select('applicant_name, applicant_phone, application_reference, applicant_dob, applicant_gender, applicant_whatsapp, applicant_address, applicant_address_house, applicant_address_street, applicant_address_city, applicant_address_pin, applicant_father_name, applicant_occupation, applicant_employer_name, loan_purpose_category, existing_debts, existing_debts_detail, monthly_income, income_source, witness1_name, witness1_phone, witness1_member_no, witness1_status, witness1_verified_at, witness2_name, witness2_phone, witness2_member_no, witness2_status, witness2_verified_at, witnesses')
+      .limit(1);
+    if (!loanDetailSchemaError) {
+      Object.assign(loanPayload, {
+        applicant_name: canonicalApplicantName,
+        applicant_phone: canonicalApplicantPhone,
+        application_reference: requestSnapshot.application_reference,
+        applicant_dob: requestSnapshot.applicant_dob,
+        applicant_gender: requestSnapshot.applicant_gender,
+        applicant_whatsapp: requestSnapshot.applicant_whatsapp,
+        applicant_address: requestSnapshot.requester_address,
+        applicant_address_house: requestSnapshot.applicant_address_house,
+        applicant_address_street: requestSnapshot.applicant_address_street,
+        applicant_address_city: requestSnapshot.applicant_address_city,
+        applicant_address_pin: requestSnapshot.applicant_address_pin,
+        applicant_father_name: requestSnapshot.applicant_father_name,
+        applicant_occupation: requestSnapshot.applicant_occupation,
+        applicant_employer_name: requestSnapshot.applicant_employer_name,
+        loan_purpose_category: requestSnapshot.loan_purpose_category,
+        existing_debts: requestSnapshot.existing_debts,
+        existing_debts_detail: requestSnapshot.existing_debts_detail,
+        monthly_income: requestSnapshot.monthly_income,
+        income_source: requestSnapshot.income_source,
+        witness1_name: requestSnapshot.witness1_name,
+        witness1_phone: requestSnapshot.witness1_phone,
+        witness1_member_no: requestSnapshot.witness1_member_no,
+        witness1_status: requestSnapshot.witness1_status,
+        witness2_name: requestSnapshot.witness2_name,
+        witness2_phone: requestSnapshot.witness2_phone,
+        witness2_member_no: requestSnapshot.witness2_member_no,
+        witness2_status: requestSnapshot.witness2_status,
+        witnesses: requestSnapshot.witnesses
+      });
+    }
     const { data: insertedRows, error: loanError } = await supabase
       .from('loans')
       .insert([loanPayload])
