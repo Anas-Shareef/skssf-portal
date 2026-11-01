@@ -61,9 +61,10 @@ Admin approval/rejection remains on `loans.status` and
   - Checks `source_request_id` before insert and converts the source request
     only through an ownership/status-guarded update.
   - Notifies admins after the loan is saved.
-- `api/notify-loan-decision.js`
-  - Lets only authenticated admin/super users notify the submitting member
-    after a final approval/rejection.
+- `api/submit-loan-application.js` also handles final-decision notifications
+  - Only authenticated admin/super users can notify the submitting member
+    after a final approval/rejection. This path is consolidated into the
+    existing function to remain within the Vercel Hobby function limit.
 
 ## Database migration
 

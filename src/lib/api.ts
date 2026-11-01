@@ -712,10 +712,10 @@ export const api = {
       // an admin browser to write notifications for another user directly.
       if (resolvedStatus === 'approved' || resolvedStatus === 'rejected') {
         try {
-          const decisionResponse = await fetch('/api/notify-loan-decision', {
+          const decisionResponse = await fetch('/api/submit-loan-application', {
             method: 'POST',
             headers: await getAuthHeaders({ 'Content-Type': 'application/json' }),
-            body: JSON.stringify({ loanId: loan.id, status: resolvedStatus })
+            body: JSON.stringify({ decision_notification: true, loan_id: loan.id, decision_status: resolvedStatus })
           });
           if (!decisionResponse.ok) {
             console.warn('Loan decision notification was not delivered:', await decisionResponse.text());

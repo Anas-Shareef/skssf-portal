@@ -48,7 +48,10 @@ export default async function handler(req, res) {
       witness1_name,
       witness1_phone,
       witness2_name,
-      witness2_phone
+      witness2_phone,
+      decision_notification,
+      loan_id,
+      decision_status
     } = req.body || {};
 
     const nameVal = applicant_name || 'Applicant';
@@ -60,6 +63,54 @@ export default async function handler(req, res) {
     // Truncate purpose & notes to <= 220 chars to guarantee VARCHAR(255) compliance
     const cleanPurpose = (purpose || 'Loan Request').slice(0, 220);
     const cleanNotes = (member_notes || '').slice(0, 220);
+
+    // Keep final-decision notifications in this existing function so the
+    // deployment stays within Vercel Hobby's serverless-function limit.
+    if (decision_notification) {
+      const authHeader = req.headers.authorization || '';
+      const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+      if (!token) return res.status(401).json({ error: 'Authentication required' });
+      const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+      if (authError || !user) return res.status(401).json({ error: 'Unauthenticated' });
+      const { data: actor, error: actorError } = await supabase
+        .from('profiles')
+        .select('id, role')
+        .eq('id', user.id)
+        .maybeSingle();
+      if (actorError) {
+        console.error('Decision notification actor lookup failed:', actorError);
+        return res.status(500).json({ error: 'Unable to verify the approving user.' });
+      }
+      if (!actor || !['admin', 'super'].includes(actor.role)) {
+        return res.status(403).json({ error: 'Admin permission required.' });
+      }
+      if (!loan_id || !['approved', 'rejected'].includes(decision_status)) {
+        return res.status(400).json({ error: 'Invalid loan decision.' });
+      }
+      const { data: decisionLoan, error: loanLookupError } = await supabase
+        .from('loans')
+        .select('id, name, submitted_by_member_id')
+        .eq('id', loan_id)
+        .maybeSingle();
+      if (loanLookupError) {
+        console.error('Decision loan lookup failed:', loanLookupError);
+        return res.status(500).json({ error: 'Unable to verify the loan.' });
+      }
+      if (!decisionLoan) return res.status(404).json({ error: 'Loan not found.' });
+      if (!decisionLoan.submitted_by_member_id) return res.status(200).json({ success: true, notified: false });
+      const label = decision_status === 'approved' ? 'approved' : 'rejected';
+      const { error: decisionNotificationError } = await supabase.from('notifications').insert({
+        user_id: decisionLoan.submitted_by_member_id,
+        title: `Loan application ${label}`,
+        message: `Your loan application for ${decisionLoan.name || 'the applicant'} was ${label} by Admin.`,
+        link_url: '/member/dashboard/loans'
+      });
+      if (decisionNotificationError) {
+        console.error('Decision notification insert failed:', decisionNotificationError);
+        return res.status(500).json({ error: 'Decision saved, but notification delivery failed.' });
+      }
+      return res.status(200).json({ success: true, notified: true });
+    }
 
     // ====================================================================
     // PATH A: Public referral form (from /request/:memberCode)
