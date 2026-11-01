@@ -140,6 +140,19 @@ export default async function handler(req, res) {
         throw new Error('Failed to save application: ' + reqErr.message);
       }
 
+      // Notify the referred member after the request has been durably saved.
+      // A notification failure must not make the applicant retry and create a
+      // duplicate application.
+      if (referredId && reqData?.[0]?.id) {
+        const { error: notificationError } = await supabase.from('notifications').insert({
+          user_id: referredId,
+          title: 'New application received',
+          message: `A new loan application was submitted through your referral link. Reference: ${reference}`,
+          link_url: '/member/dashboard/inbox'
+        });
+        if (notificationError) console.warn('Referral notification insert failed:', notificationError.message);
+      }
+
       return res.status(200).json({ success: true, reference, record: reqData ? reqData[0] : null });
     }
 

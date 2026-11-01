@@ -204,8 +204,15 @@ export default function DashboardLayout() {
   useEffect(() => {
     fetchNotifs();
     const handleUpdate = () => fetchNotifs();
+    const handleVisibility = () => { if (document.visibilityState === 'visible') void fetchNotifs(); };
     window.addEventListener('appDataUpdated', handleUpdate);
-    return () => window.removeEventListener('appDataUpdated', handleUpdate);
+    window.addEventListener('focus', handleUpdate);
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      window.removeEventListener('appDataUpdated', handleUpdate);
+      window.removeEventListener('focus', handleUpdate);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
   }, [profile]);
 
   const role = profile?.role || 'member';
