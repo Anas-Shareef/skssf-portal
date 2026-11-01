@@ -23,6 +23,8 @@ The fix uses the live `referred_member_id` relationship, persists the applicatio
 
 The public referral API also creates a `notifications` row for the referred member after the application insert succeeds. The notification links to `/member/dashboard/inbox`; notification failure is logged without causing an applicant retry and duplicate application.
 
+Production verification also found that the Vercel project had no environment variables configured. That prevented server-side API operations that require the Supabase service-role credential, including referral notification inserts under the existing `notifications` RLS policy. Production now has encrypted `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `VITE_SUPABASE_URL`, and `VITE_SUPABASE_ANON_KEY` variables, and was redeployed without changing RLS.
+
 No database schema or RLS policy was changed. No duplicate production application was created.
 
 ## 2. Phase 1 — supplied reference trace
@@ -239,3 +241,5 @@ Referral form resolution: HTTP 200, referred member Rizwan
 The browser automation environment denied clipboard access because the evaluated click was not a trusted focused user gesture (`NotAllowedError: Document is not focused`). The production handler now reports that failure rather than falsely claiming success; a real focused user click uses the Clipboard API and the fallback path.
 
 The old supplied reference cannot be retroactively recovered because it was never persisted; new submissions now persist the reference in the request trace and return it from the API.
+
+No test application was created during this verification. The currently visible Rizwan requests predate the notification deployment, so their absence from the bell is expected; one new real referral submission is still required to verify creation of a fresh notification end to end.
