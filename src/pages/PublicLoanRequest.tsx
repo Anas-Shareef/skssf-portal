@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { User, Phone, MapPin, IndianRupee, CheckCircle, AlertCircle, ArrowLeft, ShieldCheck, FileText, Check, Clock, Edit3, RotateCcw } from 'lucide-react';
+import { User, Phone, MapPin, IndianRupee, CheckCircle, AlertCircle, ArrowLeft, ShieldCheck, FileText, Check, Clock, Edit3, RotateCcw, Copy } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 
 export default function PublicLoanRequest() {
@@ -243,8 +243,7 @@ export default function PublicLoanRequest() {
       const amtVal = parseFloat(amountRequested);
       const monthsVal = parseInt(repaymentMonths);
 
-      const generatedRef = `PYD-IL-2026-${Math.floor(10000 + Math.random() * 90000)}`;
-      setRefNumber(generatedRef);
+      setRefNumber('');
 
       const fullDetailsSummary = `Father: ${fatherName.trim()}\nCategory: ${finalCategory}\nDetails: ${purposeDetail.trim()}\nPeriod: ${monthsVal} Months\nOccupation: ${finalOccupation} (${employerName ? employerName.trim() : 'N/A'})\nIncome: ₹${monthlyIncome} (${incomeSource.trim()})\nDebts: ${existingDebts ? existingDebtsDetail.trim() : 'None'}\nWitness 1: ${witness1Name.trim()} (${witness1Phone.trim()})\nWitness 2: ${witness2Name.trim()} (${witness2Phone.trim()})\nDOB: ${dob} (${gender})`;
 
@@ -258,7 +257,6 @@ export default function PublicLoanRequest() {
           body: JSON.stringify({
             is_public_referral: true,
             referral_code: code || null,
-            application_reference: generatedRef,
             applicant_name: fullName.trim(),
              applicant_phone: phone.trim(),
              applicant_address: fullAddressStr,
@@ -297,7 +295,7 @@ export default function PublicLoanRequest() {
           const apiData = await res.json();
           if (apiData.success) {
             insertedRecord = apiData.record || true;
-            setRefNumber(apiData.reference || generatedRef);
+             setRefNumber(apiData.reference || '');
           }
         }
       } catch (apiErr) {
@@ -355,7 +353,10 @@ export default function PublicLoanRequest() {
 
           <div style={{ background: '#f8fafc', padding: '20px', borderRadius: '20px', border: '1.5px solid #e2e8f0', margin: '24px 0', textAlign: 'center' }}>
             <div style={{ fontSize: '11px', fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>Your Application Reference No.</div>
-            <div style={{ fontSize: '24px', fontWeight: 950, color: 'var(--teal)', fontFamily: 'monospace', margin: '6px 0' }}>{refNumber}</div>
+             <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', margin: '6px 0' }}>
+               <div style={{ fontSize: '24px', fontWeight: 950, color: 'var(--teal)', fontFamily: 'monospace' }}>{refNumber || 'Reference unavailable'}</div>
+               {refNumber && <button type="button" onClick={() => navigator.clipboard?.writeText(refNumber)} aria-label="Copy application reference" style={{ border: 0, background: '#ecfdf5', color: '#0f766e', borderRadius: '8px', padding: '7px', cursor: 'pointer' }}><Copy size={17} /></button>}
+             </div>
             <div style={{ fontSize: '12px', color: '#475569' }}>Submitted for committee review under referral: <b>{member?.name}</b></div>
           </div>
 
@@ -363,9 +364,14 @@ export default function PublicLoanRequest() {
             Thank you for applying. Your application has been logged and sent to representative <b>{member?.name}</b> and the SKSSF Poyanad Branch committee for review.
           </p>
 
-          <button onClick={() => window.location.reload()} className="bsm s" style={{ width: '100%', padding: '14px', borderRadius: '14px', fontWeight: 900, background: '#0f172a' }}>
-            Submit Another Application
-          </button>
+           <div style={{ display: 'grid', gap: '10px' }}>
+             <button onClick={() => navigate(code ? `/request/${encodeURIComponent(code)}/track` : '/request/track')} className="bsm s" style={{ width: '100%', padding: '14px', borderRadius: '14px', fontWeight: 900, background: '#0f766e' }}>
+               Track This Application
+             </button>
+             <button onClick={() => window.location.reload()} className="bsm s" style={{ width: '100%', padding: '14px', borderRadius: '14px', fontWeight: 900, background: '#0f172a' }}>
+               Submit Another Application
+             </button>
+           </div>
         </div>
       </div>
     );

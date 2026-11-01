@@ -86,6 +86,24 @@ export default function PanelVotes() {
         notes: `Panel Coordinator voted ${decision}. Workflow status is now ${nextStatus}.`
       });
 
+      if (nextStatus === 'APPROVED' || nextStatus === 'REJECTED_BY_PANEL') {
+        try {
+          const { data: sessionData } = await supabase.auth.getSession();
+          if (sessionData.session) await fetch('/api/submit-loan-application', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${sessionData.session.access_token}` },
+            body: JSON.stringify({
+              status_event: true,
+              loan_id: loanId,
+              status_event_code: nextStatus === 'APPROVED' ? 'APPROVED' : 'REJECTED',
+              status_event_note: nextStatus === 'REJECTED_BY_PANEL' ? (updates.rejection_reason || '') : null
+            })
+          });
+        } catch (eventError) {
+          console.warn('Applicant status event was not recorded:', eventError);
+        }
+      }
+
       // 3. Generate repayment installments if approved
       if (nextStatus === 'APPROVED') {
         const disDate = new Date().toISOString().split('T')[0];

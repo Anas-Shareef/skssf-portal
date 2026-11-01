@@ -74,6 +74,17 @@ export default function CoordinatorLoanDetail() {
         notes: `Verified by coordinator ${profile?.name}. Notes: ${notes.trim()}`
       });
 
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        if (sessionData.session) await fetch('/api/submit-loan-application', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${sessionData.session.access_token}` },
+          body: JSON.stringify({ status_event: true, loan_id: id, status_event_code: 'UNDER_SUPERADMIN_REVIEW' })
+        });
+      } catch (eventError) {
+        console.warn('Applicant status event was not recorded:', eventError);
+      }
+
       // 3. Send notifications to admins and panel coordinator
       const targets = [];
       const { data: admins } = await supabase.from('profiles').select('id').eq('role', 'admin');
@@ -127,6 +138,17 @@ export default function CoordinatorLoanDetail() {
         performed_by_user_id: profile?.db_id || profile?.id,
         notes: `Rejected by coordinator ${profile?.name}. Reason: ${reason.trim()}`
       });
+
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        if (sessionData.session) await fetch('/api/submit-loan-application', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${sessionData.session.access_token}` },
+          body: JSON.stringify({ status_event: true, loan_id: id, status_event_code: 'REJECTED', status_event_note: reason.trim() })
+        });
+      } catch (eventError) {
+        console.warn('Applicant status event was not recorded:', eventError);
+      }
 
       // Send notification to member who filed it
       if (loan.submitted_by_member_id) {

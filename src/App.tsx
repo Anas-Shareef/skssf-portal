@@ -21,6 +21,8 @@ import ResetPassword from './pages/ResetPassword';
 import PublicCatalog from './pages/PublicCatalog';
 import PublicCatalogDetail from './pages/PublicCatalogDetail';
 import PublicLoanRequest from './pages/PublicLoanRequest';
+import PublicLoanServices from './pages/PublicLoanServices';
+import ApplicantTracking from './pages/ApplicantTracking';
 import WitnessVerify from './pages/WitnessVerify';
 
 // Member sub-pages
@@ -58,9 +60,13 @@ function App() {
           <Route path="/:role/login" element={<RoleLogin mode="login" />} />
           <Route path="/:role/register" element={<RoleLogin mode="register" />} />
           <Route path="/reset-password" element={<ResetPassword />} />
-          {/* Public loan request — works with or without member code */}
-          <Route path="/request" element={<PublicLoanRequest />} />
-          <Route path="/request/:code" element={<PublicLoanRequest />} />
+          {/* Public loan services — the application form remains the existing form */}
+          <Route path="/request" element={<PublicLoanServices />} />
+          <Route path="/request/apply" element={<PublicLoanRequest />} />
+          <Route path="/request/track" element={<ApplicantTracking />} />
+          <Route path="/request/:code/apply" element={<PublicLoanRequest />} />
+          <Route path="/request/:code/track" element={<ApplicantTracking />} />
+          <Route path="/request/:code" element={<PublicLoanServices />} />
           <Route path="/witness-verify/:token" element={<WitnessVerify />} />
 
           {/* ── Public Catalog (no auth, no role) ── */}

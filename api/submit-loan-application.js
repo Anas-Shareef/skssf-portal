@@ -1,4 +1,5 @@
 if (!globalThis.WebSocket) globalThis.WebSocket = class {};
+import crypto from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || 'https://jgxzdwbixqhkjrdbhnlc.supabase.co';
@@ -15,6 +16,45 @@ const applicantAge = (value) => {
   const month = now.getUTCMonth() - date.getUTCMonth();
   if (month < 0 || (month === 0 && now.getUTCDate() < date.getUTCDate())) age -= 1;
   return age;
+};
+
+const newReferenceCandidate = () => {
+  const year = new Date().getUTCFullYear();
+  return `SKSSF-LN-${year}-${crypto.randomInt(10000000, 100000000)}`;
+};
+
+const createApplicationReference = async () => {
+  // The unique partial index is installed by migration 018. The retry also
+  // keeps the server authoritative if two public submissions arrive together.
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const candidate = newReferenceCandidate();
+    const { data, error } = await supabase
+      .from('loan_requests')
+      .select('id')
+      .eq('application_reference', candidate)
+      .maybeSingle();
+    if (error?.code === '42703' || error?.code === 'PGRST204') return candidate;
+    if (error) throw error;
+    if (!data) return candidate;
+  }
+  throw new Error('Unable to allocate an application reference.');
+};
+
+const recordStatusEvent = async ({ requestId, statusCode, actorType, actorId = null, note = null }) => {
+  if (!requestId) return;
+  const { error } = await supabase.from('application_status_events').insert({
+    loan_request_id: requestId,
+    status_code: statusCode,
+    actor_type: actorType,
+    actor_id: actorId,
+    applicant_visible_note: note
+  });
+  // The status-event migration is intentionally deployable after this API.
+  // Do not make an existing submission/decision fail only because it has not
+  // been applied yet.
+  if (error && !['PGRST205', '42P01', '42703'].includes(error.code)) {
+    console.warn('Applicant status event was not recorded:', error.code || 'unknown');
+  }
 };
 
 export default async function handler(req, res) {
@@ -39,11 +79,10 @@ export default async function handler(req, res) {
       member_notes,
       purpose,
       submitted_by_member_id,
-      // public form fields (sent from PublicLoanRequest.tsx)
-      is_public_referral,
-      referral_code,
-      application_reference,
-      referred_member_id,
+       // public form fields (sent from PublicLoanRequest.tsx)
+       is_public_referral,
+       referral_code,
+       referred_member_id,
       referred_member_name,
       loan_purpose_category,
       loan_purpose_detail,
@@ -71,9 +110,12 @@ export default async function handler(req, res) {
        witness2_member_no,
        confirm_truth,
        confirm_schedule,
-      decision_notification,
-      loan_id,
-      decision_status
+       decision_notification,
+       loan_id,
+       decision_status,
+       status_event,
+       status_event_code,
+       status_event_note
     } = req.body || {};
 
     const nameVal = applicant_name || 'Applicant';
@@ -113,7 +155,7 @@ export default async function handler(req, res) {
       }
       const { data: decisionLoan, error: loanLookupError } = await supabase
         .from('loans')
-        .select('id, name, submitted_by_member_id')
+        .select('id, name, submitted_by_member_id, source_request_id')
         .eq('id', loan_id)
         .maybeSingle();
       if (loanLookupError) {
@@ -121,8 +163,14 @@ export default async function handler(req, res) {
         return res.status(500).json({ error: 'Unable to verify the loan.' });
       }
       if (!decisionLoan) return res.status(404).json({ error: 'Loan not found.' });
-      if (!decisionLoan.submitted_by_member_id) return res.status(200).json({ success: true, notified: false });
       const label = decision_status === 'approved' ? 'approved' : 'rejected';
+      await recordStatusEvent({
+        requestId: decisionLoan.source_request_id,
+        statusCode: decision_status === 'approved' ? 'APPROVED' : 'REJECTED',
+        actorType: actor.role,
+        actorId: actor.id
+      });
+      if (!decisionLoan.submitted_by_member_id) return res.status(200).json({ success: true, notified: false });
       const { error: decisionNotificationError } = await supabase.from('notifications').insert({
         user_id: decisionLoan.submitted_by_member_id,
         title: `Loan application ${label}`,
@@ -134,6 +182,50 @@ export default async function handler(req, res) {
         return res.status(500).json({ error: 'Decision saved, but notification delivery failed.' });
       }
       return res.status(200).json({ success: true, notified: true });
+    }
+
+    // Existing coordinator/panel screens update the authoritative loans row
+    // directly. This small authenticated bridge appends the corresponding
+    // applicant-visible event without exposing the service role to browsers.
+    if (status_event) {
+      const authHeader = req.headers.authorization || '';
+      const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+      if (!token) return res.status(401).json({ error: 'Authentication required' });
+      const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+      if (authError || !user) return res.status(401).json({ error: 'Unauthenticated' });
+      const { data: actor, error: actorError } = await supabase
+        .from('profiles')
+        .select('id, role, is_panel_coordinator')
+        .eq('id', user.id)
+        .maybeSingle();
+      if (actorError || !actor) return res.status(403).json({ error: 'Unable to verify the reviewing user.' });
+      const { data: eventLoan, error: eventLoanError } = await supabase
+        .from('loans')
+        .select('id, source_request_id, submitted_by_member_id, workflow_status')
+        .eq('id', loan_id)
+        .maybeSingle();
+      if (eventLoanError || !eventLoan?.source_request_id) return res.status(404).json({ error: 'Loan source not found.' });
+
+      const eventCode = String(status_event_code || '').trim().toUpperCase();
+      const isMemberForward = eventCode === 'UNDER_ADMIN_REVIEW'
+        && eventLoan.submitted_by_member_id === user.id
+        && eventLoan.workflow_status === 'PENDING_COORDINATOR_REVIEW';
+      const isCoordinatorForward = eventCode === 'UNDER_SUPERADMIN_REVIEW'
+        && ['coordinator', 'admin', 'super'].includes(actor.role)
+        && eventLoan.workflow_status === 'PENDING_APPROVAL_PANEL';
+      const isDecision = ['APPROVED', 'REJECTED'].includes(eventCode)
+        && (['admin', 'super', 'coordinator'].includes(actor.role) || actor.is_panel_coordinator === true)
+        && String(eventLoan.workflow_status || '').startsWith(eventCode === 'APPROVED' ? 'APPROVED' : 'REJECTED');
+      if (!isMemberForward && !isCoordinatorForward && !isDecision) return res.status(403).json({ error: 'This status event is not permitted.' });
+
+      await recordStatusEvent({
+        requestId: eventLoan.source_request_id,
+        statusCode: eventCode,
+        actorType: actor.role === 'super' ? 'super' : actor.role === 'admin' ? 'admin' : 'member',
+        actorId: actor.id,
+        note: String(status_event_note || '').trim().slice(0, 500) || null
+      });
+      return res.status(200).json({ success: true });
     }
 
     // ====================================================================
@@ -182,8 +274,9 @@ export default async function handler(req, res) {
         if (!referredId) return res.status(400).json({ error: 'Invalid referral link' });
       }
 
-      // Build the `reason` summary string that the inbox filter uses
-      const reference = String(application_reference || `PYD-IL-2026-${Math.floor(10000 + Math.random() * 90000)}`).trim();
+      // The reference is generated here, never trusted from the browser.
+      // Existing application references are not changed by this path.
+      const reference = await createApplicationReference();
       const reasonStr = [
         `Application Reference: ${reference}`,
         referredName ? `Referred By: ${referredName}` : '',
@@ -326,6 +419,12 @@ export default async function handler(req, res) {
         });
         if (notificationError) console.warn('Referral notification insert failed:', notificationError.message);
       }
+
+      await recordStatusEvent({
+        requestId: reqData?.[0]?.id,
+        statusCode: 'SUBMITTED',
+        actorType: 'applicant'
+      });
 
       return res.status(200).json({ success: true, reference, record: reqData ? reqData[0] : null });
     }
@@ -537,6 +636,12 @@ export default async function handler(req, res) {
         await supabase.from('loans').delete().eq('id', insertedLoan.id);
         return res.status(500).json({ error: 'The loan was saved but the inbox request could not be updated.' });
       }
+      await recordStatusEvent({
+        requestId: source_request_id,
+        statusCode: 'FORWARDED_TO_ADMIN',
+        actorType: 'member',
+        actorId: user.id
+      });
     }
 
     // Notify admins after the loan is visible in the admin review queue.
