@@ -31,6 +31,64 @@ CREATE TABLE IF NOT EXISTS public.loan_application_versions (
 CREATE INDEX IF NOT EXISTS loan_application_versions_request_idx
   ON public.loan_application_versions(loan_request_id, application_version);
 
+-- Preserve an original snapshot for every existing request. This is
+-- idempotent and does not alter the request or any loan/repayment record.
+INSERT INTO public.loan_application_versions (
+  loan_request_id, application_version, edited_by, editor_role,
+  previous_data, updated_data, changed_fields, edit_reason
+)
+SELECT
+  id,
+  1,
+  NULL,
+  'applicant',
+  jsonb_build_object(
+    'applicant_name', applicant_name,
+    'applicant_phone', applicant_phone,
+    'applicant_whatsapp', applicant_whatsapp,
+    'applicant_dob', applicant_dob,
+    'applicant_gender', applicant_gender,
+    'requester_address', requester_address,
+    'loan_amount_requested', loan_amount_requested,
+    'repayment_period_months', repayment_period_months,
+    'monthly_income', monthly_income,
+    'income_source', income_source,
+    'existing_debts', existing_debts,
+    'existing_debts_detail', existing_debts_detail,
+    'loan_purpose_detail', loan_purpose_detail,
+    'witness1_name', witness1_name,
+    'witness1_phone', witness1_phone,
+    'witness1_status', witness1_status,
+    'witness2_name', witness2_name,
+    'witness2_phone', witness2_phone,
+    'witness2_status', witness2_status
+  ),
+  jsonb_build_object(
+    'applicant_name', applicant_name,
+    'applicant_phone', applicant_phone,
+    'applicant_whatsapp', applicant_whatsapp,
+    'applicant_dob', applicant_dob,
+    'applicant_gender', applicant_gender,
+    'requester_address', requester_address,
+    'loan_amount_requested', loan_amount_requested,
+    'repayment_period_months', repayment_period_months,
+    'monthly_income', monthly_income,
+    'income_source', income_source,
+    'existing_debts', existing_debts,
+    'existing_debts_detail', existing_debts_detail,
+    'loan_purpose_detail', loan_purpose_detail,
+    'witness1_name', witness1_name,
+    'witness1_phone', witness1_phone,
+    'witness1_status', witness1_status,
+    'witness2_name', witness2_name,
+    'witness2_phone', witness2_phone,
+    'witness2_status', witness2_status
+  ),
+  '[]'::jsonb,
+  'Original submission'
+FROM public.loan_requests
+ON CONFLICT (loan_request_id, application_version) DO NOTHING;
+
 ALTER TABLE public.loan_application_versions ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "loan_application_versions_member_select" ON public.loan_application_versions;
 DROP POLICY IF EXISTS "loan_application_versions_admin_select" ON public.loan_application_versions;

@@ -207,6 +207,48 @@ export default async function handler(req, res) {
         throw new Error('Failed to save application: ' + reqErr.message);
       }
 
+      // Keep the original application snapshot separate from later member
+      // edits when the version-history migration is installed. This is
+      // intentionally non-blocking so legacy deployments can still accept
+      // public applications before the migration is applied.
+      if (reqData?.[0]?.id) {
+        const original = reqData[0];
+        const originalData = {
+          applicant_name: original.applicant_name || original.requester_name || null,
+          applicant_phone: original.applicant_phone || original.requester_phone || null,
+          applicant_whatsapp: original.applicant_whatsapp || null,
+          applicant_dob: original.applicant_dob || null,
+          applicant_gender: original.applicant_gender || null,
+          requester_address: original.requester_address || null,
+          loan_amount_requested: original.loan_amount_requested ?? original.approximate_amount ?? null,
+          repayment_period_months: original.repayment_period_months || null,
+          monthly_income: original.monthly_income ?? null,
+          income_source: original.income_source || null,
+          existing_debts: original.existing_debts || false,
+          existing_debts_detail: original.existing_debts_detail || null,
+          loan_purpose_detail: original.loan_purpose_detail || null,
+          witness1_name: original.witness1_name || null,
+          witness1_phone: original.witness1_phone || null,
+          witness1_status: original.witness1_status || null,
+          witness2_name: original.witness2_name || null,
+          witness2_phone: original.witness2_phone || null,
+          witness2_status: original.witness2_status || null
+        };
+        const { error: versionError } = await supabase.from('loan_application_versions').insert({
+          loan_request_id: original.id,
+          application_version: 1,
+          edited_by: null,
+          editor_role: 'applicant',
+          previous_data: originalData,
+          updated_data: originalData,
+          changed_fields: [],
+          edit_reason: 'Original submission'
+        });
+        if (versionError && versionError.code !== 'PGRST205' && versionError.code !== '23505') {
+          console.warn('Original application history snapshot failed:', versionError.message);
+        }
+      }
+
       // Notify the referred member after the request has been durably saved.
       // A notification failure must not make the applicant retry and create a
       // duplicate application.
