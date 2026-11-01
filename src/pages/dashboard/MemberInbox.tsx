@@ -107,7 +107,7 @@ export default function MemberInbox() {
     if (req.normalizedStatus === 'NEW') {
       try {
         const token = await getAccessToken();
-        const response = await fetch('/api/update-member-request', {
+          const response = await fetch('/api/get-member-inbox', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
           body: JSON.stringify({ requestId: req.id, action: 'review' })
@@ -183,7 +183,7 @@ export default function MemberInbox() {
     setActioning(true);
     try {
        const token = await getAccessToken();
-       const response = await fetch('/api/update-member-request', {
+       const response = await fetch('/api/get-member-inbox', {
          method: 'POST',
          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
          body: JSON.stringify({ requestId: selectedRequest.id, action: 'dismiss', dismissalReason: dismissalReason.trim() })
