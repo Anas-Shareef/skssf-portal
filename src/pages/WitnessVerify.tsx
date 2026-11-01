@@ -1,324 +1,248 @@
-import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { ShieldCheck, CheckCircle, XCircle, AlertCircle, ArrowLeft, Check, X, Phone } from 'lucide-react';
-import { localDb } from '../lib/localDb';
-import { supabase } from '../lib/supabaseClient';
+import { useEffect, useState } from 'react';
+import { useParams } from 'react-router-dom';
+import { AlertCircle, CheckCircle, Loader2, ShieldCheck, XCircle } from 'lucide-react';
+
+type WitnessInfo = {
+  index: number;
+  name: string | null;
+  maskedPhone: string | null;
+  status: 'PENDING' | 'VERIFIED' | 'DECLINED' | 'EXPIRED' | 'REVOKED';
+  issuedAt?: string | null;
+  expiresAt?: string | null;
+  respondedAt?: string | null;
+  responseNote?: string | null;
+};
+
+type ApplicationInfo = {
+  reference: string | null;
+  applicantName: string | null;
+};
+
+const cardStyle = {
+  background: '#fff',
+  borderRadius: '24px',
+  padding: '32px',
+  border: '1.5px solid #e2e8f0',
+  boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.06)',
+  maxWidth: '640px',
+  width: '100%',
+  margin: '0 auto'
+} as const;
+
+const formatDate = (value?: string | null) =>
+  value ? new Date(value).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : null;
 
 export default function WitnessVerify() {
   const { token } = useParams<{ token: string }>();
-  const navigate = useNavigate();
 
   const [loading, setLoading] = useState(true);
-  const [loan, setLoan] = useState<any>(null);
-  const [witnessIndex, setWitnessIndex] = useState<number>(1);
-  const [witnessName, setWitnessName] = useState<string>('');
-  const [witnessPhone, setWitnessPhone] = useState<string>('');
-  const [alreadyProcessed, setAlreadyProcessed] = useState<boolean>(false);
-  const [statusResult, setStatusResult] = useState<'VERIFIED' | 'REJECTED' | null>(null);
-  const [submitting, setSubmitting] = useState<boolean>(false);
-  const [error, setError] = useState<string>('');
+  const [witness, setWitness] = useState<WitnessInfo | null>(null);
+  const [application, setApplication] = useState<ApplicationInfo | null>(null);
+  const [consentNotice, setConsentNotice] = useState('');
+  const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState<'VERIFIED' | 'DECLINED' | null>(null);
+  const [result, setResult] = useState<'VERIFIED' | 'DECLINED' | null>(null);
+  const [resultAt, setResultAt] = useState<string | null>(null);
 
   useEffect(() => {
-    async function loadWitnessRequest() {
+    let cancelled = false;
+    async function load() {
       if (!token) {
-        setError('Invalid witness verification token link.');
+        setError('This witness verification link is not valid.');
         setLoading(false);
         return;
       }
-
       try {
-        // Parse token format: WV-{loanId}-{witnessIdx} or raw token
-        const cleanToken = token.trim();
-        let loanId = cleanToken;
-        let wIdx = 1;
-
-        if (cleanToken.startsWith('WV-')) {
-          const parts = cleanToken.split('-');
-          if (parts.length >= 3) {
-            wIdx = parseInt(parts[parts.length - 1]) || 1;
-            loanId = parts.slice(1, parts.length - 1).join('-');
-          }
+        const res = await fetch('/api/track-application', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'witness_view', token })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (cancelled) return;
+        if (!res.ok) {
+          setError(data.error || 'This witness verification link is not valid.');
+          return;
         }
-
-        setWitnessIndex(wIdx);
-
-        // Fetch loan from localDb or Supabase
-        let targetLoan = localDb.getLoans().find((l: any) => l.id === loanId || l.loan_no === loanId || (l.id && l.id.slice(0, 8) === loanId));
-
-        if (!targetLoan) {
-          const { data, error: dbErr } = await supabase
-            .from('loans')
-            .select('*')
-            .or(`id.eq.${loanId},loan_no.eq.${loanId}`)
-            .limit(1);
-
-          if (!dbErr && data && data.length > 0) {
-            targetLoan = data[0];
-          }
-        }
-
-        if (!targetLoan) {
-          // Check loan_requests table as well
-          const { data: reqData } = await supabase
-            .from('loan_requests')
-            .select('*')
-            .or(`id.eq.${loanId},loan_no.eq.${loanId}`)
-            .limit(1);
-
-          if (reqData && reqData.length > 0) {
-            targetLoan = reqData[0];
-          }
-        }
-
-        if (!targetLoan) {
-          // Mock loan fallback for demo token testing
-          targetLoan = {
-            id: loanId,
-            loan_no: loanId.startsWith('PYD') ? loanId : `PYD-IL-2026-${loanId.slice(0, 5)}`,
-            name: 'Muhammed Anas',
-            applicant_name: 'Muhammed Anas',
-            amount: 30000,
-            amt: 30000,
-            purpose: 'Medical Relief & Healthcare',
-            months: 3,
-            witness1_name: 'Rizwan',
-            witness1_phone: '9876543210',
-            witness2_name: 'Subair',
-            witness2_phone: '9123456789'
-          };
-        }
-
-        setLoan(targetLoan);
-
-        const witnessFromCollection = Array.isArray(targetLoan.witnesses) ? targetLoan.witnesses[wIdx - 1] : targetLoan.request?.witnesses?.[wIdx - 1];
-        const wName = wIdx === 2 ? (targetLoan.witness2_name || witnessFromCollection?.name || 'Witness 2') : (targetLoan.witness1_name || witnessFromCollection?.name || 'Witness 1');
-        const wPhone = wIdx === 2 ? (targetLoan.witness2_phone || witnessFromCollection?.phone || '') : (targetLoan.witness1_phone || witnessFromCollection?.phone || '');
-        const currentSt = wIdx === 2 ? targetLoan.witness2_status : targetLoan.witness1_status;
-
-        setWitnessName(wName);
-        setWitnessPhone(wPhone);
-
-        if (currentSt === 'VERIFIED' || currentSt === 'REJECTED') {
-          setAlreadyProcessed(true);
-          setStatusResult(currentSt);
-        }
-      } catch (err: any) {
-        setError('Unable to load witness verification details.');
+        setWitness(data.witness || null);
+        setApplication(data.application || null);
+        setConsentNotice(data.consentNotice || '');
+      } catch {
+        if (!cancelled) setError('Witness verification is temporarily unavailable. Please try again later.');
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
-
-    loadWitnessRequest();
+    load();
+    return () => {
+      cancelled = true;
+    };
   }, [token]);
 
-  const handleWitnessAction = async (action: 'VERIFIED' | 'REJECTED') => {
-    if (!loan) return;
-    setSubmitting(true);
+  const respond = async (decision: 'VERIFIED' | 'DECLINED') => {
+    if (!token) return;
+    setSubmitting(decision);
+    setError('');
     try {
-      const updatePayload: any = {};
-      const statusKey = witnessIndex === 2 ? 'witness2_status' : 'witness1_status';
-      const timeKey = witnessIndex === 2 ? 'witness2_verified_at' : 'witness1_verified_at';
-
-      updatePayload[statusKey] = action;
-      updatePayload[timeKey] = new Date().toISOString();
-
-      // Update localDb
-      localDb.updateLoan(loan.id, updatePayload);
-
-      // Update Supabase backend. The request key is the source request UUID,
-      // not the numeric loan ID.
-      const { error: loanUpdateError } = await supabase
-        .from('loans')
-        .update(updatePayload)
-        .eq('id', loan.id);
-      if (loanUpdateError) throw loanUpdateError;
-
-      const sourceRequestId = loan.source_request_id || loan.request?.source_request_id || (String(loan.id).includes('-') ? loan.id : null);
-      if (sourceRequestId) {
-        const { error: requestUpdateError } = await supabase
-          .from('loan_requests')
-          .update(updatePayload)
-          .eq('id', sourceRequestId);
-        if (requestUpdateError) throw requestUpdateError;
+      const res = await fetch('/api/track-application', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'witness_respond', token, decision })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error || 'Unable to record your response.');
+        if (data.status) setWitness(previous => (previous ? { ...previous, status: data.status } : previous));
+        return;
       }
-
-      setStatusResult(action);
-      setAlreadyProcessed(true);
-    } catch (err: any) {
-      console.warn('Witness update error:', err);
-      setStatusResult(action);
-      setAlreadyProcessed(true);
+      setResult(data.status === 'DECLINED' ? 'DECLINED' : 'VERIFIED');
+      setResultAt(data.respondedAt || new Date().toISOString());
+      setWitness(previous => (previous ? { ...previous, status: decision, respondedAt: data.respondedAt || new Date().toISOString() } : previous));
+    } catch {
+      setError('Witness verification is temporarily unavailable. Please try again later.');
     } finally {
-      setSubmitting(false);
+      setSubmitting(null);
     }
   };
 
-  if (loading) {
-    return (
-      <div style={{ minHeight: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'center', background: '#f8fafc', color: 'var(--teal)' }}>
-        <div style={{ textAlign: 'center' }}>
-          <div className="spinner" style={{ margin: '0 auto 16px' }}></div>
-          <div style={{ fontWeight: 800, color: '#0f172a' }}>Loading Witness Verification...</div>
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div style={{ minHeight: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'center', background: '#f8fafc', padding: '24px' }}>
-        <div className="card" style={{ maxWidth: '480px', width: '100%', padding: '36px', textAlign: 'center', borderRadius: '24px', background: '#fff', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.05)' }}>
-          <AlertCircle size={48} color="#ef4444" style={{ margin: '0 auto 16px' }} />
-          <h2 style={{ fontSize: '20px', fontWeight: 900, color: '#0f172a', margin: '0 0 10px 0' }}>Verification Link Expired</h2>
-          <p style={{ fontSize: '14px', color: '#64748b', margin: 0, lineHeight: 1.6 }}>{error}</p>
-        </div>
-      </div>
-    );
-  }
-
-  const applicantName = loan?.applicant_name || loan?.name || 'Applicant';
-  const loanAmt = loan?.amount || loan?.amt || loan?.loan_amount_requested || 0;
-  const purposeStr = loan?.purpose || loan?.loan_purpose_category || 'Interest-Free Welfare Loan';
-  const tenure = loan?.months || loan?.repayment_period_months || 3;
-
-  return (
-    <div style={{ minHeight: '100vh', background: '#f8fafc', padding: '32px 16px', fontFamily: '"DM Sans", system-ui, sans-serif', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-      <div style={{ maxWidth: '520px', width: '100%' }}>
-        
-        {/* HEADER BANNER */}
-        <div style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)', borderRadius: '24px 24px 0 0', padding: '28px', color: '#fff', textAlign: 'center' }}>
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'rgba(255,255,255,0.1)', padding: '4px 12px', borderRadius: '20px', fontSize: '11px', fontWeight: 800, letterSpacing: '0.5px', marginBottom: '10px' }}>
+  const shell = (children: React.ReactNode) => (
+    <div style={{ minHeight: '100vh', background: '#f8fafc', padding: '32px 16px', fontFamily: '"DM Sans", system-ui, sans-serif' }}>
+      <div style={{ maxWidth: '640px', margin: '0 auto 20px auto' }}>
+        <div style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)', borderRadius: '24px', padding: '24px 28px', color: '#fff' }}>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'rgba(255,255,255,0.1)', padding: '4px 12px', borderRadius: '20px', fontSize: '11px', fontWeight: 800, letterSpacing: '0.5px' }}>
             <ShieldCheck size={14} color="#38bdf8" /> REG NO: 2773 • POYANAD BRANCH
           </div>
-          <h1 style={{ fontSize: '20px', fontWeight: 950, margin: '0 0 4px 0' }}>
-            SKSSF Poyanad Branch — Witness Verification
-          </h1>
-          <div style={{ fontSize: '13px', opacity: 0.85 }}>
-            വായ്പാ സാക്ഷി സ്ഥിരീകരണം
-          </div>
-        </div>
-
-        {/* CONTENT CARD */}
-        <div className="card" style={{ background: '#fff', borderRadius: '0 0 24px 24px', padding: '32px', border: '1.5px solid #e2e8f0', borderTop: 'none', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.05)' }}>
-          
-          {alreadyProcessed ? (
-            <div style={{ textAlign: 'center', padding: '10px 0' }}>
-              <div style={{
-                width: '64px',
-                height: '64px',
-                borderRadius: '50%',
-                background: statusResult === 'VERIFIED' ? '#dcfce7' : '#fee2e2',
-                color: statusResult === 'VERIFIED' ? '#166534' : '#991b1b',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                margin: '0 auto 16px'
-              }}>
-                {statusResult === 'VERIFIED' ? <CheckCircle size={36} /> : <XCircle size={36} />}
-              </div>
-
-              <h2 style={{ fontSize: '22px', fontWeight: 950, color: '#0f172a', margin: '0 0 6px 0' }}>
-                {statusResult === 'VERIFIED' ? 'Witness Verified ✓' : 'Witness Request Declined'}
-              </h2>
-
-              <p style={{ fontSize: '13.5px', color: '#64748b', lineHeight: 1.5, margin: '0 0 20px 0' }}>
-                {statusResult === 'VERIFIED'
-                  ? `Thank you, ${witnessName}! You have successfully confirmed your witness verification for ${applicantName}'s loan application.`
-                  : `You have declined the witness verification request for ${applicantName}'s loan application.`}
-              </p>
-
-              <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '16px', border: '1px solid #e2e8f0', fontSize: '12px', color: '#475569' }}>
-                Status recorded for SKSSF Poyanad Branch Committee review.
-              </div>
-            </div>
-          ) : (
-            <div>
-              <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '14px 18px', borderRadius: '16px', color: '#166534', fontSize: '13px', fontWeight: 700, marginBottom: '20px', textAlign: 'center' }}>
-                👋 Assalamu Alaikum <b>{witnessName}</b>!
-                <div style={{ fontSize: '12px', fontWeight: 500, marginTop: '2px' }}>You have been requested to act as a Witness for the loan application below:</div>
-              </div>
-
-              {/* LOAN SUMMARY SPECIFICATIONS */}
-              <div style={{ background: '#f8fafc', padding: '20px', borderRadius: '20px', border: '1px solid #e2e8f0', marginBottom: '24px' }}>
-                <div style={{ fontSize: '11px', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', marginBottom: '12px' }}>Application Summary</div>
-                
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '13.5px', color: '#334155' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px' }}>
-                    <span style={{ color: '#64748b', fontWeight: 700 }}>Applicant Name:</span>
-                    <span style={{ fontWeight: 900, color: '#0f172a' }}>{applicantName}</span>
-                  </div>
-
-                  <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px' }}>
-                    <span style={{ color: '#64748b', fontWeight: 700 }}>Requested Loan:</span>
-                    <span style={{ fontWeight: 950, color: 'var(--teal)', fontSize: '15px' }}>₹{Number(loanAmt).toLocaleString()}</span>
-                  </div>
-
-                  <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px' }}>
-                    <span style={{ color: '#64748b', fontWeight: 700 }}>Loan Type:</span>
-                    <span style={{ fontWeight: 800, color: '#10b981' }}>Interest-Free Welfare Loan (പലിശരഹിതം)</span>
-                  </div>
-
-                  <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px' }}>
-                    <span style={{ color: '#64748b', fontWeight: 700 }}>Repayment Period:</span>
-                    <span style={{ fontWeight: 800, color: '#0f172a' }}>{tenure} Months</span>
-                  </div>
-
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: '#64748b', fontWeight: 700 }}>Reference Code:</span>
-                    <span style={{ fontWeight: 800, fontFamily: 'monospace', color: '#6366f1' }}>{loan?.loan_no || `PYD-IL-2026-${loan?.id?.slice(0, 5)}`}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* ACTION CONFIRMATION BUTTONS */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                <button
-                  disabled={submitting}
-                  onClick={() => handleWitnessAction('VERIFIED')}
-                  className="bsm s"
-                  style={{
-                    width: '100%',
-                    padding: '16px',
-                    borderRadius: '16px',
-                    fontWeight: 950,
-                    fontSize: '15px',
-                    background: '#10b981',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '8px',
-                    boxShadow: '0 10px 15px -3px rgba(16,185,129,0.2)'
-                  }}
-                >
-                  <CheckCircle size={20} /> 🟢 Yes, I Confirm as Witness (സാക്ഷിയായി സമ്മതിക്കുന്നു)
-                </button>
-
-                <button
-                  disabled={submitting}
-                  onClick={() => handleWitnessAction('REJECTED')}
-                  className="bsm r"
-                  style={{
-                    width: '100%',
-                    padding: '14px',
-                    borderRadius: '14px',
-                    fontWeight: 800,
-                    fontSize: '13px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '6px'
-                  }}
-                >
-                  <XCircle size={16} /> 🔴 No, I Decline / Do Not Know Applicant (നിരസിക്കുന്നു)
-                </button>
-              </div>
-
-            </div>
-          )}
-
+          <h1 style={{ fontSize: '21px', fontWeight: 950, margin: '10px 0 4px 0' }}>Witness Verification</h1>
+          <p style={{ fontSize: '13px', opacity: 0.85, margin: 0 }}>SKSSF Poyanad Branch — Interest-Free Loan</p>
         </div>
       </div>
+      {children}
+      <p style={{ textAlign: 'center', fontSize: '11px', color: '#94a3b8', marginTop: '20px' }}>
+        SKSSF Poyanad Branch does not ask for money, OTPs or passwords through this page.
+      </p>
+    </div>
+  );
+
+  if (loading) {
+    return shell(
+      <div style={cardStyle}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: '#0f766e', fontWeight: 800 }}>
+          <Loader2 size={20} className="spin" /> Checking this verification link…
+        </div>
+      </div>
+    );
+  }
+
+  if (error && !witness) {
+    return shell(
+      <div style={{ ...cardStyle, textAlign: 'center' }}>
+        <AlertCircle size={46} color="#ef4444" style={{ margin: '0 auto 14px' }} />
+        <h2 style={{ fontSize: '20px', fontWeight: 950, color: '#0f172a', margin: '0 0 8px 0' }}>Link not available</h2>
+        <p style={{ fontSize: '14px', color: '#64748b', lineHeight: 1.6, margin: 0 }}>{error}</p>
+        <p style={{ fontSize: '12.5px', color: '#94a3b8', lineHeight: 1.6, margin: '14px 0 0 0' }}>
+          Verification links are single-use and expire automatically. Ask the applicant or the SKSSF member who contacted you to issue a new link.
+        </p>
+      </div>
+    );
+  }
+
+  const alreadyAnswered = witness?.status === 'VERIFIED' || witness?.status === 'DECLINED';
+  const unavailable = witness?.status === 'EXPIRED' || witness?.status === 'REVOKED';
+
+  if (result || alreadyAnswered) {
+    const finalStatus = result || witness?.status;
+    const declined = finalStatus === 'DECLINED';
+    return shell(
+      <div style={{ ...cardStyle, textAlign: 'center' }}>
+        {declined
+          ? <XCircle size={52} color="#dc2626" style={{ margin: '0 auto 14px' }} />
+          : <CheckCircle size={52} color="#16a34a" style={{ margin: '0 auto 14px' }} />}
+        <h2 style={{ fontSize: '22px', fontWeight: 950, color: '#0f172a', margin: '0 0 8px 0' }}>
+          {declined ? 'Response recorded — declined' : 'Response recorded — consent given'}
+        </h2>
+        <p style={{ fontSize: '14px', color: '#475569', lineHeight: 1.65, margin: '0 0 18px 0' }}>
+          {declined
+            ? 'You have declined to act as a witness for this application. The SKSSF branch and the applicant can see this response.'
+            : 'Thank you. You have agreed to act as a witness for this application. The SKSSF branch and the applicant can see this response.'}
+        </p>
+        <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '16px', textAlign: 'left', fontSize: '13px', color: '#334155', lineHeight: 1.6 }}>
+          <div><b>Application:</b> {application?.reference || 'Not available'}</div>
+          <div><b>Applicant:</b> {application?.applicantName || 'Not available'}</div>
+          <div><b>Witness:</b> {witness?.name || 'Not recorded'}</div>
+          <div><b>Recorded:</b> {formatDate(resultAt || witness?.respondedAt) || 'Just now'}</div>
+        </div>
+        <p style={{ fontSize: '12px', color: '#94a3b8', margin: '16px 0 0 0', lineHeight: 1.6 }}>
+          This page confirms a link-based response only. It is not independent proof that the WhatsApp number belongs to you.
+        </p>
+      </div>
+    );
+  }
+
+  if (unavailable) {
+    return shell(
+      <div style={{ ...cardStyle, textAlign: 'center' }}>
+        <AlertCircle size={46} color="#f59e0b" style={{ margin: '0 auto 14px' }} />
+        <h2 style={{ fontSize: '20px', fontWeight: 950, color: '#0f172a', margin: '0 0 8px 0' }}>
+          {witness?.status === 'REVOKED' ? 'This link was replaced' : 'This link has expired'}
+        </h2>
+        <p style={{ fontSize: '14px', color: '#64748b', lineHeight: 1.6, margin: 0 }}>
+          Ask the SKSSF member who contacted you to issue a new verification link.
+        </p>
+      </div>
+    );
+  }
+
+  return shell(
+    <div style={cardStyle}>
+      <h2 style={{ fontSize: '20px', fontWeight: 950, color: '#0f172a', margin: '0 0 6px 0' }}>
+        Confirm your witness responsibility
+      </h2>
+      <p style={{ fontSize: '13.5px', color: '#64748b', lineHeight: 1.6, margin: '0 0 20px 0' }}>
+        You have been named as a witness / guarantor for an interest-free loan application at SKSSF Poyanad Branch. Please review the details below and record your response.
+      </p>
+
+      <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '18px', padding: '18px', display: 'grid', gap: '10px', fontSize: '13.5px', color: '#334155' }}>
+        <div><b>Applicant:</b> {application?.applicantName || 'Not available'}</div>
+        <div><b>Application reference:</b> <span style={{ fontFamily: 'monospace', color: '#0f766e', fontWeight: 800 }}>{application?.reference || 'Not available'}</span></div>
+        <div><b>Your registered name:</b> {witness?.name || 'Not recorded'}</div>
+        <div><b>Contact on record:</b> {witness?.maskedPhone || 'Not recorded'}</div>
+        {witness?.expiresAt && <div><b>Link expires:</b> {formatDate(witness.expiresAt)}</div>}
+      </div>
+
+      <div style={{ margin: '18px 0', fontSize: '13px', color: '#475569', lineHeight: 1.7 }}>
+        As a witness you confirm that you know the applicant and that the information you are aware of is accurate. The branch may contact you while reviewing this application. You are not being asked to repay the loan.
+      </div>
+
+      {error && (
+        <div role="alert" style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c', borderRadius: '12px', padding: '12px 14px', fontSize: '13px', fontWeight: 700, marginBottom: '16px' }}>
+          {error}
+        </div>
+      )}
+
+      <div style={{ display: 'grid', gap: '10px', gridTemplateColumns: '1fr 1fr' }}>
+        <button
+          type="button"
+          onClick={() => respond('VERIFIED')}
+          disabled={submitting !== null}
+          style={{ border: 0, borderRadius: '14px', padding: '15px 16px', background: '#16a34a', color: '#fff', fontWeight: 900, fontSize: '14px', cursor: submitting ? 'wait' : 'pointer', opacity: submitting && submitting !== 'VERIFIED' ? 0.6 : 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '7px' }}
+        >
+          {submitting === 'VERIFIED' ? <Loader2 size={17} className="spin" /> : <CheckCircle size={17} />}
+          I Agree
+        </button>
+        <button
+          type="button"
+          onClick={() => respond('DECLINED')}
+          disabled={submitting !== null}
+          style={{ border: '1.5px solid #fecaca', borderRadius: '14px', padding: '15px 16px', background: '#fff', color: '#b91c1c', fontWeight: 900, fontSize: '14px', cursor: submitting ? 'wait' : 'pointer', opacity: submitting && submitting !== 'DECLINED' ? 0.6 : 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '7px' }}
+        >
+          {submitting === 'DECLINED' ? <Loader2 size={17} className="spin" /> : <XCircle size={17} />}
+          I Do Not Agree
+        </button>
+      </div>
+
+      <p style={{ fontSize: '11.5px', color: '#94a3b8', lineHeight: 1.6, margin: '16px 0 0 0' }}>
+        {consentNotice || 'This link records your consent response. It does not independently prove that the WhatsApp number belongs to you.'} Your response is stored once with a server timestamp and cannot be changed afterwards.
+      </p>
     </div>
   );
 }

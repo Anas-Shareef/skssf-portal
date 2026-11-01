@@ -28,6 +28,7 @@ import WitnessVerify from './pages/WitnessVerify';
 // Member sub-pages
 import MemberInbox from './pages/dashboard/MemberInbox';
 import FiledLoans from './pages/dashboard/FiledLoans';
+import NewLoanApplication from './pages/dashboard/NewLoanApplication';
 import FiledLoanDetail from './pages/dashboard/FiledLoanDetail';
 import MemberRepayments from './pages/dashboard/MemberRepayments';
 import MemberInventory from './pages/dashboard/MemberInventory';
@@ -146,6 +147,7 @@ function App() {
             <Route path="inbox" element={<MemberInbox />} />
             {/* Filed loans (was /loans) */}
             <Route path="filed-loans" element={<FiledLoans />} />
+            <Route path="filed-loans/new" element={<NewLoanApplication />} />
             <Route path="filed-loans/:id" element={<FiledLoanDetail />} />
             {/* Legacy redirect */}
             <Route path="loans" element={<Navigate to="/member/dashboard/filed-loans" replace />} />

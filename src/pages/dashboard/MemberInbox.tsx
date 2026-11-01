@@ -572,10 +572,54 @@ export default function MemberInbox() {
                     const wStatus = witness.status;
 
                     const cleanPhone = (wPhone || '').replace(/\D/g, '');
-                    const token = `WV-${selectedRequest.id || 'PYD'}-${idx}`;
-                    const verifyLink = `https://skssf-portal.vercel.app/witness-verify/${token}`;
-                    const msgText = `Assalamu Alaikum ${wName || 'Witness'},\n\n${selectedRequest.applicant_name || selectedRequest.requester_name || 'Applicant'} has listed you as a Witness for an Interest-Free Loan (₹${Number(selectedRequest.loan_amount_requested || selectedRequest.approximate_amount || 30000).toLocaleString()}) at SKSSF Poyanad Branch.\n\nPlease click to confirm: ${verifyLink}`;
-                    const waUrl = `https://wa.me/91${cleanPhone}?text=${encodeURIComponent(msgText)}`;
+                    const canIssueLink = cleanPhone.length === 10;
+
+                    const sendWitnessLink = async (witness: any, index: number) => {
+                      if (!selectedRequest?.id) return;
+                      if (cleanPhone.length !== 10) {
+                        showToast('e', 'This witness does not have a valid 10-digit mobile number.');
+                        return;
+                      }
+                      try {
+                        const token = await getAccessToken();
+                        const response = await fetch('/api/get-member-inbox', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                          body: JSON.stringify({ requestId: selectedRequest.id, action: 'witness_link', witnessIndex: index })
+                        });
+                        const result = await response.json().catch(() => ({}));
+                        if (!response.ok || !result.link?.url) throw new Error(result.error || 'Unable to issue a witness verification link.');
+
+                        const applicant = selectedRequest.applicant_name || selectedRequest.requester_name || selectedRequest.name || 'Applicant';
+                        const reference = selectedRequest.application_reference || selectedRequest.id;
+                        const message = [
+                          `Assalamu Alaikum ${witness?.name || 'Witness'},`,
+                          '',
+                          'SKSSF Poyanad Branch (Reg No: 2773) — Interest-Free Loan',
+                          '',
+                          `${applicant} has listed you as a Witness for an Interest-Free Loan (₹${Number(selectedRequest.loan_amount_requested || selectedRequest.approximate_amount || 30000).toLocaleString()}) at SKSSF Poyanad Branch.`,
+                          '',
+                          'Please open your personal verification link to confirm or decline:',
+                          result.link.url,
+                          '',
+                          'The link can be used once and expires automatically. If you did not expect this message, please ignore it.'
+                        ].join('\n');
+
+                        window.open(`https://wa.me/91${cleanPhone}?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer');
+
+                        // Opening WhatsApp only prepares a message. Record the share
+                        // action; the portal never claims delivery.
+                        await fetch('/api/get-member-inbox', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                          body: JSON.stringify({ requestId: selectedRequest.id, action: 'witness_shared', witnessIndex: index, channel: 'whatsapp' })
+                        }).catch(() => undefined);
+
+                        showToast('s', 'Witness link prepared in WhatsApp. Delivery is not confirmed by the portal.');
+                      } catch (err: any) {
+                        showToast('e', err.message || 'Unable to issue a witness verification link.');
+                      }
+                    };
 
                     return (
                       <div key={idx} style={{ background: '#fff', padding: '10px 12px', borderRadius: '10px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -591,10 +635,15 @@ export default function MemberInbox() {
                             )}
                           </div>
                         </div>
-                        {wPhone && (
-                          <a href={waUrl} target="_blank" rel="noreferrer" className="bsm s" style={{ padding: '4px 10px', fontSize: '11px', background: '#25D366', borderColor: '#25D366', color: '#fff', fontWeight: 800 }}>
+                        {wPhone && cleanPhone.length === 10 && (
+                          <button
+                            type="button"
+                            onClick={() => void sendWitnessLink(witness, idx)}
+                            className="bsm s"
+                            style={{ padding: '4px 10px', fontSize: '11px', background: '#25D366', borderColor: '#25D366', color: '#fff', fontWeight: 800 }}
+                          >
                             📲 WhatsApp Link
-                          </a>
+                          </button>
                         )}
                       </div>
                     );

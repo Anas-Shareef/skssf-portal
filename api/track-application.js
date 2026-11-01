@@ -146,6 +146,62 @@ const safeError = error => {
   return 'Applicant tracking is temporarily unavailable.';
 };
 
+const maskedPhone = last4 => (last4 ? `••••••${String(last4).slice(-4)}` : null);
+
+const witnessTokenPattern = /^wv_[A-Za-z0-9_-]{20,}$/;
+
+const loadWitnessByToken = async token => {
+  const { data, error } = await supabase
+    .from('witness_verifications')
+    .select('*')
+    .eq('token_hash', hash(token))
+    .maybeSingle();
+  return { row: data, error };
+};
+
+const witnessApplication = async requestId => {
+  const { data } = await supabase
+    .from('loan_requests')
+    .select('application_reference, applicant_name, requester_name')
+    .eq('id', requestId)
+    .maybeSingle();
+  return {
+    reference: data?.application_reference || null,
+    applicantName: data?.applicant_name || data?.requester_name || null
+  };
+};
+
+const witnessProgressFor = (request, verifications) => {
+  const latest = new Map();
+  for (const row of verifications || []) {
+    if (!latest.has(row.witness_index)) latest.set(row.witness_index, row);
+  }
+  const rows = [1, 2].map(index => {
+    const row = latest.get(index);
+    const fallbackStatus = request?.[`witness${index}_status`] || null;
+    const name = request?.[`witness${index}_name`] || null;
+    return {
+      index,
+      name,
+      status: row?.status || fallbackStatus || (name ? 'PENDING' : null),
+      issuedAt: row?.issued_at || null,
+      expiresAt: row?.expires_at || null,
+      respondedAt: row?.responded_at || request?.[`witness${index}_verified_at`] || null,
+      sharedAt: row?.shared_at || null
+    };
+  }).filter(row => row.name || row.status);
+
+  const verifiedCount = rows.filter(row => row.status === 'VERIFIED').length;
+  const requiredCount = rows.length;
+  let overall = 'WAITING';
+  if (rows.some(row => row.status === 'DECLINED')) overall = 'DECLINED';
+  else if (requiredCount > 0 && verifiedCount >= requiredCount) overall = 'ALL_VERIFIED';
+  else if (verifiedCount > 0) overall = 'PARTIALLY_VERIFIED';
+  else if (rows.some(row => row.status === 'EXPIRED' || row.status === 'REVOKED')) overall = 'EXPIRED';
+
+  return { overall, verifiedCount, requiredCount, witnesses: rows };
+};
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -156,6 +212,123 @@ export default async function handler(req, res) {
 
   const { action } = req.body || {};
   try {
+    // ================================================================
+    // Witness verification (link-based consent, no applicant session)
+    // ================================================================
+    if (action === 'witness_view') {
+      const token = String(req.body.token || '').trim();
+      if (!witnessTokenPattern.test(token)) return res.status(404).json({ error: 'This witness verification link is not valid.' });
+
+      const { row, error } = await loadWitnessByToken(token);
+      if (error) {
+        if (['PGRST205', '42P01'].includes(error.code)) return res.status(503).json({ error: 'Witness verification is not enabled yet.' });
+        return res.status(503).json({ error: safeError(error) });
+      }
+      if (!row) return res.status(404).json({ error: 'This witness verification link is not valid.' });
+
+      const now = new Date();
+      const hourAgo = new Date(now.getTime() - 60 * 60 * 1000).toISOString();
+      const { count: viewCount } = await supabase
+        .from('witness_verification_events')
+        .select('id', { count: 'exact', head: true })
+        .eq('verification_id', row.id)
+        .eq('event_type', 'VIEWED')
+        .gte('created_at', hourAgo);
+      if ((viewCount || 0) >= 60) return res.status(429).json({ error: 'Too many attempts. Please try again later.' });
+
+      let status = row.status;
+      if (status === 'PENDING' && new Date(row.expires_at).getTime() <= now.getTime()) {
+        status = 'EXPIRED';
+        await supabase
+          .from('witness_verifications')
+          .update({ status: 'EXPIRED', last_activity_at: now.toISOString() })
+          .eq('id', row.id)
+          .eq('status', 'PENDING');
+        await supabase.from('witness_verification_events').insert({
+          verification_id: row.id,
+          loan_request_id: row.loan_request_id,
+          event_type: 'EXPIRED',
+          actor_type: 'system',
+          metadata: {}
+        });
+      }
+
+      if (!row.first_viewed_at) {
+        await supabase
+          .from('witness_verifications')
+          .update({ first_viewed_at: now.toISOString(), last_activity_at: now.toISOString() })
+          .eq('id', row.id)
+          .is('first_viewed_at', null);
+        await supabase.from('witness_verification_events').insert({
+          verification_id: row.id,
+          loan_request_id: row.loan_request_id,
+          event_type: 'VIEWED',
+          actor_type: 'witness',
+          metadata: { ip_hash: hash(ipAddress(req)) }
+        });
+      }
+
+      const application = await witnessApplication(row.loan_request_id);
+      return res.status(200).json({
+        success: true,
+        witness: {
+          index: row.witness_index,
+          name: row.witness_name || null,
+          maskedPhone: maskedPhone(row.witness_phone_last4),
+          status,
+          issuedAt: row.issued_at,
+          expiresAt: row.expires_at,
+          respondedAt: row.responded_at,
+          responseNote: row.response_note || null
+        },
+        application,
+        consentNotice: 'This link records your consent response. It does not independently prove that the WhatsApp number belongs to you.'
+      });
+    }
+
+    if (action === 'witness_respond') {
+      const token = String(req.body.token || '').trim();
+      const decision = String(req.body.decision || '').trim().toUpperCase();
+      const note = String(req.body.note || '').trim().slice(0, 500);
+      if (!witnessTokenPattern.test(token)) return res.status(404).json({ error: 'This witness verification link is not valid.' });
+      if (!['VERIFIED', 'DECLINED'].includes(decision)) return res.status(400).json({ error: 'Choose to agree or decline.' });
+
+      const { row, error } = await loadWitnessByToken(token);
+      if (error) {
+        if (['PGRST205', '42P01'].includes(error.code)) return res.status(503).json({ error: 'Witness verification is not enabled yet.' });
+        return res.status(503).json({ error: safeError(error) });
+      }
+      if (!row) return res.status(404).json({ error: 'This witness verification link is not valid.' });
+      if (row.status !== 'PENDING') {
+        return res.status(409).json({ error: 'This verification link has already been used.', status: row.status });
+      }
+
+      const { data, error: respondError } = await supabase.rpc('respond_witness_verification', {
+        p_token_hash: hash(token),
+        p_decision: decision,
+        p_note: note || null
+      });
+      if (respondError) {
+        if (['PGRST202', '42883'].includes(respondError.code)) return res.status(503).json({ error: 'Witness verification is not enabled yet.' });
+        return res.status(503).json({ error: safeError(respondError) });
+      }
+      if (!data?.ok) {
+        const reason = data?.reason;
+        if (reason === 'expired') return res.status(410).json({ error: 'This verification link has expired.', status: 'EXPIRED' });
+        if (reason === 'already_processed') return res.status(409).json({ error: 'This verification link has already been used.', status: data?.status });
+        if (reason === 'not_found') return res.status(404).json({ error: 'This witness verification link is not valid.' });
+        return res.status(400).json({ error: 'Unable to record the witness response.' });
+      }
+
+      const application = await witnessApplication(row.loan_request_id);
+      return res.status(200).json({
+        success: true,
+        status: data.status,
+        respondedAt: data.responded_at,
+        application
+      });
+    }
+
     if (action === 'send') {
       const reference = cleanReference(req.body.reference);
       const phone = normalizePhone(req.body.phone);
@@ -224,9 +397,21 @@ export default async function handler(req, res) {
     if (action === 'details') {
       const { data: versions, error: versionsError } = await supabase.from('loan_application_versions').select('application_version,editor_role,editor_identifier,changed_fields,previous_data,updated_data,edit_reason,created_at').eq('loan_request_id', request.id).order('application_version', { ascending: true });
       const { data: events, error: eventsError } = await supabase.from('application_status_events').select('status_code,actor_type,applicant_visible_note,created_at').eq('loan_request_id', request.id).order('created_at', { ascending: true });
+      const { data: verifications, error: verificationError } = await supabase
+        .from('witness_verifications')
+        .select('witness_index,status,issued_at,expires_at,responded_at,shared_at,revoked_at')
+        .eq('loan_request_id', request.id)
+        .order('issued_at', { ascending: false });
       if (versionsError && versionsError.code !== 'PGRST205') return res.status(503).json({ error: safeError(versionsError) });
       if (eventsError && eventsError.code !== 'PGRST205') return res.status(503).json({ error: safeError(eventsError) });
-      return res.status(200).json({ success: true, application: safeApplication(request, loan), history: versions || [], events: events || [] });
+      const witnessRows = verificationError && !['PGRST205', '42P01'].includes(verificationError.code) ? [] : (verifications || []);
+      return res.status(200).json({
+        success: true,
+        application: safeApplication(request, loan),
+        history: versions || [],
+        events: events || [],
+        witnessProgress: witnessProgressFor(request, witnessRows)
+      });
     }
 
     if (action === 'edit') {

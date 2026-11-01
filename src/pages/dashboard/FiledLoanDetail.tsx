@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabaseClient';
 import { ArrowLeft, User, Phone, MapPin, IndianRupee, Download, Bell, Plus, CheckCircle, AlertCircle, Clock, ShieldCheck, FileText, X } from 'lucide-react';
+import WitnessVerificationPanel from '../../features/loan-application/WitnessVerificationPanel';
 
 export default function FiledLoanDetail() {
   const { id } = useParams<{ id: string }>();
@@ -502,6 +503,17 @@ export default function FiledLoanDetail() {
         </div>
 
       </div>
+
+      {/* SECTION E — Witness verification (member-managed, append-only history) */}
+      {loan.source_request_id && (
+        <div style={{ marginTop: '24px' }}>
+          <WitnessVerificationPanel
+            loanId={loan.id}
+            applicantName={loan.applicant_name || loan.requester_name || 'Applicant'}
+            reference={loan.application_reference || refCode}
+          />
+        </div>
+      )}
 
       {/* RECORD PAYMENT MODAL */}
       {showPaymentModal && selectedInst && (

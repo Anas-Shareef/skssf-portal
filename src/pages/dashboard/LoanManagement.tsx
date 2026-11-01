@@ -104,6 +104,7 @@ export default function LoanManagement() {
   const [applicationHistory, setApplicationHistory] = useState<any[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [witnessLinkBusy, setWitnessLinkBusy] = useState<number | null>(null);
   const [selectedLoanId, setSelectedLoanId] = useState<string | null>(null);
   const [actionStatus, setActionStatus] = useState('pending');
   const [actionNote, setActionNote] = useState('');
@@ -167,6 +168,59 @@ export default function LoanManagement() {
     }
   };
   
+  const sendWitnessVerificationLink = async (loan: any, witness: any, index: number) => {
+    if (!loan?.id) return;
+    const digits = String(witness?.phone || '').replace(/\D/g, '');
+    if (digits.length !== 10) {
+      setToast({ m: 'This witness does not have a valid 10-digit mobile number.', t: 'r' });
+      setTimeout(() => setToast(null), 3000);
+      return;
+    }
+    setWitnessLinkBusy(index);
+    try {
+      const response = await fetch('/api/get-member-inbox', {
+        method: 'POST',
+        headers: await getAuthHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ loanId: loan.id, action: 'witness_link', witnessIndex: index })
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.link?.url) throw new Error(result.error || 'Unable to issue a witness verification link.');
+
+      const applicant = loan.applicant_name || loan.name || loan.requester_name || 'Applicant';
+      const reference = loan.application_reference || loan.loan_no || 'this application';
+      const message = [
+        `Assalamu Alaikum ${witness?.name || 'Witness'},`,
+        '',
+        'SKSSF Poyanad Branch (Reg No: 2773) — Interest-Free Loan',
+        '',
+        `${applicant} has named you as a witness / guarantor for loan application ${reference}.`,
+        '',
+        'Please open your personal verification link to confirm or decline:',
+        result.link.url,
+        '',
+        'The link can be used once and expires automatically. If you did not expect this message, please ignore it.'
+      ].join('\n');
+
+      window.open(`https://wa.me/91${digits}?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer');
+
+      // Opening WhatsApp only prepares a message in the admin's own app. Record
+      // that the link was shared, never that it was delivered or read.
+      await fetch('/api/get-member-inbox', {
+        method: 'POST',
+        headers: await getAuthHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ loanId: loan.id, action: 'witness_shared', witnessIndex: index, channel: 'whatsapp' })
+      }).catch(() => undefined);
+
+      setToast({ m: 'Witness link prepared in WhatsApp. Delivery is not confirmed by the portal.', t: 's' });
+      setTimeout(() => setToast(null), 3500);
+    } catch (err: any) {
+      setToast({ m: err.message || 'Unable to issue a witness verification link.', t: 'r' });
+      setTimeout(() => setToast(null), 3000);
+    } finally {
+      setWitnessLinkBusy(null);
+    }
+  };
+
   // Real-time permission check (Global)
   const isGlobalApprover = profile?.role === 'super' || config.authorizedReviewers?.includes(profile?.id || '') || localDb.getUserById(profile?.id || '')?.is_approver;
 
@@ -689,10 +743,7 @@ export default function LoanManagement() {
                        const wStatus = witness.status;
 
                       const cleanPhone = (wPhone || '').replace(/\D/g, '');
-                      const token = `WV-${selectedLoan.id || 'PYD'}-${idx}`;
-                      const verifyLink = `https://skssf-portal.vercel.app/witness-verify/${token}`;
-                      const msgText = `Assalamu Alaikum ${wName || 'Witness'},\n\n${selectedLoan.name || selectedLoan.applicant_name || 'Applicant'} has listed you as a Witness/Guarantor for an Interest-Free Loan (₹${Number(selectedLoan.amt || selectedLoan.amount || 30000).toLocaleString()}) at SKSSF Poyanad Branch (Reg No. 2773).\n\nPlease click here to confirm your witness approval:\n${verifyLink}`;
-                      const waUrl = `https://wa.me/91${cleanPhone}?text=${encodeURIComponent(msgText)}`;
+                      const canIssueLink = !!selectedLoan.source_request_id && cleanPhone.length === 10;
 
                       return (
                         <div key={idx} style={{ background: '#fff', padding: '12px 14px', borderRadius: '12px', border: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
@@ -703,9 +754,9 @@ export default function LoanManagement() {
                             <div style={{ marginTop: '4px' }}>
                               {wStatus === 'VERIFIED' ? (
                                 <span style={{ fontSize: '11px', fontWeight: 800, color: '#166534', background: '#dcfce7', padding: '2px 8px', borderRadius: '6px' }}>
-                                  🟢 Verified via WhatsApp ✓
+                                  🟢 Verified via secure link ✓
                                 </span>
-                              ) : wStatus === 'REJECTED' ? (
+                              ) : wStatus === 'REJECTED' || wStatus === 'DECLINED' ? (
                                 <span style={{ fontSize: '11px', fontWeight: 800, color: '#991b1b', background: '#fee2e2', padding: '2px 8px', borderRadius: '6px' }}>
                                   🔴 Declined by Witness
                                 </span>
@@ -718,15 +769,21 @@ export default function LoanManagement() {
                           </div>
 
                           {wPhone && (
-                            <a
-                              href={waUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="bsm s"
-                              style={{ padding: '6px 12px', fontSize: '11px', background: '#25D366', borderColor: '#25D366', color: '#fff', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                            >
-                              📲 Send WhatsApp Link
-                            </a>
+                            canIssueLink ? (
+                              <button
+                                type="button"
+                                onClick={() => sendWitnessVerificationLink(selectedLoan, witness, idx)}
+                                disabled={witnessLinkBusy === idx}
+                                className="bsm s"
+                                style={{ padding: '6px 12px', fontSize: '11px', background: '#25D366', borderColor: '#25D366', color: '#fff', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '4px', opacity: witnessLinkBusy === idx ? 0.6 : 1 }}
+                              >
+                                {witnessLinkBusy === idx ? 'Preparing…' : '📲 Send WhatsApp Link'}
+                              </button>
+                            ) : (
+                              <span style={{ fontSize: '11px', color: '#92400e', maxWidth: '220px', lineHeight: 1.5 }}>
+                                A secure link can only be issued for applications linked to a submitted request.
+                              </span>
+                            )
                           )}
                         </div>
                        );

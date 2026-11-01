@@ -1,4 +1,5 @@
 if (!globalThis.WebSocket) globalThis.WebSocket = class {};
+import crypto from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
@@ -31,6 +32,21 @@ const requestWitnesses = (request) => {
   if (request?.witness2_name || request?.witness2_phone) result.push({ name: request.witness2_name || '', phone: request.witness2_phone || '', member_no: request.witness2_member_no || '', status: request.witness2_status || null, verified_at: request.witness2_verified_at || null });
   return result;
 };
+
+const WITNESS_TOKEN_TTL_DAYS = 7;
+const witnessToken = () => `wv_${crypto.randomBytes(32).toString('base64url')}`;
+const witnessTokenHash = token => crypto.createHash('sha256').update(`${process.env.APPLICANT_TRACKING_SECRET || 'missing-secret'}:${token}`).digest('hex');
+const maskPhone = value => {
+  const digits = String(value || '').replace(/\D/g, '');
+  return digits.length >= 4 ? `••••••${digits.slice(-4)}` : null;
+};
+const requestOrigin = req => {
+  const proto = String(req.headers['x-forwarded-proto'] || 'https').split(',')[0].trim() || 'https';
+  const host = String(req.headers['x-forwarded-host'] || req.headers.host || 'skssf-portal.vercel.app').split(',')[0].trim();
+  return `${proto}://${host}`;
+};
+
+const witnessActionNames = ['witness_status', 'witness_link', 'witness_shared'];
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -72,10 +88,30 @@ export default async function handler(req, res) {
   const isAdmin = profile.role === 'admin' || profile.role === 'super';
 
   if (req.method === 'POST') {
-    const { requestId, action, dismissalReason } = req.body || {};
-    if (!requestId || !['review', 'dismiss', 'history', 'edit'].includes(action)) {
+    const { action, dismissalReason } = req.body || {};
+    const allowedActions = ['review', 'dismiss', 'history', 'edit', ...witnessActionNames];
+    if (!allowedActions.includes(action)) {
       return res.status(400).json({ error: 'Invalid request action' });
     }
+
+    // Witness actions may target a filed loan; resolve its source request.
+    let requestId = req.body?.requestId || null;
+    if (!requestId && req.body?.loanId) {
+      const { data: loanRow, error: loanLookupError } = await supabase
+        .from('loans')
+        .select('id, source_request_id, submitted_by_member_id')
+        .eq('id', req.body.loanId)
+        .maybeSingle();
+      if (loanLookupError) {
+        console.error('Member witness loan lookup failed:', loanLookupError);
+        return res.status(500).json({ error: 'Unable to verify the filed application.' });
+      }
+      if (!loanRow) return res.status(404).json({ error: 'Application not found.' });
+      if (!isAdmin && loanRow.submitted_by_member_id !== memberId) return res.status(403).json({ error: 'Forbidden' });
+      requestId = loanRow.source_request_id;
+    }
+    if (!requestId) return res.status(400).json({ error: 'Invalid request action' });
+
     const { data: request, error: requestError } = await supabase
       .from('loan_requests')
       .select('*')
@@ -86,6 +122,148 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Unable to verify request ownership.' });
     }
     if (!request || (!isAdmin && request.referred_member_id !== memberId)) return res.status(403).json({ error: 'Forbidden' });
+
+    // ================================================================
+    // Witness verification management (member / admin / super)
+    // ================================================================
+    if (witnessActionNames.includes(action)) {
+      const { data: verificationRows, error: verificationError } = await supabase
+        .from('witness_verifications')
+        .select('*')
+        .eq('loan_request_id', requestId)
+        .order('issued_at', { ascending: false });
+      if (verificationError) {
+        if (['PGRST205', '42P01'].includes(verificationError.code)) {
+          return res.status(503).json({ error: 'Witness verification is not enabled yet.' });
+        }
+        console.error('Witness verification lookup failed:', verificationError);
+        return res.status(500).json({ error: 'Unable to load witness verification records.' });
+      }
+
+      const latestByIndex = new Map();
+      for (const row of verificationRows || []) {
+        if (!latestByIndex.has(row.witness_index)) latestByIndex.set(row.witness_index, row);
+      }
+      const canonical = requestWitnesses(request);
+
+      const summarise = () => [1, 2].map(index => {
+        const row = latestByIndex.get(index);
+        const witness = canonical[index - 1] || {};
+        const status = row?.status || witness.status || (witness.name ? 'PENDING' : null);
+        return {
+          index,
+          name: row?.witness_name || witness.name || null,
+          maskedPhone: row?.witness_phone_last4 ? maskPhone(row.witness_phone_last4) : maskPhone(witness.phone),
+          relationship: witness.relationship || null,
+          memberNo: witness.member_no || null,
+          status,
+          hasActiveLink: !!row && row.status === 'PENDING' && new Date(row.expires_at).getTime() > Date.now(),
+          issuedAt: row?.issued_at || null,
+          expiresAt: row?.expires_at || null,
+          firstViewedAt: row?.first_viewed_at || null,
+          respondedAt: row?.responded_at || witness.verified_at || null,
+          sharedAt: row?.shared_at || null,
+          shareChannel: row?.share_channel || null,
+          revokedAt: row?.revoked_at || null,
+          revokedReason: row?.revoked_reason || null,
+          responseNote: row?.response_note || null
+        };
+      }).filter(witness => witness.name || witness.status);
+
+      if (action === 'witness_status') {
+        const { data: events } = await supabase
+          .from('witness_verification_events')
+          .select('id, verification_id, event_type, actor_type, metadata, created_at')
+          .eq('loan_request_id', requestId)
+          .order('created_at', { ascending: false })
+          .limit(60);
+        const witnesses = summarise();
+        const verifiedCount = witnesses.filter(witness => witness.status === 'VERIFIED').length;
+        return res.status(200).json({
+          success: true,
+          reference: request.application_reference || null,
+          applicantName: request.applicant_name || request.requester_name || null,
+          witnesses,
+          events: events || [],
+          progress: {
+            verifiedCount,
+            requiredCount: witnesses.length,
+            overall: witnesses.some(w => w.status === 'DECLINED')
+              ? 'DECLINED'
+              : witnesses.length > 0 && verifiedCount >= witnesses.length
+                ? 'ALL_VERIFIED'
+                : verifiedCount > 0
+                  ? 'PARTIALLY_VERIFIED'
+                  : witnesses.some(w => w.status === 'EXPIRED' || w.status === 'REVOKED')
+                    ? 'EXPIRED'
+                    : 'WAITING'
+          }
+        });
+      }
+
+      if (action === 'witness_link') {
+        const index = Number(req.body?.witnessIndex);
+        if (![1, 2].includes(index)) return res.status(400).json({ error: 'A valid witness index is required.' });
+        const witness = canonical[index - 1];
+        if (!witness?.name || !/^\d{10}$/.test(String(witness.phone || '').replace(/\D/g, ''))) {
+          return res.status(400).json({ error: 'This witness does not have a valid name and mobile number.' });
+        }
+
+        const token = witnessToken();
+        const { data: verificationId, error: issueError } = await supabase.rpc('issue_witness_verification', {
+          p_request_id: requestId,
+          p_witness_index: index,
+          p_token_hash: witnessTokenHash(token),
+          p_witness_name: witness.name,
+          p_witness_phone_last4: String(witness.phone).replace(/\D/g, '').slice(-4),
+          p_created_by: memberId,
+          p_ttl: `${WITNESS_TOKEN_TTL_DAYS} days`
+        });
+        if (issueError) {
+          if (['PGRST202', '42883'].includes(issueError.code)) return res.status(503).json({ error: 'Witness verification is not enabled yet.' });
+          console.error('Witness link issue failed:', issueError);
+          return res.status(500).json({ error: 'Unable to issue a witness verification link.' });
+        }
+
+        await supabase.from('witness_verification_events').insert({
+          verification_id: verificationId,
+          loan_request_id: requestId,
+          event_type: 'LINK_PREPARED',
+          actor_type: isAdmin ? (profile.role === 'super' ? 'super' : 'admin') : 'member',
+          actor_id: memberId,
+          metadata: { witness_index: index, channel: 'whatsapp' }
+        });
+
+        const expiresAt = new Date(Date.now() + WITNESS_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000).toISOString();
+        return res.status(200).json({
+          success: true,
+          link: {
+            index,
+            name: witness.name,
+            phone: witness.phone,
+            url: `${requestOrigin(req)}/witness-verify/${token}`,
+            expiresAt
+          },
+          previousLinkRevoked: latestByIndex.get(index)?.status === 'PENDING'
+        });
+      }
+
+      // action === 'witness_shared'
+      const index = Number(req.body?.witnessIndex);
+      let verificationId = req.body?.verificationId || (latestByIndex.get(index) || {}).id;
+      if (!verificationId) return res.status(400).json({ error: 'No witness verification link has been issued yet.' });
+      const { data: sharedOk, error: shareError } = await supabase.rpc('mark_witness_shared', {
+        p_verification_id: verificationId,
+        p_channel: String(req.body?.channel || 'whatsapp').slice(0, 30),
+        p_actor: memberId
+      });
+      if (shareError) {
+        if (['PGRST202', '42883'].includes(shareError.code)) return res.status(503).json({ error: 'Witness verification is not enabled yet.' });
+        console.error('Witness share marking failed:', shareError);
+        return res.status(500).json({ error: 'Unable to record the share action.' });
+      }
+      return res.status(200).json({ success: sharedOk === true, deliveryConfirmed: false });
+    }
 
     if (action === 'history') {
       const { data: versions, error: historyError } = await supabase

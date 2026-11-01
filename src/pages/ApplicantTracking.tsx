@@ -15,6 +15,21 @@ type TrackingApplication = {
   editable: boolean;
 };
 
+type WitnessProgress = {
+  overall: string;
+  verifiedCount: number;
+  requiredCount: number;
+  witnesses: Array<{
+    index: number;
+    name: string | null;
+    status: string | null;
+    issuedAt?: string | null;
+    expiresAt?: string | null;
+    respondedAt?: string | null;
+    sharedAt?: string | null;
+  }>;
+};
+
 const display = (value: any) => value === null || value === undefined || value === '' ? 'Not recorded' : String(value);
 const dateTime = (value: any) => value ? new Date(value).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : 'Not recorded';
 const money = (value: any) => value === null || value === undefined || value === '' ? 'Not recorded' : `₹${Number(value).toLocaleString('en-IN')}`;
@@ -29,6 +44,7 @@ export default function ApplicantTracking() {
   const [application, setApplication] = useState<TrackingApplication | null>(null);
   const [history, setHistory] = useState<any[]>([]);
   const [events, setEvents] = useState<any[]>([]);
+  const [witnessProgress, setWitnessProgress] = useState<WitnessProgress | null>(null);
   const [editing, setEditing] = useState(false);
   const [editData, setEditData] = useState<Record<string, any>>({});
   const [busy, setBusy] = useState(false);
@@ -74,6 +90,7 @@ export default function ApplicantTracking() {
     setApplication(data.application);
     setHistory(data.history || []);
     setEvents(data.events || []);
+    setWitnessProgress(data.witnessProgress || null);
   };
 
   const startEditing = () => {
@@ -134,24 +151,60 @@ export default function ApplicantTracking() {
             </form>}
           </section>
         ) : application && (
-          editing ? <EditApplication data={editData} setField={setField} setWitness={setWitness} onSubmit={saveEdit} onCancel={() => setEditing(false)} busy={busy} /> : <DetailsView application={application} events={events} history={history} onEdit={startEditing} onCopy={() => navigator.clipboard?.writeText(application.reference).then(() => setNotice('Reference copied.'))} />
+          editing ? <EditApplication data={editData} setField={setField} setWitness={setWitness} onSubmit={saveEdit} onCancel={() => setEditing(false)} busy={busy} /> : <DetailsView application={application} events={events} history={history} witnessProgress={witnessProgress} onEdit={startEditing} onCopy={() => navigator.clipboard?.writeText(application.reference).then(() => setNotice('Reference copied.'))} />
         )}
       </div>
     </main>
   );
 }
 
-function DetailsView({ application, events, history, onEdit, onCopy }: { application: TrackingApplication; events: any[]; history: any[]; onEdit: () => void; onCopy: () => void }) {
+function DetailsView({ application, events, history, witnessProgress, onEdit, onCopy }: { application: TrackingApplication; events: any[]; history: any[]; witnessProgress: WitnessProgress | null; onEdit: () => void; onCopy: () => void }) {
   const a = application.applicant; const l = application.loan;
   return <div style={{ display: 'grid', gap: '18px' }}>
     <section style={{ ...cardStyle, display: 'flex', justifyContent: 'space-between', gap: '18px', flexWrap: 'wrap', alignItems: 'center' }}><div><div style={eyebrow}>CURRENT STATUS</div><h2 style={{ margin: '7px 0 4px', color: '#0f172a' }}>{application.status.label}</h2><div style={muted}>Last updated {dateTime(application.updated_at)}</div></div><div style={{ textAlign: 'right' }}><div style={eyebrow}>REFERENCE</div><div style={{ display: 'flex', alignItems: 'center', gap: '7px', marginTop: '7px' }}><strong style={{ color: '#0f766e', fontFamily: 'monospace' }}>{application.reference}</strong><button type="button" onClick={onCopy} aria-label="Copy reference" style={smallButton}><Copy size={15} /></button></div></div></section>
     {application.editable && <div style={{ ...alertStyle('#eff6ff', '#1d4ed8'), display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}><span>Your application can be edited until it is forwarded for review.</span><button type="button" onClick={onEdit} style={secondaryButton}><Edit3 size={15} /> Edit application</button></div>}
     {!application.editable && <div style={alertStyle('#f8fafc', '#475569')}><LockKeyhole size={15} style={{ verticalAlign: 'middle', marginRight: '7px' }} /> Editing is locked after forwarding to the review workflow.</div>}
+    <WitnessProgressBlock progress={witnessProgress} />
     <InfoSection title="Personal details" icon={<UserRound size={18} />} items={[["Name", a.name], ["Registered mobile", a.phone], ["WhatsApp", a.whatsapp], ["Date of birth", a.dob], ["Gender", a.gender], ["Father / guardian", a.father_name], ["Address", [a.address_house, a.address_street, a.address_city, a.address_pin].filter(Boolean).join(', ') || a.address]]} />
     <InfoSection title="Loan specifications" icon={<Clock3 size={18} />} items={[["Requested amount", money(l.requested_amount)], ["Repayment period", l.repayment_period_months ? `${l.repayment_period_months} months` : null], ["Monthly income", money(l.monthly_income)], ["Income source", l.income_source], ["Occupation", l.occupation], ["Purpose category", l.purpose_category], ["Purpose details", l.purpose_details], ["Existing debts", l.existing_debts ? `Yes${l.existing_debts_detail ? ` — ${l.existing_debts_detail}` : ''}` : 'No']]} />
     <section style={cardStyle}><h2 style={sectionTitle}>Witness verifications</h2>{application.witnesses.length ? <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '12px', marginTop: '15px' }}>{application.witnesses.map((w, i) => <div key={i} style={{ padding: '15px', borderRadius: '14px', background: '#f8fafc', border: '1px solid #e2e8f0' }}><strong>Witness {i + 1}</strong><div style={valueLine}>Name: {display(w.name)}</div><div style={valueLine}>Mobile: {display(w.phone)}</div><div style={valueLine}>Membership: {display(w.member_no)}</div><div style={valueLine}>Verification: {display(w.status)}</div></div>)}</div> : <p style={muted}>No witness information was provided with this application.</p>}</section>
     <section style={cardStyle}><h2 style={sectionTitle}>Application history</h2>{events.length ? <div style={{ marginTop: '15px', display: 'grid', gap: '12px' }}>{events.map((event, i) => <div key={`${event.created_at}-${i}`} style={{ display: 'flex', gap: '11px' }}><CheckCircle2 size={18} color="#0f766e" style={{ flex: '0 0 auto', marginTop: '2px' }} /><div><strong style={{ color: '#0f172a' }}>{event.status_code.replaceAll('_', ' ')}</strong><div style={muted}>{dateTime(event.created_at)}{event.applicant_visible_note ? ` — ${event.applicant_visible_note}` : ''}</div></div></div>)}</div> : <p style={muted}>No applicant-visible history events are recorded yet.</p>}{history.length > 1 && <p style={{ ...muted, marginTop: '16px' }}>Application versions recorded: {history.length}</p>}</section>
   </div>;
+}
+
+function WitnessProgressBlock({ progress }: { progress: WitnessProgress | null }) {
+  const statusLabel = (status: string | null | undefined) => {
+    switch (status) {
+      case 'VERIFIED': return 'Verified';
+      case 'DECLINED': return 'Declined';
+      case 'EXPIRED': return 'Link expired';
+      case 'REVOKED': return 'Link replaced';
+      default: return 'Awaiting response';
+    }
+  };
+  const statusColor = (status: string | null | undefined) => {
+    if (status === 'VERIFIED') return '#166534';
+    if (status === 'DECLINED') return '#991b1b';
+    if (status === 'EXPIRED' || status === 'REVOKED') return '#92400e';
+    return '#1e40af';
+  };
+  const witnesses = progress?.witnesses || [];
+  return <section style={cardStyle}>
+    <h2 style={{ ...sectionTitle, display: 'flex', alignItems: 'center', gap: '8px' }}><ShieldCheck size={18} /> Witness verification progress</h2>
+    <p style={{ ...muted, color: '#0f766e', fontWeight: 700, background: '#ecfdf5', borderRadius: '12px', padding: '12px 14px', marginTop: '12px' }}>
+      Your loan application has been submitted successfully. We are waiting for the witness verification responses. No action is required from you.
+    </p>
+    {witnesses.length ? <div style={{ display: 'grid', gap: '10px', marginTop: '14px' }}>
+      {witnesses.map(witness => <div key={witness.index} style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', padding: '13px 15px', borderRadius: '12px', background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+        <div>
+          <div style={{ color: '#0f172a', fontWeight: 800 }}>Witness {witness.index}: {display(witness.name)}</div>
+          <div style={{ ...muted, marginTop: '2px' }}>{witness.respondedAt ? `Responded ${dateTime(witness.respondedAt)}` : witness.status === 'PENDING' || !witness.status ? 'Waiting for their response' : 'No response recorded'}</div>
+        </div>
+        <div style={{ alignSelf: 'center', color: statusColor(witness.status), fontWeight: 900, fontSize: '13px' }}>{statusLabel(witness.status)}</div>
+      </div>)}
+    </div> : <p style={muted}>Witness verification details will appear here once they are issued.</p>}
+    {progress && <p style={{ ...muted, marginTop: '12px' }}>{progress.verifiedCount} of {progress.requiredCount} witnesses verified. This section is read-only; the member who filed your application manages the verification links.</p>}
+  </section>;
 }
 
 function InfoSection({ title, icon, items }: { title: string; icon: React.ReactNode; items: Array<[string, any]> }) {

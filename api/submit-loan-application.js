@@ -40,8 +40,7 @@ const createApplicationReference = async () => {
   throw new Error('Unable to allocate an application reference.');
 };
 
-const recordStatusEvent = async ({ requestId, statusCode, actorType, actorId = null, note = null }) => {
-  if (!requestId) return;
+const recordStatusEvent = async ({ requestId, statusCode, actorType, actorId = null, note = null }) => {  if (!requestId) return;
   const { error } = await supabase.from('application_status_events').insert({
     loan_request_id: requestId,
     status_code: statusCode,
@@ -55,6 +54,70 @@ const recordStatusEvent = async ({ requestId, statusCode, actorType, actorId = n
   if (error && !['PGRST205', '42P01', '42703'].includes(error.code)) {
     console.warn('Applicant status event was not recorded:', error.code || 'unknown');
   }
+};
+
+const WITNESS_TOKEN_TTL_DAYS = 7;
+const witnessTokenHash = token => crypto.createHash('sha256').update(`${process.env.APPLICANT_TRACKING_SECRET || 'missing-secret'}:${token}`).digest('hex');
+const witnessToken = () => `wv_${crypto.randomBytes(32).toString('base64url')}`;
+
+const requestOrigin = req => {
+  const proto = String(req.headers['x-forwarded-proto'] || 'https').split(',')[0].trim() || 'https';
+  const host = String(req.headers['x-forwarded-host'] || req.headers.host || 'skssf-portal.vercel.app').split(',')[0].trim();
+  return `${proto}://${host}`;
+};
+
+/**
+ * Issues (or re-issues) a single-use witness verification link. The raw token
+ * only ever exists in this response; the database stores a hash.
+ */
+const issueWitnessLink = async ({ requestId, index, name, phone, createdBy, origin }) => {
+  const token = witnessToken();
+  const { error } = await supabase.rpc('issue_witness_verification', {
+    p_request_id: requestId,
+    p_witness_index: index,
+    p_token_hash: witnessTokenHash(token),
+    p_witness_name: name || null,
+    p_witness_phone_last4: phone ? String(phone).slice(-4) : null,
+    p_created_by: createdBy || null,
+    p_ttl: `${WITNESS_TOKEN_TTL_DAYS} days`
+  });
+  if (error) return { error };
+  return {
+    link: {
+      index,
+      name: name || null,
+      phone: phone || null,
+      url: `${origin}/witness-verify/${token}`,
+      expiresAt: new Date(Date.now() + WITNESS_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000).toISOString()
+    }
+  };
+};
+
+const issueWitnessLinks = async ({ requestId, witnesses, createdBy, origin }) => {
+  const links = [];
+  let available = true;
+  for (const [offset, witness] of witnesses.entries()) {
+    const result = await issueWitnessLink({
+      requestId,
+      index: offset + 1,
+      name: witness?.name,
+      phone: witness?.phone,
+      createdBy,
+      origin
+    });
+    if (result.error) {
+      const code = result.error.code || '';
+      if (['PGRST202', '42883', '42P01', 'PGRST205'].includes(code)) {
+        available = false;
+        break;
+      }
+      console.warn('Witness verification link could not be issued:', code || result.error.message);
+      available = false;
+      continue;
+    }
+    links.push(result.link);
+  }
+  return { links, available };
 };
 
 export default async function handler(req, res) {
@@ -105,9 +168,11 @@ export default async function handler(req, res) {
        witness1_name,
        witness1_phone,
        witness1_member_no,
+       witness1_relationship,
        witness2_name,
        witness2_phone,
        witness2_member_no,
+       witness2_relationship,
        confirm_truth,
        confirm_schedule,
        decision_notification,
@@ -115,7 +180,9 @@ export default async function handler(req, res) {
        decision_status,
        status_event,
        status_event_code,
-       status_event_note
+       status_event_note,
+       mode,
+       client_request_id
     } = req.body || {};
 
     const nameVal = applicant_name || 'Applicant';
@@ -340,8 +407,8 @@ export default async function handler(req, res) {
            witness2_phone: witness2_phone || null,
            witness2_member_no: witness2_member_no || null,
            witnesses: [
-             { name: witness1_name || null, phone: witness1_phone || null, member_no: witness1_member_no || null, status: null, verified_at: null },
-             { name: witness2_name || null, phone: witness2_phone || null, member_no: witness2_member_no || null, status: null, verified_at: null }
+             { name: witness1_name || null, phone: witness1_phone || null, member_no: witness1_member_no || null, relationship: witness1_relationship || null, status: null, verified_at: null },
+             { name: witness2_name || null, phone: witness2_phone || null, member_no: witness2_member_no || null, relationship: witness2_relationship || null, status: null, verified_at: null }
            ]
          });
        }
@@ -427,6 +494,349 @@ export default async function handler(req, res) {
       });
 
       return res.status(200).json({ success: true, reference, record: reqData ? reqData[0] : null });
+    }
+
+    // ====================================================================
+    // PATH C: Authenticated member files a complete application on behalf of
+    // an applicant. Creates the canonical loan_requests row plus the linked
+    // loans row, so the application is visible in Filed Loans immediately.
+    // The applicant stays the applicant; the member is the filing agent.
+    // ====================================================================
+    if (mode === 'member_direct') {
+      const filingAuthHeader = req.headers.authorization || '';
+      const filingToken = filingAuthHeader.replace(/^Bearer\s+/i, '').trim();
+      if (!filingToken) return res.status(401).json({ error: 'Authentication required' });
+      const { data: { user: filingUser }, error: filingAuthError } = await supabase.auth.getUser(filingToken);
+      if (filingAuthError || !filingUser) return res.status(401).json({ error: 'Unauthenticated' });
+
+      const { data: filingMember, error: filingProfileError } = await supabase
+        .from('profiles')
+        .select('id, name, role, member_unique_code, code')
+        .eq('id', filingUser.id)
+        .maybeSingle();
+      if (filingProfileError) {
+        console.error('Member filing profile lookup failed:', filingProfileError);
+        return res.status(500).json({ error: 'Unable to verify the filing member.' });
+      }
+      if (!filingMember || !['member', 'admin', 'super'].includes(filingMember.role)) {
+        return res.status(403).json({ error: 'Only members may file an application on behalf of an applicant.' });
+      }
+
+      // Identical applicant / loan rules to the public form.
+      if (trimmed(applicant_name).length < 3) return res.status(400).json({ error: 'Applicant full name is required.' });
+      if (!/^\d{10}$/.test(trimmed(applicant_phone))) return res.status(400).json({ error: 'A valid 10-digit phone number is required.' });
+      if (!dob || applicantAge(dob) === null || applicantAge(dob) < 18) return res.status(400).json({ error: 'Applicant must be at least 18 years old.' });
+      if (!trimmed(gender)) return res.status(400).json({ error: 'Gender is required.' });
+      if (!trimmed(applicant_address) || trimmed(applicant_address).length < 10) return res.status(400).json({ error: 'Complete address is required.' });
+      if (!Number.isFinite(amtVal) || amtVal < 1000 || amtVal > 50000) return res.status(400).json({ error: 'Requested amount must be between 1,000 and 50,000.' });
+      if (!Number.isInteger(monthsVal) || monthsVal <= 0) return res.status(400).json({ error: 'A valid repayment period is required.' });
+      if (trimmed(loan_purpose_detail).length < 20) return res.status(400).json({ error: 'Purpose details must be at least 20 characters.' });
+      if (!Number.isFinite(Number(monthly_income)) || Number(monthly_income) < 1000) return res.status(400).json({ error: 'Monthly income must be at least 1,000.' });
+      if (!trimmed(income_source)) return res.status(400).json({ error: 'Source of income is required.' });
+      if (!trimmed(witness1_name) || !/^\d{10}$/.test(trimmed(witness1_phone)) || !trimmed(witness2_name) || !/^\d{10}$/.test(trimmed(witness2_phone))) return res.status(400).json({ error: 'Two valid witnesses are required.' });
+      if (confirm_truth !== true || confirm_schedule !== true) return res.status(400).json({ error: 'Both declaration confirmations are required.' });
+      if (!trimmed(relationship)) return res.status(400).json({ error: 'Your relationship to the applicant is required.' });
+      if (trimmed(member_notes).length < 20) return res.status(400).json({ error: 'Member assessment notes must be at least 20 characters.' });
+
+      const idempotencyKey = trimmed(client_request_id).slice(0, 80) || null;
+      let filingSchemaReady = true;
+
+      // A retry must never create a second application.
+      if (idempotencyKey) {
+        const { data: existingRequest, error: existingError } = await supabase
+          .from('loan_requests')
+          .select('id, application_reference, converted_to_loan_id')
+          .eq('client_request_id', idempotencyKey)
+          .maybeSingle();
+        if (existingError && !['42703', 'PGRST204'].includes(existingError.code)) {
+          console.error('Member filing idempotency lookup failed:', existingError);
+          return res.status(500).json({ error: 'Unable to verify whether this application was already filed.' });
+        }
+        if (existingError) filingSchemaReady = false;
+        if (existingRequest) {
+          return res.status(200).json({
+            success: true,
+            duplicate: true,
+            reference: existingRequest.application_reference,
+            requestId: existingRequest.id,
+            loanId: existingRequest.converted_to_loan_id,
+            witnesses: [],
+            witnessVerificationAvailable: true
+          });
+        }
+      }
+
+      const reference = await createApplicationReference();
+      const witnesses = [
+        {
+          name: trimmed(witness1_name),
+          phone: trimmed(witness1_phone),
+          member_no: trimmed(witness1_member_no) || null,
+          relationship: trimmed(witness1_relationship) || null,
+          status: null,
+          verified_at: null
+        },
+        {
+          name: trimmed(witness2_name),
+          phone: trimmed(witness2_phone),
+          member_no: trimmed(witness2_member_no) || null,
+          relationship: trimmed(witness2_relationship) || null,
+          status: null,
+          verified_at: null
+        }
+      ];
+
+      const reasonStr = [
+        `Application Reference: ${reference}`,
+        `Filed By Member: ${filingMember.name || filingMember.member_unique_code || 'Member'}`,
+        `Member Relationship: ${trimmed(relationship)}`,
+        `Member Notes: ${trimmed(member_notes)}`,
+        loan_purpose_category ? `Category: ${loan_purpose_category}` : '',
+        loan_purpose_detail ? `Details: ${loan_purpose_detail}` : '',
+        `Period: ${monthsVal} Months`,
+        monthly_income ? `Income: ₹${monthly_income} (${income_source || ''})` : '',
+        existing_debts ? `Debts: ${existing_debts_detail || 'Yes'}` : 'Debts: None',
+        dob ? `DOB: ${dob}${gender ? ` (${gender})` : ''}` : ''
+      ].filter(Boolean).join('\n');
+
+      const requestPayload = {
+        requester_name: nameVal,
+        requester_phone: phoneVal,
+        requester_address: addressVal,
+        reason: reasonStr,
+        approximate_amount: amtVal,
+        loan_amount_requested: amtVal,
+        loan_purpose_category: loan_purpose_category || null,
+        loan_purpose_detail: loan_purpose_detail || null,
+        repayment_period_months: monthsVal,
+        applicant_name: nameVal,
+        applicant_phone: phoneVal,
+        applicant_dob: dob || null,
+        applicant_gender: gender || null,
+        applicant_whatsapp: whatsapp || null,
+        applicant_address_house: address_house || null,
+        applicant_address_street: address_place || null,
+        applicant_address_city: address_district || null,
+        applicant_address_pin: address_pin || null,
+        applicant_father_name: father_name || null,
+        applicant_occupation: occupation || null,
+        applicant_employer_name: employer_name || null,
+        monthly_income: monthly_income ? parseFloat(monthly_income) : null,
+        income_source: income_source || null,
+        existing_debts: !!existing_debts,
+        existing_debts_detail: existing_debts_detail || null,
+        declaration_agreed: true,
+        declaration_truth_confirmed: true,
+        declaration_schedule_confirmed: true,
+        application_reference: reference,
+        witness1_name: trimmed(witness1_name) || null,
+        witness1_phone: trimmed(witness1_phone) || null,
+        witness1_member_no: trimmed(witness1_member_no) || null,
+        witness2_name: trimmed(witness2_name) || null,
+        witness2_phone: trimmed(witness2_phone) || null,
+        witness2_member_no: trimmed(witness2_member_no) || null,
+        witnesses,
+        referred_member_id: filingMember.id,
+        referred_member_name: filingMember.name || null,
+        status: 'DRAFT_UNASSIGNED'
+      };
+
+      if (filingSchemaReady) {
+        requestPayload.filing_source = 'MEMBER_DIRECT';
+        if (idempotencyKey) requestPayload.client_request_id = idempotencyKey;
+      }
+
+      const { data: reqData, error: reqErr } = await supabase
+        .from('loan_requests')
+        .insert([requestPayload])
+        .select();
+
+      if (reqErr || !reqData?.[0]) {
+        console.error('Member direct request insert failed:', reqErr);
+        return res.status(500).json({ error: 'Failed to save the application. Please try again.' });
+      }
+
+      const createdRequest = reqData[0];
+      const snapshot = {
+        applicant_name: createdRequest.applicant_name || createdRequest.requester_name || null,
+        applicant_phone: createdRequest.applicant_phone || createdRequest.requester_phone || null,
+        applicant_whatsapp: createdRequest.applicant_whatsapp || null,
+        applicant_dob: createdRequest.applicant_dob || null,
+        applicant_gender: createdRequest.applicant_gender || null,
+        applicant_address_house: createdRequest.applicant_address_house || null,
+        applicant_address_street: createdRequest.applicant_address_street || null,
+        applicant_address_city: createdRequest.applicant_address_city || null,
+        applicant_address_pin: createdRequest.applicant_address_pin || null,
+        requester_address: createdRequest.requester_address || null,
+        applicant_father_name: createdRequest.applicant_father_name || null,
+        applicant_occupation: createdRequest.applicant_occupation || null,
+        applicant_employer_name: createdRequest.applicant_employer_name || null,
+        loan_amount_requested: createdRequest.loan_amount_requested ?? null,
+        loan_purpose_category: createdRequest.loan_purpose_category || null,
+        repayment_period_months: createdRequest.repayment_period_months || null,
+        monthly_income: createdRequest.monthly_income ?? null,
+        income_source: createdRequest.income_source || null,
+        existing_debts: createdRequest.existing_debts || false,
+        existing_debts_detail: createdRequest.existing_debts_detail || null,
+        loan_purpose_detail: createdRequest.loan_purpose_detail || null,
+        witness1_name: createdRequest.witness1_name || null,
+        witness1_phone: createdRequest.witness1_phone || null,
+        witness1_status: null,
+        witness2_name: createdRequest.witness2_name || null,
+        witness2_phone: createdRequest.witness2_phone || null,
+        witness2_status: null,
+        witnesses: createdRequest.witnesses || []
+      };
+
+      const { error: versionError } = await supabase.from('loan_application_versions').insert({
+        loan_request_id: createdRequest.id,
+        application_version: 1,
+        edited_by: filingUser.id,
+        editor_role: 'member',
+        previous_data: snapshot,
+        updated_data: snapshot,
+        changed_fields: [],
+        edit_reason: 'Filed by member on behalf of the applicant'
+      });
+      if (versionError && !['PGRST205', '42P01', '42703', '23505'].includes(versionError.code)) {
+        console.warn('Member filing history snapshot failed:', versionError.message);
+      }
+
+      const canonicalPurpose = loan_purpose_detail || reasonStr;
+      const loanPayload = {
+        loan_no: reference,
+        user_id: filingUser.id,
+        name: nameVal,
+        amount: amtVal,
+        purpose: canonicalPurpose,
+        purpose_desc: canonicalPurpose,
+        months: monthsVal,
+        status: 'pending',
+        submitted_date: new Date().toISOString().slice(0, 10),
+        requester_name: nameVal,
+        requester_phone: phoneVal,
+        requester_address: addressVal,
+        repayment_period_months: monthsVal,
+        loan_amount_requested: amtVal,
+        loan_amount_approved: amtVal,
+        member_notes: trimmed(member_notes).slice(0, 220),
+        submitted_by_member_id: filingUser.id,
+        submission_source: 'MEMBER_DIRECT',
+        source_request_id: createdRequest.id,
+        workflow_status: 'PENDING_COORDINATOR_REVIEW',
+        application_reference: reference,
+        applicant_name: nameVal,
+        applicant_phone: phoneVal,
+        applicant_dob: dob || null,
+        applicant_gender: gender || null,
+        applicant_whatsapp: whatsapp || null,
+        applicant_address: addressVal,
+        applicant_address_house: address_house || null,
+        applicant_address_street: address_place || null,
+        applicant_address_city: address_district || null,
+        applicant_address_pin: address_pin || null,
+        applicant_father_name: father_name || null,
+        applicant_occupation: occupation || null,
+        applicant_employer_name: employer_name || null,
+        loan_purpose_category: loan_purpose_category || null,
+        existing_debts: !!existing_debts,
+        existing_debts_detail: existing_debts_detail || null,
+        monthly_income: monthly_income ? parseFloat(monthly_income) : null,
+        income_source: income_source || null,
+        witness1_name: trimmed(witness1_name) || null,
+        witness1_phone: trimmed(witness1_phone) || null,
+        witness1_member_no: trimmed(witness1_member_no) || null,
+        witness1_status: null,
+        witness2_name: trimmed(witness2_name) || null,
+        witness2_phone: trimmed(witness2_phone) || null,
+        witness2_member_no: trimmed(witness2_member_no) || null,
+        witness2_status: null,
+        witnesses,
+        request: {
+          status: 'pending',
+          source_request_id: createdRequest.id,
+          application_reference: reference,
+          filing_source: 'MEMBER_DIRECT',
+          filed_by_member_id: filingUser.id,
+          filed_by_member_name: filingMember.name || null,
+          relationship: trimmed(relationship),
+          member_notes: trimmed(member_notes),
+          recommended_amount: amtVal,
+          ...snapshot
+        }
+      };
+
+      const { data: insertedRows, error: loanError } = await supabase
+        .from('loans')
+        .insert([loanPayload])
+        .select();
+      if (loanError || !insertedRows?.[0]) {
+        console.error('Member direct loan insert failed:', loanError);
+        // Never leave an orphaned application behind.
+        await supabase.from('loan_requests').delete().eq('id', createdRequest.id);
+        const safeCode = loanError?.code ? ` (${loanError.code})` : '';
+        return res.status(500).json({ error: `Unable to file the application.${safeCode}` });
+      }
+      const insertedLoan = insertedRows[0];
+
+      const { error: convertError } = await supabase
+        .from('loan_requests')
+        .update({ status: 'CONVERTED', converted_to_loan_id: insertedLoan.id })
+        .eq('id', createdRequest.id);
+      if (convertError) {
+        console.error('Member direct request conversion failed:', convertError);
+        await supabase.from('loans').delete().eq('id', insertedLoan.id);
+        await supabase.from('loan_requests').delete().eq('id', createdRequest.id);
+        return res.status(500).json({ error: 'The application could not be finalised. Please try again.' });
+      }
+
+      await recordStatusEvent({
+        requestId: createdRequest.id,
+        statusCode: 'SUBMITTED',
+        actorType: 'member',
+        actorId: filingUser.id,
+        note: 'Filed by member on behalf of the applicant'
+      });
+      await recordStatusEvent({
+        requestId: createdRequest.id,
+        statusCode: 'FORWARDED_TO_ADMIN',
+        actorType: 'member',
+        actorId: filingUser.id
+      });
+
+      const { data: admins, error: adminLookupError } = await supabase
+        .from('profiles')
+        .select('id')
+        .in('role', ['admin', 'super']);
+      if (!adminLookupError && admins?.length) {
+        const { error: adminNotificationError } = await supabase.from('notifications').insert(
+          admins.map(admin => ({
+            user_id: admin.id,
+            title: 'New loan application for review',
+            message: `${filingMember.name || 'A member'} filed a loan application for ${nameVal}. Reference: ${reference}`,
+            link_url: '/admin/dashboard/loans'
+          }))
+        );
+        if (adminNotificationError) console.warn('Admin notification insert failed:', adminNotificationError.message);
+      }
+
+      const issued = await issueWitnessLinks({
+        requestId: createdRequest.id,
+        witnesses,
+        createdBy: filingUser.id,
+        origin: requestOrigin(req)
+      });
+
+      return res.status(200).json({
+        success: true,
+        reference,
+        requestId: createdRequest.id,
+        loanId: insertedLoan.id,
+        record: createdRequest,
+        loan: insertedLoan,
+        witnesses: issued.links,
+        witnessVerificationAvailable: issued.available
+      });
     }
 
     // Formal member submission must be authenticated and must own the source request.
