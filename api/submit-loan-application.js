@@ -966,7 +966,10 @@ export default async function handler(req, res) {
       member_notes: assessmentNotes.slice(0, 220),
       submitted_by_member_id: user.id,
       submission_source: 'MEMBER_INBOX',
-      inbox_submission_id: source_request_id,
+      // `source_request_id` is the authoritative loan_requests link. The
+      // inbox_submission_id foreign key targets inbox_submissions(id) and must
+      // not receive a loan_requests UUID (was causing FK violation 2350).
+      inbox_submission_id: null,
       source_request_id,
       workflow_status: 'PENDING_COORDINATOR_REVIEW',
       request: requestSnapshot
