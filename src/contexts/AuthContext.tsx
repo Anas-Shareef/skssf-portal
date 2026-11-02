@@ -45,10 +45,23 @@ const AuthContext = createContext<AuthContextType>({
 const MISSING_PROFILE_MESSAGE =
   'Your account is authenticated but has no portal profile. Please contact an administrator.';
 
-/** PostgREST codes returned when the bearer token is missing, invalid or expired. */
+/** PostgREST / GoTrue codes returned when the bearer token is missing, invalid or expired. */
 const SESSION_INVALID_CODES = new Set(['PGRST301', 'PGRST302', 'PGRST303', 'PGRST304']);
 
 class SessionInvalidError extends Error {}
+
+/** Detects missing / invalid / expired authentication sessions across the
+ *  Supabase auth (GoTrue) and PostgREST layers. */
+const isSessionInvalidError = (error: any): boolean => {
+  if (!error) return false;
+  const status = Number((error as { status?: number }).status);
+  const code = String((error as { code?: string }).code || '');
+  const message = String((error as { message?: string }).message || '');
+  const isAuthStatus = status === 401 || status === 403;
+  const isAuthCode = SESSION_INVALID_CODES.has(code) || ['PGRST204', 'PGRST205', 'PGRST200', 'PGRST202', 'PGRST203', 'PGRST116'].includes(code);
+  const isAuthMessage = /jwt|token|session|unauthor|expired|invalid|not.?found/i.test(message);
+  return Boolean(isAuthStatus || isAuthCode || isAuthMessage);
+};
 
 const mapProfile = (profile: any, email: string): Profile => ({
   ...profile,
@@ -73,7 +86,7 @@ async function fetchProfile(user: { id: string; email?: string | null }): Promis
     .maybeSingle();
 
   if (error) {
-    if (SESSION_INVALID_CODES.has((error as { code?: string }).code || '')) {
+    if (isSessionInvalidError(error)) {
       throw new SessionInvalidError(error.message);
     }
     throw error;

@@ -172,27 +172,9 @@ export const api = {
       ]);
 
       let config = portalConfig;
-      if (!config) {
-        try {
-          const { data: newConfig } = await supabase.from('portal_configs').insert({
-            org_name: 'SKSSF Poyanad Branch',
-            org_logo: '',
-            org_scale: 1.0,
-            max_loan: 50000,
-            sah_amt: 100,
-            repayment_approvals_needed: 1,
-            loan_approvals_needed: 2,
-            approver_roles: ['President', 'Secretary', 'Treasurer'],
-            authorized_reviewers: [],
-            default_committee: []
-          }).select().single();
-          config = newConfig;
-        } catch (err) {
-          // Portal configuration is optional for the dashboard: fall back to the
-          // local defaults instead of failing the whole authenticated bootstrap.
-          console.warn('Portal config lookup failed; using default portal configuration.', err);
-        }
-      }
+      // Portal configuration is optional for the dashboard: a failed or absent
+      // read falls back to local defaults and never triggers a client write
+      // (members must not insert configuration rows).
 
       const formattedUsers = (users || []).map(u => ({
         ...u,

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { localDb } from '../../lib/localDb';
+import { api } from '../../lib/api';
 
 /* ─── Helpers ─── */
 const fmt = (n: number) => `₹${Number(n).toLocaleString('en-IN')}`;
