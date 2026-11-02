@@ -22,6 +22,8 @@ BEGIN;
 
 ALTER TABLE public.portal_configs ENABLE ROW LEVEL SECURITY;
 
+GRANT SELECT ON public.portal_configs TO authenticated;
+
 DROP POLICY IF EXISTS "portal_configs_authenticated_select" ON public.portal_configs;
 CREATE POLICY "portal_configs_authenticated_select"
   ON public.portal_configs
