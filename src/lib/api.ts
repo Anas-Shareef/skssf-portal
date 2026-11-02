@@ -127,6 +127,16 @@ export const api = {
             })
         : Promise.resolve({ data: [] });
 
+      // Portal configuration is required by the dashboards but is optional for
+      // the rest of the bootstrap payload: a failure here must not reject the
+      // whole Promise.all and break the member dashboard.
+      const portalConfigPromise: Promise<{ data: any }> = supabase
+        .from('portal_configs')
+        .select('org_name, org_logo, org_scale, max_loan, sah_amt, repayment_approvals_needed, loan_approvals_needed, approver_roles, authorized_reviewers, default_committee')
+        .maybeSingle()
+        .then((result: any) => ({ data: result?.data ?? null }))
+        .catch(() => ({ data: null }));
+
       const [
         { data: portalConfig },
         { data: users },
@@ -138,7 +148,7 @@ export const api = {
         { data: kits },
         { data: inventoryTransactions }
       ] = await Promise.all([
-        supabase.from('portal_configs').select('*').maybeSingle(),
+        portalConfigPromise,
         usersPromise,
         loanFetchPromise,
         supabase.from('campaigns').select('*').order('created_at', { ascending: false }),
@@ -163,19 +173,25 @@ export const api = {
 
       let config = portalConfig;
       if (!config) {
-        const { data: newConfig } = await supabase.from('portal_configs').insert({
-          org_name: 'SKSSF Poyanad Branch',
-          org_logo: '',
-          org_scale: 1.0,
-          max_loan: 50000,
-          sah_amt: 100,
-          repayment_approvals_needed: 1,
-          loan_approvals_needed: 2,
-          approver_roles: ['President', 'Secretary', 'Treasurer'],
-          authorized_reviewers: [],
-          default_committee: []
-        }).select().single();
-        config = newConfig;
+        try {
+          const { data: newConfig } = await supabase.from('portal_configs').insert({
+            org_name: 'SKSSF Poyanad Branch',
+            org_logo: '',
+            org_scale: 1.0,
+            max_loan: 50000,
+            sah_amt: 100,
+            repayment_approvals_needed: 1,
+            loan_approvals_needed: 2,
+            approver_roles: ['President', 'Secretary', 'Treasurer'],
+            authorized_reviewers: [],
+            default_committee: []
+          }).select().single();
+          config = newConfig;
+        } catch (err) {
+          // Portal configuration is optional for the dashboard: fall back to the
+          // local defaults instead of failing the whole authenticated bootstrap.
+          console.warn('Portal config lookup failed; using default portal configuration.', err);
+        }
       }
 
       const formattedUsers = (users || []).map(u => ({
