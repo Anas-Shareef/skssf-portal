@@ -120,6 +120,26 @@ const issueWitnessLinks = async ({ requestId, witnesses, createdBy, origin }) =>
   return { links, available };
 };
 
+// Builds the API error response for failed Supabase writes. The client-facing
+// message keeps the historical `Unable to ...` wording (and SQLSTATE suffix),
+// while the full database error (message / details / hint / constraint / table)
+// is returned alongside it so the actual root cause is never lost.
+const submissionErrorResponse = (message, error) => {
+  const code = error?.code ? String(error.code) : '';
+  const safeCode = code ? ` (${code})` : '';
+  const body = { error: `${message}${safeCode}` };
+  if (error) {
+    body.code = error.code || null;
+    body.sqlState = error.code || null;
+    body.message = error.message || null;
+    body.details = error.details || null;
+    body.hint = error.hint || null;
+    body.constraint = error.constraint || null;
+    body.table = error.table || null;
+  }
+  return body;
+};
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -245,10 +265,11 @@ export default async function handler(req, res) {
         link_url: '/member/dashboard/loans'
       });
       if (decisionNotificationError) {
-        console.error('Decision notification insert failed:', decisionNotificationError);
-        return res.status(500).json({ error: 'Decision saved, but notification delivery failed.' });
+        // The decision itself is already durably saved; a notification failure
+        // must never surface as an application/decision failure.
+        console.warn('Decision notification insert failed:', decisionNotificationError.message);
       }
-      return res.status(200).json({ success: true, notified: true });
+      return res.status(200).json({ success: true, notified: !decisionNotificationError });
     }
 
     // Existing coordinator/panel screens update the authoritative loans row
@@ -724,34 +745,6 @@ export default async function handler(req, res) {
         submission_source: 'MEMBER_DIRECT',
         source_request_id: createdRequest.id,
         workflow_status: 'PENDING_COORDINATOR_REVIEW',
-        application_reference: reference,
-        applicant_name: nameVal,
-        applicant_phone: phoneVal,
-        applicant_dob: dob || null,
-        applicant_gender: gender || null,
-        applicant_whatsapp: whatsapp || null,
-        applicant_address: addressVal,
-        applicant_address_house: address_house || null,
-        applicant_address_street: address_place || null,
-        applicant_address_city: address_district || null,
-        applicant_address_pin: address_pin || null,
-        applicant_father_name: father_name || null,
-        applicant_occupation: occupation || null,
-        applicant_employer_name: employer_name || null,
-        loan_purpose_category: loan_purpose_category || null,
-        existing_debts: !!existing_debts,
-        existing_debts_detail: existing_debts_detail || null,
-        monthly_income: monthly_income ? parseFloat(monthly_income) : null,
-        income_source: income_source || null,
-        witness1_name: trimmed(witness1_name) || null,
-        witness1_phone: trimmed(witness1_phone) || null,
-        witness1_member_no: trimmed(witness1_member_no) || null,
-        witness1_status: null,
-        witness2_name: trimmed(witness2_name) || null,
-        witness2_phone: trimmed(witness2_phone) || null,
-        witness2_member_no: trimmed(witness2_member_no) || null,
-        witness2_status: null,
-        witnesses,
         request: {
           status: 'pending',
           source_request_id: createdRequest.id,
@@ -766,6 +759,49 @@ export default async function handler(req, res) {
         }
       };
 
+      // Applicant / witness columns ship with the applicant-details migrations.
+      // They must only be written when the live schema actually contains them;
+      // sending keys that are absent makes PostgREST reject the insert with
+      // PGRST204 (column not found) before any SQL statement is executed.
+      const { error: loanDetailSchemaError } = await supabase
+        .from('loans')
+        .select('application_reference, applicant_name, applicant_phone, applicant_dob, applicant_gender, applicant_whatsapp, applicant_address, applicant_address_house, applicant_address_street, applicant_address_city, applicant_address_pin, applicant_father_name, applicant_occupation, applicant_employer_name, loan_purpose_category, existing_debts, existing_debts_detail, monthly_income, income_source, witness1_name, witness1_phone, witness1_member_no, witness1_status, witness1_verified_at, witness2_name, witness2_phone, witness2_member_no, witness2_status, witness2_verified_at, witnesses')
+        .limit(1);
+      if (!loanDetailSchemaError) {
+        Object.assign(loanPayload, {
+          application_reference: reference,
+          applicant_name: nameVal,
+          applicant_phone: phoneVal,
+          applicant_dob: dob || null,
+          applicant_gender: gender || null,
+          applicant_whatsapp: whatsapp || null,
+          applicant_address: addressVal,
+          applicant_address_house: address_house || null,
+          applicant_address_street: address_place || null,
+          applicant_address_city: address_district || null,
+          applicant_address_pin: address_pin || null,
+          applicant_father_name: father_name || null,
+          applicant_occupation: occupation || null,
+          applicant_employer_name: employer_name || null,
+          loan_purpose_category: loan_purpose_category || null,
+          existing_debts: !!existing_debts,
+          existing_debts_detail: existing_debts_detail || null,
+          monthly_income: monthly_income ? parseFloat(monthly_income) : null,
+          income_source: income_source || null,
+          witness1_name: trimmed(witness1_name) || null,
+          witness1_phone: trimmed(witness1_phone) || null,
+          witness1_member_no: trimmed(witness1_member_no) || null,
+          witness1_status: null,
+          witness1_verified_at: null,
+          witness2_name: trimmed(witness2_name) || null,
+          witness2_phone: trimmed(witness2_phone) || null,
+          witness2_member_no: trimmed(witness2_member_no) || null,
+          witness2_status: null,
+          witness2_verified_at: null,
+          witnesses
+        });
+      }
+
       const { data: insertedRows, error: loanError } = await supabase
         .from('loans')
         .insert([loanPayload])
@@ -774,8 +810,7 @@ export default async function handler(req, res) {
         console.error('Member direct loan insert failed:', loanError);
         // Never leave an orphaned application behind.
         await supabase.from('loan_requests').delete().eq('id', createdRequest.id);
-        const safeCode = loanError?.code ? ` (${loanError.code})` : '';
-        return res.status(500).json({ error: `Unable to file the application.${safeCode}` });
+        return res.status(500).json(submissionErrorResponse('Unable to file the application', loanError));
       }
       const insertedLoan = insertedRows[0];
 
@@ -1020,8 +1055,8 @@ export default async function handler(req, res) {
       .select();
     if (loanError || !insertedRows?.[0]) {
       console.error('Member loan submission insert failed:', loanError);
-      const safeCode = loanError?.code ? ` (${loanError.code})` : '';
-      return res.status(500).json({ error: `Unable to submit the application to Admin.${safeCode}` });
+      const response = submissionErrorResponse('Unable to submit the application to Admin', loanError);
+      return res.status(500).json(response);
     }
     const insertedLoan = insertedRows[0];
 

@@ -35,22 +35,36 @@ export default async function handler(req, res) {
   }
   if (!profile) return res.status(403).json({ error: 'Forbidden - No portal profile' });
 
-  const { loanId, installmentId, messageText } = req.body;
-  if (!loanId || !installmentId || !messageText) {
-    return res.status(400).json({ error: 'Missing required parameters' });
+  const { loanId, installmentId, messageText } = req.body || {};
+  const resolvedLoanId = Number(loanId);
+  const resolvedInstallmentId = installmentId ? Number(installmentId) : null;
+  if (!Number.isFinite(resolvedLoanId) || resolvedLoanId <= 0) {
+    return res.status(400).json({ error: 'A valid loan identifier is required.' });
+  }
+  if (installmentId && (!Number.isFinite(Number(installmentId)) || Number(installmentId) <= 0)) {
+    return res.status(400).json({ error: 'A valid installment identifier is required.' });
   }
 
   const { error } = await supabase
     .from('requester_notifications')
     .insert({
-      loan_id: loanId,
-      installment_id: installmentId,
+      loan_id: resolvedLoanId,
+      installment_id: resolvedInstallmentId,
       sent_by_member_id: profile.id,
-      message_text: messageText.trim(),
+      message_text: String(messageText || '').trim(),
       delivery_method: 'WHATSAPP'
     });
 
-  if (error) return res.status(500).json({ error: error.message });
+  if (error) {
+    console.error('Requester notification insert failed:', error);
+    return res.status(500).json({
+      error: error.message,
+      code: error.code || null,
+      sqlState: error.code || null,
+      details: error.details || null,
+      hint: error.hint || null
+    });
+  }
 
   return res.status(200).json({ success: true });
 }
