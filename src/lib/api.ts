@@ -1,5 +1,5 @@
 import { supabase } from './supabaseClient';
-import { getAccessToken, getAuthHeaders } from './authSession';
+import { getAccessToken, authenticatedFetch } from './authSession';
 
 const isTableMissingError = (err: any) => {
   return err && (err.code === 'PGRST204' || err.code === 'PGRST205' || String(err.message || '').includes('relation') || String(err.message || '').includes('does not exist'));
@@ -555,9 +555,8 @@ export const api = {
     }
 
     if (path === '/users') {
-      const res = await fetch('/api/users', {
+      const res = await authenticatedFetch('/api/users', {
         method: 'POST',
-        headers: await getAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(body)
       });
       const json = await res.json();
@@ -710,9 +709,8 @@ export const api = {
       // an admin browser to write notifications for another user directly.
       if (resolvedStatus === 'approved' || resolvedStatus === 'rejected') {
         try {
-          const decisionResponse = await fetch('/api/submit-loan-application', {
+          const decisionResponse = await authenticatedFetch('/api/submit-loan-application', {
             method: 'POST',
-            headers: await getAuthHeaders({ 'Content-Type': 'application/json' }),
             body: JSON.stringify({ decision_notification: true, loan_id: loan.id, decision_status: resolvedStatus })
           });
           if (!decisionResponse.ok) {
@@ -1335,9 +1333,8 @@ export const api = {
   patch: async <T>(path: string, body?: any, _token?: string): Promise<T> => {
     if (path.startsWith('/users/')) {
       const id = path.split('/')[2];
-      const res = await fetch(`/api/users?id=${id}`, {
+      const res = await authenticatedFetch(`/api/users?id=${id}`, {
         method: 'PATCH',
-        headers: await getAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(body)
       });
       const json = await res.json();
@@ -1607,9 +1604,8 @@ export const api = {
   del: async <T>(path: string, body?: any, _token?: string): Promise<T> => {
     if (path.startsWith('/users/')) {
       const id = path.split('/')[2];
-      const res = await fetch(`/api/users?id=${id}`, {
-        method: 'DELETE',
-        headers: await getAuthHeaders()
+      const res = await authenticatedFetch(`/api/users?id=${id}`, {
+        method: 'DELETE'
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.message || 'Failed to delete user');

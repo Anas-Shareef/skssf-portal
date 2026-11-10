@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { localDb, syncFromBackend } from '../../lib/localDb';
 import { supabase } from '../../lib/supabaseClient';
-import { getAuthHeaders } from '../../lib/authSession';
+import { authenticatedFetch } from '../../lib/authSession';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import { History as HistoryIcon } from 'lucide-react';
 
@@ -151,9 +151,8 @@ export default function LoanManagement() {
     }
     setHistoryLoading(true);
     try {
-      const response = await fetch('/api/get-member-inbox', {
+      const response = await authenticatedFetch('/api/get-member-inbox', {
         method: 'POST',
-        headers: await getAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ requestId: loan.source_request_id, action: 'history' })
       });
       const result = await response.json().catch(() => ({}));
@@ -178,9 +177,8 @@ export default function LoanManagement() {
     }
     setWitnessLinkBusy(index);
     try {
-      const response = await fetch('/api/get-member-inbox', {
+      const response = await authenticatedFetch('/api/get-member-inbox', {
         method: 'POST',
-        headers: await getAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ loanId: loan.id, action: 'witness_link', witnessIndex: index })
       });
       const result = await response.json().catch(() => ({}));
@@ -205,9 +203,8 @@ export default function LoanManagement() {
 
       // Opening WhatsApp only prepares a message in the admin's own app. Record
       // that the link was shared, never that it was delivered or read.
-      await fetch('/api/get-member-inbox', {
+      await authenticatedFetch('/api/get-member-inbox', {
         method: 'POST',
-        headers: await getAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ loanId: loan.id, action: 'witness_shared', witnessIndex: index, channel: 'whatsapp' })
       }).catch(() => undefined);
 
