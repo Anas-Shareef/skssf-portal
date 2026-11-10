@@ -1145,14 +1145,8 @@ export const api = {
         });
       }
 
-      const loanUpdates = {
+      const loanUpdates: any = {
         disbursement_date: disbursementDate,
-        tenure_months: tenureMonths,
-        repayment_frequency: frequency,
-        installment_amount: installmentAmount,
-        total_installments: installmentsCount,
-        outstanding_balance: loan.amt,
-        repayment_status: 'on_track',
         repayments: repaymentsArrayForFallback
       };
 
@@ -1342,7 +1336,9 @@ export const api = {
       return { data: json.user } as T;
     }
 
-    if (path.startsWith('/loans/')) {
+    // NOTE: `/loans/{loan_no}/repayments/...` sub-routes are handled by their
+    // specific branches below; the generic loan-status update must not swallow them.
+    if (path.startsWith('/loans/') && !path.includes('/repayments/')) {
       const id = path.split('/')[2];
       const { data, error } = await supabase.from('loans').update(body).eq('loan_no', id).select().single();
       if (error) throw new Error(error.message);
@@ -1413,77 +1409,142 @@ export const api = {
       const installmentId = path.split('/')[4];
       const { paid_amount, paid_date, payment_method, payment_reference, notes, marked_by } = body;
 
+      const paidAmt = Number(paid_amount);
+      const rawMethod = String(payment_method || 'Cash');
+      const methodNorm = /cash/i.test(rawMethod)
+        ? 'Cash'
+        : (/bank|transfer|upi|gpay|phonepe|paytm|neobank|wallet|online|mobile|card|imps|rtps/i.test(rawMethod) ? 'Bank Transfer' : 'Other');
+
       const { data: loan, error: fetchErr } = await supabase.from('loans').select('*').eq('loan_no', loanId).single();
       if (fetchErr || !loan) throw new Error('Loan not found');
 
-      let isRelationalTableSuccess = false;
+      // Resolve the installment through the authoritative repayment table first.
+      let inst: any = null;
+      let instIdResolved = installmentId;
       try {
-        const { error } = await supabase
-          .from('repayment_installments')
-          .update({
-            status: Number(paid_amount) >= Number(body.amount_due) ? 'PAID' : 'PARTIALLY_PAID',
-            amount_paid: paid_amount,
-            payment_date: paid_date,
-            payment_method,
-            reference_note: notes || payment_reference || '',
-            recorded_by_user_id: marked_by
-          })
-          .eq('id', installmentId);
-        if (error) throw error;
-        isRelationalTableSuccess = true;
-      } catch (err: any) {
-        console.error('Failed to update repayment_installments:', err);
+        const { data: instRow, error: instErr } = await supabase.from('repayment_installments').select('*').eq('id', installmentId).maybeSingle();
+        if (instErr) throw instErr;
+        if (instRow) { inst = instRow; instIdResolved = instRow.id; }
+      } catch (err) {
+        // Fall through to the loan repayments JSONB lookup below.
       }
 
-      const repayments = loan.repayments || [];
-      const instIdx = installmentId.includes('-') ? parseInt(installmentId.split('-').pop() || '0') : 0;
-      
-      let targetIdx = instIdx;
-      if (isNaN(targetIdx) || !repayments[targetIdx]) {
-        targetIdx = repayments.findIndex((r: any) => r.due === body.due_date);
-        if (targetIdx === -1) targetIdx = 0;
+      if (!inst) {
+        const reps = Array.isArray(loan.repayments) ? loan.repayments : [];
+        const dueKey = String(body.due_date || body.due || '');
+        let idx = -1;
+        if (/^inst-/.test(String(installmentId))) {
+          idx = parseInt(String(installmentId).split('-').pop() || '', 10);
+        } else {
+          idx = reps.findIndex((r: any) => String(r?.due ?? r?.due_date ?? '') === dueKey);
+        }
+        const r = reps[idx];
+        if (r) {
+          inst = {
+            id: installmentId,
+            loan_id: loan.id,
+            installment_number: idx + 1,
+            due_date: r.due || r.due_date || null,
+            amount_due: Number(r.amt ?? r.amount_due ?? 0),
+            amount_paid: Number(r.paid_amount ?? (r.paid ? Number(r.amt) : 0)) || 0,
+            status: r.paid ? 'PAID' : 'PENDING',
+            payment_date: r.paidDate || r.paid_date || null,
+            payment_method: r.method || null,
+            reference_note: r.ref || r.reference_note || null,
+            recorded_by_user_id: r.marked_by || null
+          };
+        }
       }
 
-      if (repayments[targetIdx]) {
-        repayments[targetIdx].paid = true;
-        repayments[targetIdx].paidDate = paid_date;
-        repayments[targetIdx].paid_amount = paid_amount;
-        repayments[targetIdx].method = payment_method;
-        repayments[targetIdx].ref = payment_reference;
-        repayments[targetIdx].note = notes;
-        repayments[targetIdx].marked_by = marked_by;
-        repayments[targetIdx].request = {
-          status: 'approved',
-          amt: paid_amount,
-          payDate: paid_date,
-          mode: payment_method,
+      if (!inst) throw new Error('Installment not found');
+
+      const installmentAmount = Number(inst.amount_due || 0);
+      const alreadyPaid = Number(inst.amount_paid || 0);
+      const remaining = Math.max(0, installmentAmount - alreadyPaid);
+
+      if (isNaN(paidAmt) || paidAmt <= 0) throw new Error('Invalid payment amount.');
+      if (paidAmt > remaining) throw new Error(`Payment amount exceeds the remaining installment balance of ₹${remaining.toLocaleString()}.`);
+
+      const newPaidAmt = alreadyPaid + paidAmt;
+      const isFullyPaid = newPaidAmt >= installmentAmount;
+      const newStatus = isFullyPaid ? 'PAID' : 'PARTIALLY_PAID';
+
+      const { error: instUpdateErr } = await supabase
+        .from('repayment_installments')
+        .update({
+          amount_paid: newPaidAmt,
+          status: newStatus,
+          payment_date: paid_date || new Date().toISOString().split('T')[0],
+          payment_method: methodNorm,
+          reference_note: notes || payment_reference || '',
+          recorded_by_user_id: marked_by
+        })
+        .eq('id', instIdResolved);
+      if (instUpdateErr) throw new Error(instUpdateErr.message);
+
+      const repayments = Array.isArray(loan.repayments) ? [...loan.repayments] : [];
+      let targetIdx = -1;
+      if (Array.isArray(loan.repayments)) {
+        for (let i = 0; i < loan.repayments.length; i++) {
+          const r = loan.repayments[i];
+          const due = r?.due ?? r?.due_date;
+          if (i + 1 === Number(inst.installment_number) || String(r?.id ?? '') === String(instIdResolved) || String(due ?? '') === String(inst.due_date ?? '')) {
+            targetIdx = i;
+            break;
+          }
+        }
+      }
+
+      if (targetIdx >= 0) {
+        repayments[targetIdx] = {
+          ...loan.repayments[targetIdx],
+          paid: isFullyPaid ? String(paid_date || new Date().toISOString().split('T')[0]) : loan.repayments[targetIdx].paid,
+          paidDate: paid_date,
+          paid_amount: newPaidAmt,
+          method: methodNorm,
           ref: payment_reference,
-          memberNote: notes,
-          reviewedAt: new Date().toISOString()
+          note: notes,
+          marked_by: marked_by
         };
       }
 
-      let calculatedPaid = 0;
-      if (isRelationalTableSuccess) {
-        const { data: insts } = await supabase.from('repayment_installments').select('amount_paid').eq('loan_id', loan.id).in('status', ['PAID', 'PARTIALLY_PAID']);
-        calculatedPaid = (insts || []).reduce((s, i) => s + Number(i.amount_paid || 0), 0);
-      } else {
-        calculatedPaid = repayments.reduce((s, r) => s + Number(r.paid_amount || (r.paid ? r.amt : 0) || 0), 0);
+      let allPaid = false;
+      let outstandingBalance = 0;
+      try {
+        const { data: loanInsts, error: loanInstsErr } = await supabase
+          .from('repayment_installments')
+          .select('amount_due, amount_paid, status')
+          .eq('loan_id', loan.id);
+        if (loanInstsErr) throw loanInstsErr;
+        const insts: any[] = loanInsts || [];
+        outstandingBalance = insts.reduce((s: number, i: any) => s + Math.max(0, Number(i.amount_due) - Number(i.amount_paid || 0)), 0);
+        allPaid = insts.length > 0 && insts.every((i) => i.status === 'PAID');
+      } catch (err: any) {
+        console.error('[loans/pay] outstanding balance recalculation failed:', err);
       }
 
-      const outstandingBalance = Math.max(0, loan.amt - calculatedPaid);
-      const isClosed = outstandingBalance <= 1.0;
+      const { error: loanUpdateErr } = await supabase.from('loans').update({
+        ...(Array.isArray(loan.repayments) ? { repayments } : {}),
+        status: allPaid ? 'completed' : loan.status
+      }).eq('id', loan.id);
+      if (loanUpdateErr) {
+        // Compensate: revert the installment update so no partial financial state remains.
+        try {
+          await supabase.from('repayment_installments').update({
+            amount_paid: alreadyPaid,
+            status: inst.status || 'PENDING',
+            payment_date: inst.payment_date || null,
+            payment_method: inst.payment_method || methodNorm,
+            reference_note: inst.reference_note || '',
+            recorded_by_user_id: inst.recorded_by_user_id || marked_by
+          }).eq('id', instIdResolved);
+        } catch (revertErr) {
+          console.error('[loans/pay] rollback of installment update failed:', revertErr);
+        }
+        throw new Error(`Payment recorded, but loan status update failed: ${loanUpdateErr.message}`);
+      }
 
-      const loanUpdates = {
-        repayments,
-        outstanding_balance: outstandingBalance,
-        repayment_status: isClosed ? 'closed' : loan.repayment_status,
-        status: isClosed ? 'completed' : loan.status
-      };
-
-      await supabase.from('loans').update(loanUpdates).eq('id', loan.id);
-
-      return { success: true } as T;
+      return { success: true, data: { installment: { ...inst, amount_paid: newPaidAmt, status: newStatus }, outstandingBalance } } as T;
     }
 
     if (path === '/notifications/read') {

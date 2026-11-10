@@ -132,7 +132,11 @@ export default function MemberRepayments() {
     try {
       const newPaidAmt = Number(selectedInst.amount_paid || 0) + paidVal;
       const isFullyPaid = newPaidAmt >= selectedInst.amount_due;
-      const newStatus = isFullyPaid ? 'PAID' : 'PARTIAL';
+      const newStatus = isFullyPaid ? 'PAID' : 'PARTIALLY_PAID';
+
+      const methodNorm = /cash/i.test(String(payMethod))
+        ? 'Cash'
+        : (/bank|transfer|upi|online|mobile|wallet|card/i.test(String(payMethod)) ? 'Bank Transfer' : 'Other');
 
       const { error: updateErr } = await supabase
         .from('repayment_installments')
@@ -140,7 +144,7 @@ export default function MemberRepayments() {
           amount_paid: newPaidAmt,
           status: newStatus,
           payment_date: todayStr,
-          payment_method: payMethod,
+          payment_method: methodNorm,
           reference_note: payNote.trim(),
           recorded_by_user_id: profile?.db_id || profile?.id
         })

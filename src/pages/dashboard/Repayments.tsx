@@ -209,6 +209,7 @@ export default function Repayments() {
   const [mfMode, setMfMode] = useState('Cash'); 
   const [mfRef, setMfRef] = useState('');
   const [mfProof, setMfProof] = useState('');
+  const [isRecordingPayment, setIsRecordingPayment] = useState(false);
   const [toast, setToast] = useState<{ m: string; t: 's' | 'r' } | null>(null);
   const [showManualSearch, setShowManualSearch] = useState(false);
   const [lastAction] = useState<{ id: string; type: 'approved' | 'rejected' } | null>(null);
@@ -1894,21 +1895,37 @@ export default function Repayments() {
                   const instIdx = parseInt(mfInst);
                   const instObj = recordPaymentModal.installment || reps[instIdx];
                   const instId = instObj?.id || `inst-${l.id}-${instIdx}`;
-                  
-                  await localDb.recordInstallmentPayment(l.loan_no || l.id, instId, {
-                    paid_amount: Number(mfAmt),
-                    paid_date: mfDate,
-                    payment_method: mfMode.toLowerCase() === 'cash' ? 'cash' : 'transfer',
-                    payment_reference: mfRef,
-                    notes: mfRef || 'Logged manually.',
-                    marked_by: profile?.id,
-                    due_date: instObj?.due_date || instObj?.due || '',
-                    amount_due: instObj?.amount_due || instObj?.amt || 0
-                  });
-                  
-                  refresh();
-                  setRecordPaymentModal(null); 
-                }}>{isPreselected ? 'Record payment' : 'Credit Now'}</button>
+
+                  if (!instObj) { setToast({ m: 'Please select a valid installment.', t: 'r' }); return; }
+                  const amtNum = Number(mfAmt);
+                  const instAmt = Number(instObj.amount_due || instObj.amt || 0);
+                  const instPaid = Number(instObj.amount_paid || 0);
+                  const instBalance = instAmt - instPaid;
+                  if (isNaN(amtNum) || amtNum <= 0) { setToast({ m: 'Please enter a valid payment amount.', t: 'r' }); return; }
+                  if (amtNum > instBalance) { setToast({ m: `Payment amount cannot exceed the remaining balance of ₹${instBalance.toLocaleString()}.`, t: 'r' }); return; }
+
+                  setIsRecordingPayment(true);
+                  try {
+                    await localDb.recordInstallmentPayment(l.loan_no || l.id, instId, {
+                      paid_amount: amtNum,
+                      paid_date: mfDate,
+                      payment_method: mfMode === 'Cash' ? 'Cash' : mfMode === 'Bank' ? 'Bank Transfer' : 'Other',
+                      payment_reference: mfRef,
+                      notes: mfRef || 'Logged manually.',
+                      marked_by: profile?.id,
+                      due_date: instObj?.due_date || instObj?.due || '',
+                      amount_due: instAmt
+                    });
+
+                    refresh();
+                    setRecordPaymentModal(null);
+                  } catch (err: any) {
+                    setToast({ m: err?.message || 'Failed to record payment.', t: 'r' });
+                  } finally {
+                    setIsRecordingPayment(false);
+                  }
+                  return;
+                }} disabled={!canLog || isRecordingPayment}>{isPreselected ? 'Record payment' : 'Credit Now'}</button>
               </div>
             </div>
           </div>
