@@ -406,7 +406,9 @@ export const localDb = {
       }
     });
     if (fixed) {
-      backendCacheStorage.setItem('db_loans', JSON.stringify(loans));
+      if (hasBackendSession()) {
+        backendCacheStorage.setItem('db_loans', JSON.stringify(loans));
+      }
       return true;
     }
     return false;
@@ -445,7 +447,6 @@ export const localDb = {
       created_by: user.created_by || null,
       assigned_zone: user.assigned_zone || ''
     });
-    backendCacheStorage.setItem('db_users', JSON.stringify(users));
 
     // Auto-sync reviewer pool in portal config
     if (user.is_approver) {
@@ -457,6 +458,7 @@ export const localDb = {
     }
 
     if (hasBackendSession()) {
+      backendCacheStorage.setItem('db_users', JSON.stringify(users));
       syncLater(
         api.post('/users', {
           role: user.role || 'member',
@@ -509,9 +511,8 @@ export const localDb = {
         localDb.updatePortalConfig({ authorizedReviewers: newPool });
       }
       
-      backendCacheStorage.setItem('db_users', JSON.stringify(users));
-
       if (hasBackendSession()) {
+        backendCacheStorage.setItem('db_users', JSON.stringify(users));
         // Use the raw Supabase Auth UUID for backend API calls
         const backendId = users[idx].auth_uid || id;
         const passwordPayload = updates?.pass ? { password: updates.pass } : {};
@@ -553,8 +554,8 @@ export const localDb = {
     const all = localDb.getUsers();
     const user = all.find((u: any) => u.id === id);
     const remaining = all.filter((u: any) => u.id !== id);
-    backendCacheStorage.setItem('db_users', JSON.stringify(remaining));
     if (hasBackendSession()) {
+      backendCacheStorage.setItem('db_users', JSON.stringify(remaining));
       // Use the raw Supabase Auth UUID for backend API calls
       const backendId = user?.auth_uid || id;
       syncLater(api.del(`/users/${backendId}`).then(() => syncFromBackend()));
@@ -571,8 +572,8 @@ export const localDb = {
         u.sahachari_paid.push(month);
         u.sahachari_paid.sort((a: number, b: number) => a - b);
         u.sah_miss = (u.sah_miss || []).filter((m: number) => m !== month);
-        backendCacheStorage.setItem('db_users', JSON.stringify(users));
         if (hasBackendSession()) {
+          backendCacheStorage.setItem('db_users', JSON.stringify(users));
           const backendId = u.auth_uid || userId;
           syncLater(
             api.patch(`/users/${backendId}`, {
@@ -637,8 +638,8 @@ export const localDb = {
         loan.audit.push({ action: 'Completed', by: 'System', date: new Date().toLocaleString(), note: 'All EMIs settled.', category: 'loan' });
       }
 
-      backendCacheStorage.setItem('db_loans', JSON.stringify(loans));
       if (hasBackendSession()) {
+        backendCacheStorage.setItem('db_loans', JSON.stringify(loans));
         syncLater(api.post(`/loans/${loanId}/repayments/${monthIdx}/log`, metadata || {}).then(() => syncFromBackend()));
       }
       return true;
@@ -690,8 +691,8 @@ export const localDb = {
         category: 'repayment'
       });
 
-      backendCacheStorage.setItem('db_loans', JSON.stringify(loans));
       if (hasBackendSession()) {
+        backendCacheStorage.setItem('db_loans', JSON.stringify(loans));
         syncLater(api.post(`/loans/${loanId}/repayments/${monthIdx}/submit`, data).then(() => syncFromBackend()));
       }
       return true;
@@ -736,8 +737,8 @@ export const localDb = {
         note: `Member updated proof for EMI #${monthIdx + 1}.${isFullClearance ? ' (Requested Full Clearance)' : ''}`,
         category: 'repayment'
       });
-      backendCacheStorage.setItem('db_loans', JSON.stringify(loans));
       if (hasBackendSession()) {
+        backendCacheStorage.setItem('db_loans', JSON.stringify(loans));
         syncLater(api.post(`/loans/${loanId}/repayments/${monthIdx}/submit`, data).then(() => syncFromBackend()));
       }
       return true;
@@ -751,8 +752,8 @@ export const localDb = {
     if (loan && loan.repayments[monthIdx]?.request?.status === 'pending') {
       delete loan.repayments[monthIdx].request;
       loan.audit.push({ action: 'Payment Withdrawn', by: 'Member', date: new Date().toLocaleString(), note: `EMI #${monthIdx + 1} request canceled.`, category: 'repayment' });
-      backendCacheStorage.setItem('db_loans', JSON.stringify(loans));
       if (hasBackendSession()) {
+        backendCacheStorage.setItem('db_loans', JSON.stringify(loans));
         syncLater(api.patch(`/loans/${loanId}`, { repayments: loan.repayments }).then(() => syncFromBackend()));
       }
       return true;
@@ -875,8 +876,8 @@ export const localDb = {
         loan.audit.push({ action: 'Completed', by: 'System', date: new Date().toLocaleString(), note: 'All EMIs settled.', category: 'loan' });
       }
 
-      backendCacheStorage.setItem('db_loans', JSON.stringify(loans));
       if (hasBackendSession()) {
+        backendCacheStorage.setItem('db_loans', JSON.stringify(loans));
         syncLater(api.post(`/loans/${loanId}/repayments/${monthIdx}/verify`, {
           status,
           adminNotes: adminNotes || '',
@@ -916,8 +917,8 @@ export const localDb = {
       guarantors: loanData.guarantors || [],
     };
     loans.push(newLoan);
-    backendCacheStorage.setItem('db_loans', JSON.stringify(loans));
     if (hasBackendSession()) {
+      backendCacheStorage.setItem('db_loans', JSON.stringify(loans));
       syncLater(
         api.post('/loans', {
           loan_no: loanId,
@@ -1008,8 +1009,8 @@ export const localDb = {
         category: 'loan'
       });
 
-      backendCacheStorage.setItem('db_loans', JSON.stringify(loans));
       if (hasBackendSession()) {
+        backendCacheStorage.setItem('db_loans', JSON.stringify(loans));
         syncLater(api.post(`/loans/${loanId}/verify`, {
           status,
           adminNotes,
@@ -1025,8 +1026,8 @@ export const localDb = {
 
   deleteLoansBulk(ids: string[]) {
     const loans = localDb.getLoans().filter((l: any) => !ids.includes(l.id));
-    backendCacheStorage.setItem('db_loans', JSON.stringify(loans));
     if (hasBackendSession()) {
+      backendCacheStorage.setItem('db_loans', JSON.stringify(loans));
       syncLater(api.del('/loans', { ids }).then(() => syncFromBackend()));
     }
     return true;
@@ -1042,8 +1043,8 @@ export const localDb = {
           delete loan.repayments[idx].request;
         }
       });
-      backendCacheStorage.setItem('db_loans', JSON.stringify(loans));
       if (hasBackendSession()) {
+        backendCacheStorage.setItem('db_loans', JSON.stringify(loans));
         syncLater(api.patch(`/loans/${loanId}`, { repayments: loan.repayments }).then(() => syncFromBackend()));
       }
     }
@@ -1054,8 +1055,8 @@ export const localDb = {
     const idx = loans.findIndex((l: any) => l.id === id);
     if (idx > -1) {
       loans[idx] = { ...loans[idx], ...updates };
-      backendCacheStorage.setItem('db_loans', JSON.stringify(loans));
       if (hasBackendSession()) {
+        backendCacheStorage.setItem('db_loans', JSON.stringify(loans));
         syncLater(api.patch(`/loans/${id}`, {
           status: loans[idx].status,
           amount: Number(loans[idx].amt || loans[idx].amount || 0),
@@ -1082,8 +1083,8 @@ export const localDb = {
     const loan = loans.find((l: any) => l.id === loanId);
     if (loan) {
       loan.audit.push({ action, by: byName, date: new Date().toLocaleString(), note, category });
-      backendCacheStorage.setItem('db_loans', JSON.stringify(loans));
       if (hasBackendSession()) {
+        backendCacheStorage.setItem('db_loans', JSON.stringify(loans));
         syncLater(api.patch(`/loans/${loanId}`, { audit: loan.audit }).then(() => syncFromBackend()));
       }
     }
@@ -1102,8 +1103,8 @@ export const localDb = {
     const all = localDb.getDonations();
     const id = `D-${uuid().toUpperCase()}`;
     all.push({ ...don, id, date: new Date().toISOString().split('T')[0] });
-    backendCacheStorage.setItem('db_donations', JSON.stringify(all));
     if (hasBackendSession()) {
+      backendCacheStorage.setItem('db_donations', JSON.stringify(all));
       syncLater(api.post('/donations', {
         campaign_id: don.campaign_id || null,
         donor_name: don.donor_name || don.name || 'Donor',
@@ -1121,8 +1122,8 @@ export const localDb = {
     const all = localDb.getCampaigns();
     const id = `C-${uuid().toUpperCase()}`;
     all.push({ ...camp, id, stat: 'Active', dt: new Date().toLocaleString('default', { month: 'long', year: 'numeric' }) });
-    backendCacheStorage.setItem('db_campaigns', JSON.stringify(all));
     if (hasBackendSession()) {
+      backendCacheStorage.setItem('db_campaigns', JSON.stringify(all));
       syncLater(api.post('/campaigns', {
         title: camp.title || camp.name || 'Campaign',
         goal: Number(camp.goal || 0),
@@ -1139,8 +1140,8 @@ export const localDb = {
     const idx = all.findIndex((c: any) => c.id === id || c.campaign_no === id);
     if (idx > -1) {
       all[idx] = { ...all[idx], ...updates };
-      backendCacheStorage.setItem('db_campaigns', JSON.stringify(all));
       if (hasBackendSession()) {
+        backendCacheStorage.setItem('db_campaigns', JSON.stringify(all));
         syncLater(api.patch(`/campaigns/${id}`, {
           title: updates.title,
           goal: updates.goal,
@@ -1156,8 +1157,8 @@ export const localDb = {
   updatePortalConfig: (updates: any) => {
     const config = localDb.getPortalConfig();
     const newConfig = { ...config, ...updates };
-    backendCacheStorage.setItem('portal_config', JSON.stringify(newConfig));
     if (hasBackendSession()) {
+      backendCacheStorage.setItem('portal_config', JSON.stringify(newConfig));
       syncLater(api.patch('/portal-config', {
         org_name: newConfig.orgName,
         org_logo: newConfig.orgLogo,
@@ -1206,7 +1207,6 @@ export const localDb = {
     };
     
     products.push(newProduct);
-    backendCacheStorage.setItem('db_products', JSON.stringify(products));
 
     // Auto-generate units for this product
     const units = localDb.getUnits();
@@ -1223,8 +1223,9 @@ export const localDb = {
          created_at: new Date().toISOString()
        });
     }
-    backendCacheStorage.setItem('db_units', JSON.stringify(units));
     if (hasBackendSession()) {
+      backendCacheStorage.setItem('db_units', JSON.stringify(units));
+      backendCacheStorage.setItem('db_products', JSON.stringify(products));
       syncLater(api.post('/inventory/products', {
         name: data.name,
         category: data.category,
@@ -1245,7 +1246,6 @@ export const localDb = {
       const newTotal = Number(updates.total_quantity || 0);
 
       products[idx] = { ...products[idx], ...updates };
-      backendCacheStorage.setItem('db_products', JSON.stringify(products));
 
       if (newTotal !== oldTotal) {
         const units = localDb.getUnits();
@@ -1278,15 +1278,16 @@ export const localDb = {
             }
           }
         }
-        backendCacheStorage.setItem('db_units', JSON.stringify(units));
+        if (hasBackendSession()) {
+          backendCacheStorage.setItem('db_units', JSON.stringify(units));
+        }
       }
 
       // Sync available_quantity to match actual available units locally
       const finalUnits = localDb.getUnits().filter((u: any) => String(u.product_id) === String(id));
       products[idx].available_quantity = finalUnits.filter((u: any) => u.status === 'available').length;
-      backendCacheStorage.setItem('db_products', JSON.stringify(products));
-
       if (hasBackendSession()) {
+        backendCacheStorage.setItem('db_products', JSON.stringify(products));
         syncLater(api.patch(`/inventory/products/${id}`, {
           name: products[idx].name,
           category: products[idx].category,
@@ -1314,8 +1315,8 @@ export const localDb = {
     };
     
     kits.push(newKit);
-    backendCacheStorage.setItem('db_kits', JSON.stringify(kits));
     if (hasBackendSession()) {
+      backendCacheStorage.setItem('db_kits', JSON.stringify(kits));
       syncLater(api.post('/inventory/kits', {
         name,
         unit_ids: unitIds,
@@ -1329,8 +1330,8 @@ export const localDb = {
     const idx = kits.findIndex((k: any) => k.id === kitId);
     if (idx > -1) {
       kits[idx] = { ...kits[idx], name, child_units: unitIds };
-      backendCacheStorage.setItem('db_kits', JSON.stringify(kits));
       if (hasBackendSession()) {
+        backendCacheStorage.setItem('db_kits', JSON.stringify(kits));
         syncLater(api.patch(`/inventory/kits/${kitId}`, {
           name,
           unit_ids: unitIds,
@@ -1346,8 +1347,8 @@ export const localDb = {
     const idx = kits.findIndex((k: any) => k.id === kitId);
     if (idx > -1) {
       kits.splice(idx, 1);
-      backendCacheStorage.setItem('db_kits', JSON.stringify(kits));
       if (hasBackendSession()) {
+        backendCacheStorage.setItem('db_kits', JSON.stringify(kits));
         syncLater(api.del(`/inventory/kits/${kitId}`).then(() => syncFromBackend()));
       }
     }
@@ -1432,10 +1433,10 @@ export const localDb = {
 
     if (processedCount === 0 && errorMsg) return { success: false, error: errorMsg };
 
-    backendCacheStorage.setItem('db_units', JSON.stringify(units));
-    backendCacheStorage.setItem('db_products', JSON.stringify(products));
-    backendCacheStorage.setItem('db_inventory_tx', JSON.stringify(transactions));
     if (hasBackendSession()) {
+      backendCacheStorage.setItem('db_units', JSON.stringify(units));
+      backendCacheStorage.setItem('db_products', JSON.stringify(products));
+      backendCacheStorage.setItem('db_inventory_tx', JSON.stringify(transactions));
       syncLater(api.post('/inventory/scan', {
         barcode,
         type,
@@ -1501,10 +1502,10 @@ export const localDb = {
       note: note || `Manual status update: ${prevStatus} ➔ ${status}`
     });
     
-    backendCacheStorage.setItem('db_units', JSON.stringify(units));
-    backendCacheStorage.setItem('db_products', JSON.stringify(products));
-    backendCacheStorage.setItem('db_inventory_tx', JSON.stringify(transactions));
     if (hasBackendSession()) {
+      backendCacheStorage.setItem('db_units', JSON.stringify(units));
+      backendCacheStorage.setItem('db_products', JSON.stringify(products));
+      backendCacheStorage.setItem('db_inventory_tx', JSON.stringify(transactions));
       const apiId = unit._id || unit.id;
       syncLater(api.post(`/inventory/units/${apiId}/status`, {
         status,
@@ -1522,8 +1523,8 @@ export const localDb = {
     if (idx > -1) {
       const prev = { ...units[idx] };
       units[idx] = { ...units[idx], ...updates };
-      backendCacheStorage.setItem('db_units', JSON.stringify(units));
       if (hasBackendSession()) {
+        backendCacheStorage.setItem('db_units', JSON.stringify(units));
         syncLater(api.patch(`/inventory/units/${unitId}`, updates).then(() => syncFromBackend()));
       }
       emitDataChanged();
@@ -1547,9 +1548,9 @@ export const localDb = {
         }
       }
       const newUnits = units.filter(u => u.id !== unitId && u.unit_code !== unitId);
-      backendCacheStorage.setItem('db_units', JSON.stringify(newUnits));
-      backendCacheStorage.setItem('db_products', JSON.stringify(products));
       if (hasBackendSession()) {
+        backendCacheStorage.setItem('db_units', JSON.stringify(newUnits));
+        backendCacheStorage.setItem('db_products', JSON.stringify(products));
         const apiId = unit._id || unit.id;
         syncLater(api.del(`/inventory/units/${apiId}`).then(() => syncFromBackend()));
       }
@@ -1562,8 +1563,8 @@ export const localDb = {
   clearUnitHistory: (unitId: string) => {
     const txs = localDb.getInventoryTransactions();
     const newTxs = txs.filter((tx: any) => tx.unit_id !== unitId);
-    backendCacheStorage.setItem('db_inventory_tx', JSON.stringify(newTxs));
     if (hasBackendSession()) {
+      backendCacheStorage.setItem('db_inventory_tx', JSON.stringify(newTxs));
       syncLater(api.post(`/inventory/units/${unitId}/clear-history`).then(() => syncFromBackend()));
     }
     emitDataChanged();
@@ -1571,8 +1572,8 @@ export const localDb = {
   },
 
   clearAllHistory: () => {
-    backendCacheStorage.setItem('db_inventory_tx', JSON.stringify([]));
     if (hasBackendSession()) {
+      backendCacheStorage.setItem('db_inventory_tx', JSON.stringify([]));
       syncLater(api.post('/inventory/clear-all-history').then(() => syncFromBackend()));
     }
     emitDataChanged();
@@ -1600,11 +1601,10 @@ export const localDb = {
       child_units: k.child_units.filter((uid: string) => !units.find(u => u.id === uid && u.product_id === productId))
     })).filter((k: any) => k.child_units.length > 0);
 
-    backendCacheStorage.setItem('db_products', JSON.stringify(newProducts));
-    backendCacheStorage.setItem('db_units', JSON.stringify(newUnits));
-    backendCacheStorage.setItem('db_kits', JSON.stringify(newKits));
-
     if (hasBackendSession()) {
+      backendCacheStorage.setItem('db_products', JSON.stringify(newProducts));
+      backendCacheStorage.setItem('db_units', JSON.stringify(newUnits));
+      backendCacheStorage.setItem('db_kits', JSON.stringify(newKits));
       syncLater(api.del(`/inventory/products/${productId}`).then(() => syncFromBackend()));
     }
     emitDataChanged();
@@ -1631,11 +1631,10 @@ export const localDb = {
 
     const newCampaigns = campaigns.filter((c: any) => c.id !== missionId);
     
-    backendCacheStorage.setItem('db_campaigns', JSON.stringify(newCampaigns));
-    backendCacheStorage.setItem('db_units', JSON.stringify(units));
-    backendCacheStorage.setItem('db_products', JSON.stringify(products));
-
     if (hasBackendSession()) {
+      backendCacheStorage.setItem('db_campaigns', JSON.stringify(newCampaigns));
+      backendCacheStorage.setItem('db_units', JSON.stringify(units));
+      backendCacheStorage.setItem('db_products', JSON.stringify(products));
       syncLater(api.del(`/campaigns/${missionId}`).then(() => syncFromBackend()));
     }
     emitDataChanged();
@@ -1643,7 +1642,9 @@ export const localDb = {
   },
 
   saveInventoryTransactions: (txs: any[]) => {
-    backendCacheStorage.setItem('db_inventory_tx', JSON.stringify(txs));
+    if (hasBackendSession()) {
+      backendCacheStorage.setItem('db_inventory_tx', JSON.stringify(txs));
+    }
   },
 
   getUnitHistory: (unitId: string) => {
@@ -1701,9 +1702,8 @@ export const localDb = {
       ...sub
     };
     subs.push(newSub);
-    backendCacheStorage.setItem('db_inbox_submissions', JSON.stringify(subs));
-    
     if (hasBackendSession()) {
+      backendCacheStorage.setItem('db_inbox_submissions', JSON.stringify(subs));
       syncLater(api.post(`/member/inbox`, newSub).then(() => syncFromBackend()));
     }
     return newSub;
@@ -1717,9 +1717,8 @@ export const localDb = {
       subs[idx].rejection_reason = rejectionReason || null;
       subs[idx].forwarded_loan_id = forwardedLoanId || null;
       subs[idx].actioned_at = new Date().toISOString();
-      backendCacheStorage.setItem('db_inbox_submissions', JSON.stringify(subs));
-
       if (hasBackendSession()) {
+        backendCacheStorage.setItem('db_inbox_submissions', JSON.stringify(subs));
         syncLater(api.patch(`/member/inbox/${subId}`, { status, rejection_reason: rejectionReason, forwarded_loan_id: forwardedLoanId }).then(() => syncFromBackend()));
       }
       return true;
@@ -1744,9 +1743,9 @@ export const localDb = {
       ...req
     };
     reqs.push(newReq);
-    backendCacheStorage.setItem('db_checkout_requests', JSON.stringify(reqs));
 
     if (hasBackendSession()) {
+      backendCacheStorage.setItem('db_checkout_requests', JSON.stringify(reqs));
       syncLater(api.post(`/inventory/checkout-request`, newReq).then(() => syncFromBackend()));
     }
     return newReq;
@@ -1761,9 +1760,9 @@ export const localDb = {
       ...req
     };
     reqs.push(newReq);
-    backendCacheStorage.setItem('db_return_requests', JSON.stringify(reqs));
 
     if (hasBackendSession()) {
+      backendCacheStorage.setItem('db_return_requests', JSON.stringify(reqs));
       syncLater(api.post(`/inventory/return-request`, newReq).then(() => syncFromBackend()));
     }
     return newReq;
@@ -1777,7 +1776,6 @@ export const localDb = {
       req.status = status;
       req.actioned_at = new Date().toISOString();
       req.actioned_by = adminName;
-      backendCacheStorage.setItem('db_checkout_requests', JSON.stringify(reqs));
 
       if (status === 'approved') {
         const units = localDb.getUnits().filter((u: any) => String(u.product_id) === String(req.product_id) && u.status === 'available');
@@ -1797,6 +1795,7 @@ export const localDb = {
       }
 
       if (hasBackendSession()) {
+        backendCacheStorage.setItem('db_checkout_requests', JSON.stringify(reqs));
         syncLater(api.patch(`/inventory/checkout-request/${reqId}`, { status, actioned_by: adminName }).then(() => syncFromBackend()));
       }
       return true;
@@ -1812,7 +1811,6 @@ export const localDb = {
       req.status = status;
       req.actioned_at = new Date().toISOString();
       req.actioned_by = adminName;
-      backendCacheStorage.setItem('db_return_requests', JSON.stringify(reqs));
 
       if (status === 'approved') {
         const unit = localDb.getUnits().find((u: any) => u.id === req.unit_id);
@@ -1830,6 +1828,7 @@ export const localDb = {
       }
 
       if (hasBackendSession()) {
+        backendCacheStorage.setItem('db_return_requests', JSON.stringify(reqs));
         syncLater(api.patch(`/inventory/return-request/${reqId}`, { status, actioned_by: adminName }).then(() => syncFromBackend()));
       }
       return true;
