@@ -1,7 +1,8 @@
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { clearFrontendCache, syncFromBackend, setBackendSessionActive } from '../lib/localDb';
 import { api } from '../lib/api';
 import { supabase } from '../lib/supabaseClient';
+import { AUTH_SESSION_INVALID_EVENT } from '../lib/authSession';
 
 export type Profile = {
   id: string;
@@ -51,15 +52,17 @@ const SESSION_INVALID_CODES = new Set(['PGRST301', 'PGRST302', 'PGRST303', 'PGRS
 class SessionInvalidError extends Error {}
 
 /** Detects missing / invalid / expired authentication sessions across the
- *  Supabase auth (GoTrue) and PostgREST layers. */
+ *  Supabase auth (GoTrue) and PostgREST layers. Schema errors (missing table,
+ *  missing column, no rows) are deliberately excluded: they must never sign a
+ *  user out. */
 const isSessionInvalidError = (error: any): boolean => {
   if (!error) return false;
   const status = Number((error as { status?: number }).status);
   const code = String((error as { code?: string }).code || '');
   const message = String((error as { message?: string }).message || '');
   const isAuthStatus = status === 401 || status === 403;
-  const isAuthCode = SESSION_INVALID_CODES.has(code) || ['PGRST204', 'PGRST205', 'PGRST200', 'PGRST202', 'PGRST203', 'PGRST116'].includes(code);
-  const isAuthMessage = /jwt|token|session|unauthor|expired|invalid|not.?found/i.test(message);
+  const isAuthCode = SESSION_INVALID_CODES.has(code);
+  const isAuthMessage = /jwt|bearer|access token|refresh token|session|unauthori[sz]ed|expired/i.test(message);
   return Boolean(isAuthStatus || isAuthCode || isAuthMessage);
 };
 
@@ -106,6 +109,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
+  const activeUserIdRef = useRef<string | null>(null);
 
   const refreshProfile = () => {
     void (async () => {
@@ -145,11 +149,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const applySession = async (session: { user: { id: string; email?: string | null } } | null, signOutOnMissing: boolean) => {
       if (!session?.user) {
         setBackendSessionActive(false);
+        activeUserIdRef.current = null;
         if (mounted) setProfile(null);
         return;
       }
 
       setBackendSessionActive(true);
+
+      // Switching accounts inside the same browser profile must not leak cached
+      // records (loans, users, portal config) from the previous identity.
+      if (activeUserIdRef.current && activeUserIdRef.current !== session.user.id) {
+        clearFrontendCache();
+      }
+      activeUserIdRef.current = session.user.id;
+
       let fresh: Profile | null;
       try {
         fresh = await fetchProfile(session.user);
@@ -202,6 +215,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (event === 'SIGNED_OUT') {
         setBackendSessionActive(false);
+        activeUserIdRef.current = null;
         clearFrontendCache();
         if (mounted) {
           setProfile(null);
@@ -244,6 +258,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener('appDataUpdated', handleDataUpdate);
   }, []);
 
+  // Backend rejected the bearer token even after a forced refresh: the session
+  // is unusable, so drop it instead of retrying with revoked credentials.
+  useEffect(() => {
+    const handleSessionInvalid = () => {
+      setProfile(null);
+      setAuthError(null);
+      void discardInvalidSession();
+    };
+    window.addEventListener(AUTH_SESSION_INVALID_EVENT, handleSessionInvalid);
+    return () => window.removeEventListener(AUTH_SESSION_INVALID_EVENT, handleSessionInvalid);
+  }, []);
+
   const signIn = async (email: string, pass: string) => {
     try {
       const res = await api.post<any>('/auth/login', { email, password: pass });
@@ -267,6 +293,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = async () => {
     setBackendSessionActive(false);
+    activeUserIdRef.current = null;
     setAuthError(null);
     setProfile(null);
     sessionStorage.removeItem('active_api_token');

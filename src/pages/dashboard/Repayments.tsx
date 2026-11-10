@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { localDb } from '../../lib/localDb';
@@ -51,6 +51,8 @@ export default function Repayments() {
   const [fSearch, setFSearch] = useState('');
   const [overview, setOverview] = useState<any>(null);
   const [installments, setInstallments] = useState<any[]>([]);
+  // Monotonic request id: only the newest repayment refresh may update state.
+  const repaymentRefreshSeq = useRef(0);
 
   /* modals */
   const [submitModal, setSubmitModal] = useState<{ loan: any; idx: number; edit?: boolean } | null>(null);
@@ -61,19 +63,97 @@ export default function Repayments() {
 
   useEffect(() => {
     const loadOverviewAndInstallments = async () => {
-      try {
-        const ov = await api.get<any>('/admin/repayments/overview');
-        setOverview(ov.data);
-        const insts = await api.get<any>('/admin/repayments');
-        setInstallments(insts.data || []);
-      } catch (err) {
-        console.warn('Failed to load repayments overview/installments:', err);
+      if (!isAdmin) {
+        // A member session must never render admin repayment data left over
+        // from a previous privileged session in the same browser profile.
+        setOverview(null);
+        setInstallments([]);
+        return;
+      }
+
+      const requestId = `repayments-${++repaymentRefreshSeq.current}`;
+      const startedAt = Date.now();
+      const context = {
+        requestId,
+        userId: profile?.db_id || profile?.id || null,
+        role,
+        trigger: 'effect:adminTab+loans',
+        filters: {
+          adminTab,
+          status: fStatus || null,
+          dateRange: fDateRange,
+          member: fMember || null,
+          search: fSearch || null,
+          pipelineFilter
+        }
+      };
+
+      const [overviewResult, installmentsResult] = await Promise.allSettled([
+        api.get<any>('/admin/repayments/overview'),
+        api.get<any>('/admin/repayments')
+      ]);
+
+      // A slower, older request must never overwrite a newer result.
+      if (repaymentRefreshSeq.current !== requestId) {
+        console.info('[repayments] stale_response_ignored', {
+          ...context,
+          ageMs: Date.now() - startedAt
+        });
+        return;
+      }
+
+      if (overviewResult.status === 'fulfilled') {
+        const payload = overviewResult.value as any;
+        setOverview(payload?.data ?? null);
+        console.info('[repayments] overview_loaded', {
+          ...context,
+          endpoint: '/admin/repayments/overview',
+          source: payload?.source || 'unknown',
+          count: Number(payload?.count ?? 0),
+          success: true,
+          durationMs: Date.now() - startedAt
+        });
+      } else {
+        console.warn('[repayments] overview_failed', {
+          ...context,
+          endpoint: '/admin/repayments/overview',
+          success: false,
+          error: overviewResult.reason?.message || String(overviewResult.reason || 'unknown')
+        });
+      }
+
+      if (installmentsResult.status === 'fulfilled') {
+        const payload = installmentsResult.value as any;
+        const rows = Array.isArray(payload?.data) ? payload.data : [];
+        setInstallments(rows);
+        console.info('[repayments] installments_loaded', {
+          ...context,
+          endpoint: '/admin/repayments',
+          source: payload?.source || 'unknown',
+          count: rows.length,
+          success: true,
+          durationMs: Date.now() - startedAt
+        });
+        if (rows.length === 0) {
+          // Never suppress a genuine empty result; make it diagnosable instead.
+          console.warn('[repayments] empty_installments_result', {
+            ...context,
+            source: payload?.source || 'unknown',
+            cachedLoans: localDb.getLoans().length
+          });
+        }
+      } else {
+        // A failed refresh must keep the last successfully loaded schedule.
+        console.warn('[repayments] installments_failed', {
+          ...context,
+          endpoint: '/admin/repayments',
+          success: false,
+          error: installmentsResult.reason?.message || String(installmentsResult.reason || 'unknown')
+        });
       }
     };
-    if (isAdmin) {
-      loadOverviewAndInstallments();
-    }
-  }, [adminTab, loans, isAdmin]);
+    loadOverviewAndInstallments();
+  }, [adminTab, loans, isAdmin, profile?.id, profile?.db_id, role]);
   const [selectedLoans, setSelectedLoans] = useState<string[]>([]);
   const [selectedQueueIds, setSelectedQueueIds] = useState<string[]>([]);
   // All admins (for committee display)
@@ -137,7 +217,7 @@ export default function Repayments() {
   const refresh = () => {
     localDb.healCorruptedLoanData();
     const fresh = localDb.getLoans();
-    console.log('Refreshing Repayments Data:', fresh.length, 'loans found');
+    console.info('[repayments] local_cache_refresh', { loanCount: fresh.length });
     setLoans([...fresh]);
   };
 

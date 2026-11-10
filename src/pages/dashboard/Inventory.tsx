@@ -5,7 +5,7 @@ import {
   Barcode as BarcodeIcon, Users, QrCode, FileSpreadsheet, Star, HelpCircle
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import { getAuthHeaders } from '../../lib/authSession';
+import { authenticatedFetch } from '../../lib/authSession';
 import JsBarcode from 'jsbarcode';
 import * as XLSX from 'xlsx';
 import { useSearchParams } from 'react-router-dom';
@@ -278,7 +278,7 @@ export default function Inventory() {
     try {
       if (!silent) setRefreshing(true);
       setMissionsError('');
-      const res = await fetch('/api/inventory?resource=missions', { headers: await getHeaders() });
+      const res = await authenticatedFetch('/api/inventory?resource=missions');
       const data = await res.json().catch(() => ({}));
 
       // DB migration not yet run — show banner but keep list empty (don't throw)
@@ -370,31 +370,47 @@ export default function Inventory() {
     setTimeout(() => setToast(null), 4000);
   };
 
-  // Always attach the current Supabase access token. The persisted Supabase
-  // session is the only source of truth, so expired tokens are refreshed here.
-  const getHeaders = () => getAuthHeaders({ 'Content-Type': 'application/json' });
+  // The persisted Supabase session is the only credential source. Every
+  // inventory request goes through authenticatedFetch, which attaches the
+  // current bearer token and retries once after a forced refresh on a 401.
+  const apiError = async (res: Response, label: string) => {
+    const data = await res.json().catch(() => ({} as any));
+    const message = res.status === 401 || res.status === 403
+      ? `${label}: session rejected (${res.status}). Please sign in again.`
+      : `${label}: ${data?.error || `request failed (${res.status})`}`;
+    console.error('[inventory] api_failure', {
+      label,
+      status: res.status,
+      error: data?.error || null
+    });
+    return message;
+  };
 
   // Fetch Master Data
   const loadCatalogue = async (showSpinner = true) => {
     try {
       if (showSpinner) setLoading(true);
       else setRefreshing(true);
-      const catRes = await fetch('/api/inventory?resource=categories', { headers: await getHeaders() });
+      const catRes = await authenticatedFetch('/api/inventory?resource=categories');
       if (catRes.ok) {
         const catData = await catRes.json();
         setCategories(catData.categories || []);
         if (catData.categories?.length > 0 && !newItemCatId) {
           setNewItemCatId(catData.categories[0].id);
         }
+      } else {
+        popToast('e', await apiError(catRes, 'Loading categories'));
       }
 
-      const itemRes = await fetch('/api/inventory?resource=items', { headers: await getHeaders() });
+      const itemRes = await authenticatedFetch('/api/inventory?resource=items');
       if (itemRes.ok) {
         const itemData = await itemRes.json();
         setItems(itemData.items || []);
+      } else {
+        popToast('e', await apiError(itemRes, 'Loading inventory items'));
       }
     } catch (err: any) {
-      popToast('e', 'Failed to load catalogue');
+      popToast('e', err?.message || 'Failed to load catalogue');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -406,10 +422,12 @@ export default function Inventory() {
     try {
       if (showSpinner) setLoading(true);
       else setRefreshing(true);
-      const res = await fetch('/api/inventory?resource=checkouts', { headers: await getHeaders() });
+      const res = await authenticatedFetch('/api/inventory?resource=checkouts');
       if (res.ok) {
         const data = await res.json();
         setAllCheckouts(data.checkouts || []);
+      } else {
+        popToast('e', await apiError(res, 'Loading checkouts'));
       }
     } catch (err) {
       popToast('e', 'Failed to load checkouts log');
@@ -423,10 +441,12 @@ export default function Inventory() {
   const loadDamageReview = async (showSpinner = true) => {
     try {
       if (showSpinner) setLoading(true);
-      const res = await fetch('/api/inventory?resource=damage-review', { headers: await getHeaders() });
+      const res = await authenticatedFetch('/api/inventory?resource=damage-review');
       if (res.ok) {
         const data = await res.json();
         setDamageRecords(data.records || []);
+      } else {
+        popToast('e', await apiError(res, 'Loading damage reviews'));
       }
     } catch (err) {
       popToast('e', 'Failed to load damage reviews');
@@ -438,10 +458,12 @@ export default function Inventory() {
   // Fetch Members Profiles list for Scanner dropdowns
   const loadMembers = async () => {
     try {
-      const res = await fetch('/api/members', { headers: await getHeaders() });
+      const res = await authenticatedFetch('/api/members');
       if (res.ok) {
         const data = await res.json();
         setMembers(data.members || []);
+      } else {
+        console.error('[inventory] api_failure', { label: 'Loading members', status: res.status });
       }
     } catch (e) {
       console.warn("Failed to load profiles list:", e);
@@ -555,9 +577,9 @@ export default function Inventory() {
 
     try {
       setFormSubmitting(true);
-      const res = await fetch('/api/inventory?resource=items', {
+      const res = await authenticatedFetch('/api/inventory?resource=items', {
         method: 'POST',
-        headers: await getHeaders(),
+
         body: JSON.stringify({
           name: newItemName,
           category_id: newItemCatId,
@@ -602,9 +624,9 @@ export default function Inventory() {
 
     try {
       setFormSubmitting(true);
-      const res = await fetch('/api/inventory?resource=missions', {
+      const res = await authenticatedFetch('/api/inventory?resource=missions', {
         method: 'POST',
-        headers: await getHeaders(),
+
         body: JSON.stringify({
           name: newMissionName.trim(),
           description: newMissionDesc.trim(),
@@ -637,9 +659,9 @@ export default function Inventory() {
 
     try {
       setFormSubmitting(true);
-      const res = await fetch('/api/inventory?resource=item-actions', {
+      const res = await authenticatedFetch('/api/inventory?resource=item-actions', {
         method: 'POST',
-        headers: await getHeaders(),
+
         body: JSON.stringify({
           action: 'edit',
           id: editingItem.id,
@@ -677,9 +699,9 @@ export default function Inventory() {
 
     try {
       setFormSubmitting(true);
-      const res = await fetch('/api/inventory?resource=item-actions', {
+      const res = await authenticatedFetch('/api/inventory?resource=item-actions', {
         method: 'POST',
-        headers: await getHeaders(),
+
         body: JSON.stringify({
           action: 'adjust-stock',
           id: adjustingItem.id,
@@ -709,9 +731,9 @@ export default function Inventory() {
 
     try {
       setFormSubmitting(true);
-      const res = await fetch('/api/inventory?resource=checkout-actions', {
+      const res = await authenticatedFetch('/api/inventory?resource=checkout-actions', {
         method: 'POST',
-        headers: await getHeaders(),
+
         body: JSON.stringify({
           action: 'mark-returned',
           id: overrideCheckout.id,
@@ -740,9 +762,9 @@ export default function Inventory() {
   // Quick Return Quick Check-in action from Checkouts lists
   const handleQuickReturn = async (checkoutId: string, condition: 'good' | 'damaged' | 'lost') => {
     try {
-      const res = await fetch('/api/inventory?resource=checkout-actions', {
+      const res = await authenticatedFetch('/api/inventory?resource=checkout-actions', {
         method: 'POST',
-        headers: await getHeaders(),
+
         body: JSON.stringify({
           action: 'mark-returned',
           id: checkoutId,
@@ -776,9 +798,9 @@ export default function Inventory() {
       onConfirm: async () => {
         setConfirmDialog(null);
         try {
-          const res = await fetch('/api/inventory?resource=item-actions', {
+          const res = await authenticatedFetch('/api/inventory?resource=item-actions', {
             method: 'POST',
-            headers: await getHeaders(),
+
             body: JSON.stringify({ action: 'deactivate', id })
           });
           if (res.ok) {
@@ -805,9 +827,9 @@ export default function Inventory() {
       onConfirm: async () => {
         setConfirmDialog(null);
         try {
-          const res = await fetch('/api/inventory?resource=item-actions', {
+          const res = await authenticatedFetch('/api/inventory?resource=item-actions', {
             method: 'POST',
-            headers: await getHeaders(),
+
             body: JSON.stringify({ action: 'delete', id })
           });
           if (res.ok) {
@@ -831,9 +853,9 @@ export default function Inventory() {
 
     try {
       setCatSubmitting(true);
-      const res = await fetch('/api/inventory?resource=categories', {
+      const res = await authenticatedFetch('/api/inventory?resource=categories', {
         method: 'POST',
-        headers: await getHeaders(),
+
         body: JSON.stringify({ name: newCatName.trim() })
       });
 
@@ -860,9 +882,9 @@ export default function Inventory() {
     if (!editingCategoryName.trim() || !editingCategoryId) return;
 
     try {
-      const res = await fetch('/api/inventory?resource=categories', {
+      const res = await authenticatedFetch('/api/inventory?resource=categories', {
         method: 'PATCH',
-        headers: await getHeaders(),
+
         body: JSON.stringify({ id: editingCategoryId, name: editingCategoryName.trim() })
       });
       if (res.ok) {
@@ -889,9 +911,9 @@ export default function Inventory() {
       onConfirm: async () => {
         setConfirmDialog(null);
         try {
-          const res = await fetch(`/api/inventory?resource=categories&id=${id}`, {
+          const res = await authenticatedFetch(`/api/inventory?resource=categories&id=${id}`, {
             method: 'DELETE',
-            headers: await getHeaders()
+
           });
           if (res.ok) {
             popToast('s', 'Category deleted successfully.');
@@ -910,9 +932,9 @@ export default function Inventory() {
   // Resolve Damage/Loss Review record
   const handleResolveDamageRecord = async (id: string, resolveAction: 'repaired' | 'writeoff') => {
     try {
-      const res = await fetch('/api/inventory?resource=damage-review', {
+      const res = await authenticatedFetch('/api/inventory?resource=damage-review', {
         method: 'POST',
-        headers: await getHeaders(),
+
         body: JSON.stringify({ id, resolve_action: resolveAction })
       });
       const data = await res.json();
@@ -935,9 +957,7 @@ export default function Inventory() {
       setScanError('');
       setScanLookupResult(null);
       
-      const res = await fetch(`/api/inventory?resource=barcode-lookup&barcode=${manualBarcode.trim()}`, {
-        headers: await getHeaders()
-      });
+      const res = await authenticatedFetch(`/api/inventory?resource=barcode-lookup&barcode=${manualBarcode.trim()}`);
       
       if (!res.ok) {
         throw new Error('No product or physical unit matches this barcode.');
@@ -955,9 +975,7 @@ export default function Inventory() {
     try {
       setScanError('');
       setScanLookupResult(null);
-      const res = await fetch(`/api/inventory?resource=barcode-lookup&barcode=${barcodeVal}`, {
-        headers: await getHeaders()
-      });
+      const res = await authenticatedFetch(`/api/inventory?resource=barcode-lookup&barcode=${barcodeVal}`);
       if (!res.ok) throw new Error('No matching barcode');
       const data = await res.json();
       setScanLookupResult(data);
@@ -982,9 +1000,9 @@ export default function Inventory() {
         const missionName = selectedMissionObj ? selectedMissionObj.name : 'General Distribution';
         const missionId = selectedMissionObj ? selectedMissionObj.id : null;
 
-        const res = await fetch('/api/inventory', {
+        const res = await authenticatedFetch('/api/inventory', {
           method: 'POST',
-          headers: await getHeaders(),
+
           body: JSON.stringify({
             resource: 'checkouts',
             item_id: item.id,
@@ -1009,9 +1027,9 @@ export default function Inventory() {
         if (unit.status !== 'checked_out' || !unit.current_checkout_id) {
           throw new Error('This physical unit is not currently marked as checked out.');
         }
-        const res = await fetch('/api/inventory', {
+        const res = await authenticatedFetch('/api/inventory', {
           method: 'POST',
-          headers: await getHeaders(),
+
           body: JSON.stringify({
             resource: 'checkout-actions',
             action: 'checkin',
@@ -1049,9 +1067,9 @@ export default function Inventory() {
 
     try {
       setCheckoutWizardSubmitting(true);
-      const res = await fetch('/api/inventory', {
+      const res = await authenticatedFetch('/api/inventory', {
         method: 'POST',
-        headers: await getHeaders(),
+
         body: JSON.stringify({
           resource: 'checkouts',
           item_id: selectedProductDetail.id,
@@ -1091,9 +1109,9 @@ export default function Inventory() {
     }
     try {
       setLoading(true);
-      const res = await fetch('/api/inventory', {
+      const res = await authenticatedFetch('/api/inventory', {
         method: 'POST',
-        headers: await getHeaders(),
+
         body: JSON.stringify({
           resource: 'checkout-actions',
           action: 'checkin',
@@ -1120,9 +1138,9 @@ export default function Inventory() {
   const handleUpdateUnitStatus = async (unitId: string, newStatus: 'available' | 'damaged' | 'lost' | 'archived') => {
     try {
       setLoading(true);
-      const res = await fetch('/api/inventory', {
+      const res = await authenticatedFetch('/api/inventory', {
         method: 'POST',
-        headers: await getHeaders(),
+
         body: JSON.stringify({
           resource: 'checkout-actions',
           action: 'update-unit-condition',

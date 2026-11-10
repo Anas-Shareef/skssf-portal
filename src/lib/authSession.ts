@@ -77,3 +77,47 @@ export async function tryGetAuthHeaders(
   const token = await getAccessToken();
   return token ? { ...extra, Authorization: `Bearer ${token}` } : { ...extra };
 }
+
+/**
+ * Fired when the backend keeps rejecting our bearer token even after a forced
+ * refresh. AuthContext listens for this and discards the unusable session so
+ * the app can never keep retrying with revoked credentials.
+ */
+export const AUTH_SESSION_INVALID_EVENT = 'authSessionInvalid';
+
+export function notifySessionInvalid(reason: string) {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent(AUTH_SESSION_INVALID_EVENT, { detail: { reason } }));
+}
+
+/**
+ * Authenticated fetch for the `/api/*` serverless endpoints.
+ *
+ * The token is read from the persisted Supabase session (never from a second
+ * copy) and always overrides any Authorization header supplied by the caller.
+ * A 401 means the token was rejected before the handler did any work, so one
+ * retry with a forced refresh is safe for every method, including POST.
+ */
+export async function authenticatedFetch(
+  input: RequestInfo | URL,
+  init: RequestInit = {}
+): Promise<Response> {
+  const attempt = async (forceRefresh: boolean) => {
+    const token = await getAccessToken({ forceRefresh });
+    if (!token) throw new Error('Unauthenticated');
+
+    const headers = new Headers(init.headers || {});
+    headers.set('Authorization', `Bearer ${token}`);
+    if (init.body != null && !headers.has('Content-Type')) {
+      headers.set('Content-Type', 'application/json');
+    }
+    return fetch(input, { ...init, headers });
+  };
+
+  const first = await attempt(false);
+  if (first.status !== 401) return first;
+
+  const retried = await attempt(true);
+  if (retried.status === 401) notifySessionInvalid('http_401_after_refresh');
+  return retried;
+}

@@ -216,7 +216,7 @@ export const api = {
             payment_reference: r.reference_note || null,
             notes: r.reference_note || null
           }));
-          return { data: mapped } as T;
+          return { data: mapped, source: 'repayment_installments', count: mapped.length } as T;
         }
         throw new Error('FallbackToLoanRepayments');
       } catch (err: any) {
@@ -257,7 +257,7 @@ export const api = {
             paid_amount: r.amount_paid || 0,
             paid_date: r.payment_date || null
           }));
-          return { data: calculateRepaymentsOverview(mapped) } as T;
+          return { data: calculateRepaymentsOverview(mapped), source: 'repayment_installments', count: installments.length } as T;
         }
         throw new Error('FallbackToLoanRepayments');
       } catch (err: any) {
@@ -275,7 +275,7 @@ export const api = {
               });
             });
           });
-          return { data: calculateRepaymentsOverview(allInsts) } as T;
+          return { data: calculateRepaymentsOverview(allInsts), source: 'loans_fallback', count: allInsts.length } as T;
         }
         throw err;
       }
@@ -300,7 +300,7 @@ export const api = {
             payment_reference: r.reference_note || null,
             notes: r.reference_note || null
           }));
-          return { data: mapped } as T;
+          return { data: mapped, source: 'repayment_installments', count: mapped.length } as T;
         }
         throw new Error('FallbackToLoanRepayments');
       } catch (err: any) {
@@ -331,7 +331,7 @@ export const api = {
               });
             });
           });
-          return { data: allInsts } as T;
+          return { data: allInsts, source: 'loans_fallback', count: allInsts.length } as T;
         }
         throw err;
       }
