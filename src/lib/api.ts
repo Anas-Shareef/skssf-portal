@@ -1458,6 +1458,10 @@ export const api = {
 
       if (!inst) throw new Error('Installment not found');
 
+      if (String(inst.status || '').toUpperCase() === 'PAID') {
+        throw new Error('Installment ALREADY_PAID: this installment has already been settled.');
+      }
+
       const installmentAmount = Number(inst.amount_due || 0);
       const alreadyPaid = Number(inst.amount_paid || 0);
       const remaining = Math.max(0, installmentAmount - alreadyPaid);
