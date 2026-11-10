@@ -5,6 +5,28 @@ const isTableMissingError = (err: any) => {
   return err && (err.code === 'PGRST204' || err.code === 'PGRST205' || String(err.message || '').includes('relation') || String(err.message || '').includes('does not exist'));
 };
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Resolve an installment to its authoritative `repayment_installments` row.
+ * Accepts a real UUID or a synthetic internal id (e.g. `inst-LOAN-2026-4571-0`)
+ * and resolves the latter through the loan's installment number. Returns null
+ * when no persistent row can be resolved — callers must never fabricate an id.
+ */
+async function resolveInstallmentRow(loanId: string, installmentId: string, installmentNumber?: any) {
+  const instIdStr = String(installmentId || '');
+  const { data: instRow, error: instErr } = await supabase.from('repayment_installments').select('*').eq('id', instIdStr).maybeSingle();
+  if (!instErr && instRow) return { row: instRow, resolvedId: instRow.id };
+  const n = Number(installmentNumber);
+  if (!n) return { row: null, resolvedId: null };
+  const loanLookup = await supabase.from('loans').select('id').eq('loan_no', loanId).single();
+  const loanPk = loanLookup?.data?.id;
+  if (!loanPk) return { row: null, resolvedId: null };
+  const { data: byKey, error: byKeyErr } = await supabase.from('repayment_installments').select('*').eq('loan_id', loanPk).eq('installment_number', n).maybeSingle();
+  if (byKeyErr || !byKey) return { row: null, resolvedId: null };
+  return { row: byKey, resolvedId: byKey.id };
+}
+
 const calculateRepaymentsOverview = (installments: any[]) => {
   const today = new Date();
   const nextWeek = new Date();
@@ -1173,10 +1195,13 @@ export const api = {
       const timestamp = new Date().toISOString();
 
       try {
+        const { row: notifInst, resolvedId: notifResolvedId } = await resolveInstallmentRow(loanId, installmentId, body.installment_number);
+        const notifEffectiveId = notifInst ? notifResolvedId : installmentId;
+        if (!notifInst) throw new Error('Installment not found');
         const { error } = await supabase
           .from('repayment_installments')
           .update({ reference_note: `Notified requester at ${timestamp}` })
-          .eq('id', installmentId);
+          .eq('id', notifEffectiveId);
         if (error) throw error;
       } catch (err: any) {
         if (isTableMissingError(err)) {
@@ -1419,15 +1444,11 @@ export const api = {
       if (fetchErr || !loan) throw new Error('Loan not found');
 
       // Resolve the installment through the authoritative repayment table first.
+      // Synthetic internal ids (e.g. `inst-LOAN-2026-4571-0`) are never sent to the UUID column.
       let inst: any = null;
       let instIdResolved = installmentId;
-      try {
-        const { data: instRow, error: instErr } = await supabase.from('repayment_installments').select('*').eq('id', installmentId).maybeSingle();
-        if (instErr) throw instErr;
-        if (instRow) { inst = instRow; instIdResolved = instRow.id; }
-      } catch (err) {
-        // Fall through to the loan repayments JSONB lookup below.
-      }
+      const { row: instRow, resolvedId: instRowId } = await resolveInstallmentRow(loanId, installmentId, body.installment_number);
+      if (instRow) { inst = instRow; instIdResolved = instRowId; }
 
       if (!inst) {
         const reps = Array.isArray(loan.repayments) ? loan.repayments : [];
@@ -1458,6 +1479,20 @@ export const api = {
 
       if (!inst) throw new Error('Installment not found');
 
+      if (!UUID_RE.test(String(instIdResolved))) {
+        // The installment was located via the loan schedule fallback; re-resolve
+        // to the authoritative repayment_installments row before any write.
+        const fallbackNum = Number(inst?.installment_number);
+        if (fallbackNum) {
+          const { row: byKey, resolvedId: byKeyId } = await resolveInstallmentRow(loanId, `inst-${loanId}-${fallbackNum}`, fallbackNum);
+          if (byKey) { inst = byKey; instIdResolved = byKeyId; }
+        }
+      }
+      const effectiveInstallmentId = UUID_RE.test(String(instIdResolved)) ? instIdResolved : '';
+      if (!effectiveInstallmentId) {
+        throw new Error('Installment not found: no persistent repayment_installments row could be resolved for this installment.');
+      }
+
       if (String(inst.status || '').toUpperCase() === 'PAID') {
         throw new Error('Installment ALREADY_PAID: this installment has already been settled.');
       }
@@ -1483,7 +1518,7 @@ export const api = {
           reference_note: notes || payment_reference || '',
           recorded_by_user_id: marked_by
         })
-        .eq('id', instIdResolved);
+        .eq('id', effectiveInstallmentId);
       if (instUpdateErr) throw new Error(instUpdateErr.message);
 
       const repayments = Array.isArray(loan.repayments) ? [...loan.repayments] : [];

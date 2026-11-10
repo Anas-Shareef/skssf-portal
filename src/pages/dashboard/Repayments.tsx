@@ -1914,7 +1914,8 @@ export default function Repayments() {
                       notes: mfRef || 'Logged manually.',
                       marked_by: profile?.id,
                       due_date: instObj?.due_date || instObj?.due || '',
-                      amount_due: instAmt
+                      amount_due: instAmt,
+                      installment_number: instObj?.installment_number || (instIdx + 1)
                     });
 
                     refresh();
