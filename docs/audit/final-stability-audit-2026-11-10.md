@@ -3,7 +3,7 @@
 **Date:** 2026-11-10  
 **Production:** https://skssf-portal.vercel.app  
 **Supabase project:** `jgxzdwbixqhkjrdbhnlc`  
-**Branch / HEAD:** `main` @ `696e4fc`  
+**Branch / HEAD:** `main` @ `fcab1c7`  
 **Status:** Ready with known limitations (authenticated E2E still outstanding)
 
 ---
@@ -165,10 +165,10 @@ No repayment, loan, or installment row was modified by this work.
 | Check | Command / probe | Result |
 |---|---|---|
 | TypeScript | `npx tsc --noEmit` | PASS (exit 0) |
-| Production build | `npm run build` | PASS (`✓ built in 1.67s`) |
+| Production build | `npm run build` | PASS (`✓ built in 1.23s` at final state) |
 | Serverless syntax | `node --check api/*.js` | PASS (12/12) |
-| Hobby function cap | `api/*.js` count | 12 / 12 — no new endpoints added |
-| Deployed bundle freshness | `/assets/index-D3MUzYE-.js` | contains `authSessionInvalid`, `stale_response_ignored`, `empty_installments_result`, `http_401_after_refresh` |
+| Hobby function cap | `api/*.js` count | 12 / 12 - no new endpoints added |
+| Deployed bundle freshness | `/assets/index-BFYSCovt.js` | contains `authSessionInvalid`, `stale_response_ignored`, `empty_installments_result`, `http_401_after_refresh`, `[inventory] api_failure`, `Loading welfare missions` (current HEAD) |
 | Private API without token | `/api/inventory?resource=items`, `/api/users`, `/api/get-member-loans` | 401 (expected) |
 | Public catalogue | `/api/inventory?resource=public-catalog` | 200 |
 | Cache-write guard scan | brace-scoped scan of `localDb.ts` | 0 unguarded mutation writes |
@@ -251,6 +251,7 @@ Because the new columns are already visible through PostgREST, the schema cache 
 
 | Commit | Summary |
 |---|---|
+| `fcab1c7` | Surface welfare mission load failures to the user |
 | `44cafaf` | Extend authenticated fetch retry to member inventory and admin mutations |
 | `696e4fc` | Retry 401s with refreshed token, surface inventory failures, guard repayment refresh |
 | `1f1a31d` | Guard cache writes behind backend session |
