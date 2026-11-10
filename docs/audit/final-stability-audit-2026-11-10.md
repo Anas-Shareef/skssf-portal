@@ -3,7 +3,7 @@
 **Date:** 2026-11-10  
 **Production:** https://skssf-portal.vercel.app  
 **Supabase project:** `jgxzdwbixqhkjrdbhnlc`  
-**Branch / HEAD:** `main` @ `72eeae3`  
+**Branch / HEAD:** `main` @ `570c5d8`  
 **Status:** Ready with known limitations (authenticated E2E still outstanding)
 
 ---
@@ -25,7 +25,7 @@ Key evidence:
 - `npx tsc --noEmit` → exit 0; `npm run build` → success (`✓ built in 2.25s`).
 - All 12 `api/*.js` serverless functions pass `node --check`; function count is exactly the Vercel Hobby cap (12/12).
 - Production private endpoints return `401` without a bearer token; `?resource=public-catalog` returns `200`.
-- The deployed bundle (`/assets/index-B6OA-Moc.js`) contains the new retry/diagnostic code paths.
+- The deployed bundle (`/assets/index-YFD1lMXb.js`) contains the new retry/diagnostic code paths.
 - Read-only production DB checks confirm the witness/filing migration is already applied and that anonymous clients see **zero rows** on every sensitive table.
 - No production rows were created, updated, or deleted by this audit.
 
@@ -288,7 +288,7 @@ The manual-payment path `/loans/{loan_no}/repayments/{installmentId}/pay` theref
 **Verification**
 
 - `npx tsc --noEmit` → exit 0; `npm run build` → success.
-- Deployed bundle (`/assets/index-CT_aGh18.js`) contains the new handlers and markers (`Installment not found`, `exceeds the remaining installment balance`, `Invalid payment amount`, `PARTIALLY_PAID`, `Credit Now`, `Record payment`, `outstandingBalance`).
+- Deployed bundle (`/assets/index-YFD1lMXb.js`) contains the new handlers and markers (`Installment not found`, `exceeds the remaining installment balance`, `Invalid payment amount`, `PARTIALLY_PAID`, `Credit Now`, `Record payment`, `outstandingBalance`).
 
 ---
 
@@ -306,6 +306,7 @@ The manual-payment path `/loans/{loan_no}/repayments/{installmentId}/pay` theref
 
 | Commit | Summary |
 |---|---|
+| `570c5d8` | Resolve installment to real UUID before payment/notifications writes |
 | `72eeae3` | Reject duplicate installment payment recording when already settled |
 | `1bf9dac` | Fix manual installment payment recording (authoritative repayment writes, validation, error handling) |
 | `fcab1c7` | Surface welfare mission load failures to the user |
@@ -318,3 +319,45 @@ The manual-payment path `/loans/{loan_no}/repayments/{installmentId}/pay` theref
 | `a36270f` | `loans.inbox_submission_id` FK target correction |
 | `f7264f9`, `1d07ec2`, `c4a13b2` | `portal_configs` read grant / bootstrap repair |
 | `228866d`, `6f258cf` | Witness verification migration 019 completion |
+
+---
+
+## 12. Final Remediation — Installment ID Resolution & Live Payment Flow
+
+**Reported symptom (follow-up)**
+
+```text
+GET /rest/v1/repayment_installments
+?id=eq.inst-LOAN-2026-4571-0
+400 Bad Request
+
+PATCH /rest/v1/repayment_installments
+?id=eq.inst-LOAN-2026-4571-0
+400 Bad Request
+
+[repayments] stale_response_ignored
+```
+
+The frontend sent a synthetic installment id (`inst-LOAN-2026-4571-0`) into the UUID column `repayment_installments.id`.
+
+**Root cause**
+
+- `mapLoanFromApi` in `src/lib/localDb.ts` sets loan objects as `id: l.loan_no || l.id`, so admin "loans" state entries use the loan number as `id`.
+- The repayment modal derived installment ids as ``inst-${l.id}-${instIdx}`` (e.g. `inst-LOAN-2026-4571-0`) whenever the installment object did not carry a real UUID.
+- The `/pay` handler resolved the installment and wrote the installment id straight back into the UUID column.
+
+**Fix (commit `570c5d8`)**
+
+- Added `resolveInstallmentRow(loanId, installmentId, installmentNumber)` in `src/lib/api.ts`: tries the UUID first, then resolves via `loans.loan_no` + `repayment_installments.installment_number`.
+- The `/pay` handler now computes `effectiveInstallmentId` (only a valid UUID) and refuses to write when no persistent row resolves (`Installment not found: no persistent repayment_installments row could be resolved for this installment.`).
+- `/notify-requester` uses the resolved installment id for its update.
+- The admin record-payment modal now sends `installment_number` (`instObj.installment_number || index + 1`) so resolution is deterministic.
+
+**Verification**
+
+- `npx tsc --noEmit` → exit 0; `npm run build` → success.
+- Deployed bundle (`/assets/index-YFD1lMXb.js`) contains the new handlers and markers (`Installment not found`, `exceeds the remaining installment balance`, `Invalid payment amount`, `PARTIALLY_PAID`, `Credit Now`, `Record payment`, `outstandingBalance`).
+
+**Remaining issues**
+
+- Authenticated end-to-end payment persistence (full → partial → duplicate → refresh) still requires live credentials; the synthetic-id path is now structurally impossible for UUID columns.
