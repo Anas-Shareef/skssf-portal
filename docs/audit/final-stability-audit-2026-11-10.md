@@ -3,7 +3,7 @@
 **Date:** 2026-11-10  
 **Production:** https://skssf-portal.vercel.app  
 **Supabase project:** `jgxzdwbixqhkjrdbhnlc`  
-**Branch / HEAD:** `main` @ `1bf9dac`  
+**Branch / HEAD:** `main` @ `72eeae3`  
 **Status:** Ready with known limitations (authenticated E2E still outstanding)
 
 ---
@@ -25,7 +25,7 @@ Key evidence:
 - `npx tsc --noEmit` → exit 0; `npm run build` → success (`✓ built in 2.25s`).
 - All 12 `api/*.js` serverless functions pass `node --check`; function count is exactly the Vercel Hobby cap (12/12).
 - Production private endpoints return `401` without a bearer token; `?resource=public-catalog` returns `200`.
-- The deployed bundle (`/assets/index-CT_aGh18.js`) contains the new retry/diagnostic code paths.
+- The deployed bundle (`/assets/index-B6OA-Moc.js`) contains the new retry/diagnostic code paths.
 - Read-only production DB checks confirm the witness/filing migration is already applied and that anonymous clients see **zero rows** on every sensitive table.
 - No production rows were created, updated, or deleted by this audit.
 
@@ -306,6 +306,7 @@ The manual-payment path `/loans/{loan_no}/repayments/{installmentId}/pay` theref
 
 | Commit | Summary |
 |---|---|
+| `72eeae3` | Reject duplicate installment payment recording when already settled |
 | `1bf9dac` | Fix manual installment payment recording (authoritative repayment writes, validation, error handling) |
 | `fcab1c7` | Surface welfare mission load failures to the user |
 | `44cafaf` | Extend authenticated fetch retry to member inventory and admin mutations |
