@@ -193,7 +193,7 @@ export default function MemberInventory() {
         }
       }
     } catch (e: any) {
-      console.warn("Failed to load welfare missions:", e);
+      popToast('e', e?.message || 'Failed to load welfare missions');
     } finally {
       if (!silent) setRefreshing(false);
     }
