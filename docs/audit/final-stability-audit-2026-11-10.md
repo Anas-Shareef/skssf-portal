@@ -3,7 +3,7 @@
 **Date:** 2026-11-10  
 **Production:** https://skssf-portal.vercel.app  
 **Supabase project:** `jgxzdwbixqhkjrdbhnlc`  
-**Branch / HEAD:** `main` @ `570c5d8`  
+**Branch / HEAD:** `main` @ `96e8b13`  
 **Status:** Ready with known limitations (authenticated E2E still outstanding)
 
 ---
@@ -288,7 +288,7 @@ The manual-payment path `/loans/{loan_no}/repayments/{installmentId}/pay` theref
 **Verification**
 
 - `npx tsc --noEmit` → exit 0; `npm run build` → success.
-- Deployed bundle (`/assets/index-YFD1lMXb.js`) contains the new handlers and markers (`Installment not found`, `exceeds the remaining installment balance`, `Invalid payment amount`, `PARTIALLY_PAID`, `Credit Now`, `Record payment`, `outstandingBalance`).
+- Deployed bundle (`/assets/index-BigzXn5O.js`) contains the new handlers and markers (`Installment not found`, `exceeds the remaining installment balance`, `Invalid payment amount`, `PARTIALLY_PAID`, `Credit Now`, `Record payment`, `outstandingBalance`).
 
 ---
 
@@ -306,6 +306,7 @@ The manual-payment path `/loans/{loan_no}/repayments/{installmentId}/pay` theref
 
 | Commit | Summary |
 |---|---|
+| `96e8b13` | Never query repayment installments by synthetic id |
 | `570c5d8` | Resolve installment to real UUID before payment/notifications writes |
 | `72eeae3` | Reject duplicate installment payment recording when already settled |
 | `1bf9dac` | Fix manual installment payment recording (authoritative repayment writes, validation, error handling) |
@@ -356,7 +357,7 @@ The frontend sent a synthetic installment id (`inst-LOAN-2026-4571-0`) into the 
 **Verification**
 
 - `npx tsc --noEmit` → exit 0; `npm run build` → success.
-- Deployed bundle (`/assets/index-YFD1lMXb.js`) contains the new handlers and markers (`Installment not found`, `exceeds the remaining installment balance`, `Invalid payment amount`, `PARTIALLY_PAID`, `Credit Now`, `Record payment`, `outstandingBalance`).
+- Deployed bundle (`/assets/index-BigzXn5O.js`) contains the new handlers and markers (`Installment not found`, `exceeds the remaining installment balance`, `Invalid payment amount`, `PARTIALLY_PAID`, `Credit Now`, `Record payment`, `outstandingBalance`).
 
 **Remaining issues**
 
