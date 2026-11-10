@@ -15,8 +15,10 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  */
 async function resolveInstallmentRow(loanId: string, installmentId: string, installmentNumber?: any) {
   const instIdStr = String(installmentId || '');
-  const { data: instRow, error: instErr } = await supabase.from('repayment_installments').select('*').eq('id', instIdStr).maybeSingle();
-  if (!instErr && instRow) return { row: instRow, resolvedId: instRow.id };
+  if (UUID_RE.test(instIdStr)) {
+    const { data: instRow, error: instErr } = await supabase.from('repayment_installments').select('*').eq('id', instIdStr).maybeSingle();
+    if (!instErr && instRow) return { row: instRow, resolvedId: instRow.id };
+  }
   const n = Number(installmentNumber);
   if (!n) return { row: null, resolvedId: null };
   const loanLookup = await supabase.from('loans').select('id').eq('loan_no', loanId).single();
