@@ -92,7 +92,8 @@ Mutation helpers in `src/lib/localDb.ts` called `backendCacheStorage.setItem(...
   - retries **once** with `forceRefresh: true` on `401` (safe for all methods, because `401` means the handler did no work);
   - if the retry is still `401`, dispatches `authSessionInvalid`.
 - `AuthContext` now listens for `authSessionInvalid` and discards the unusable session (`signOut({ scope: 'local' })` + cache clear), so the app never loops on revoked credentials.
-- All 25 inventory API calls now use `authenticatedFetch`; non-OK responses are surfaced to the user (`"<label>: session rejected (401). Please sign in again."` for auth failures) and logged as `[inventory] api_failure` with status only.
+- All 25 admin inventory API calls (`Inventory.tsx`) **and** all 21 member inventory API calls (`MemberInventory.tsx`) now use `authenticatedFetch`; non-OK responses are surfaced to the user (`"<label>: session rejected (401). Please sign in again."` for auth failures) and logged as `[inventory] api_failure` with status only.
+- The same retry applies to the remaining authenticated `fetch` calls: user create/update/delete and loan-decision notifications in `api.ts`, witness link/history actions in `LoanManagement.tsx`, and `org-settings` reads/writes in `Settings.tsx`.
 - Corrected an over-broad session-invalid detector: schema errors (`PGRST204`, `PGRST205`, `PGRST200`, `PGRST202`, `PGRST203`, `PGRST116`) and generic "invalid"/"not found" messages are no longer treated as auth failures, so a missing column/table can no longer sign a user out.
 
 **Verification**
@@ -171,6 +172,7 @@ No repayment, loan, or installment row was modified by this work.
 | Private API without token | `/api/inventory?resource=items`, `/api/users`, `/api/get-member-loans` | 401 (expected) |
 | Public catalogue | `/api/inventory?resource=public-catalog` | 200 |
 | Cache-write guard scan | brace-scoped scan of `localDb.ts` | 0 unguarded mutation writes |
+| Member inventory auth | `MemberInventory.tsx` | 0 remaining raw `/api` fetches; all use `authenticatedFetch` |
 | ESLint | `npx eslint` on changed files | only pre-existing style findings (`no-explicit-any`, unused icons); project `lint` script tolerates them |
 | Authenticated member/admin/super E2E | browser sessions | **NOT RUN** — no credentials |
 
@@ -249,6 +251,7 @@ Because the new columns are already visible through PostgREST, the schema cache 
 
 | Commit | Summary |
 |---|---|
+| `44cafaf` | Extend authenticated fetch retry to member inventory and admin mutations |
 | `696e4fc` | Retry 401s with refreshed token, surface inventory failures, guard repayment refresh |
 | `1f1a31d` | Guard cache writes behind backend session |
 | `caa0607` | Auth/role/API repair audit report |
