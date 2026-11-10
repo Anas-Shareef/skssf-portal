@@ -3,7 +3,7 @@
 **Date:** 2026-11-10  
 **Production:** https://skssf-portal.vercel.app  
 **Supabase project:** `jgxzdwbixqhkjrdbhnlc`  
-**Branch / HEAD:** `main` @ `fcab1c7`  
+**Branch / HEAD:** `main` @ `1bf9dac`  
 **Status:** Ready with known limitations (authenticated E2E still outstanding)
 
 ---
@@ -22,10 +22,10 @@ This audit closes the remediation series covering the five reported production d
 
 Key evidence:
 
-- `npx tsc --noEmit` → exit 0; `npm run build` → success (`✓ built in 1.67s`).
+- `npx tsc --noEmit` → exit 0; `npm run build` → success (`✓ built in 2.25s`).
 - All 12 `api/*.js` serverless functions pass `node --check`; function count is exactly the Vercel Hobby cap (12/12).
 - Production private endpoints return `401` without a bearer token; `?resource=public-catalog` returns `200`.
-- The deployed bundle (`/assets/index-D3MUzYE-.js`) contains the new retry/diagnostic code paths.
+- The deployed bundle (`/assets/index-CT_aGh18.js`) contains the new retry/diagnostic code paths.
 - Read-only production DB checks confirm the witness/filing migration is already applied and that anonymous clients see **zero rows** on every sensitive table.
 - No production rows were created, updated, or deleted by this audit.
 
@@ -238,11 +238,66 @@ Because the new columns are already visible through PostgREST, the schema cache 
 
 ---
 
+## 11. Final Remediation — Manual Installment Payment Recording
+
+**Reported symptom**
+
+`PATCH /rest/v1/loans?loan_no=eq.LOAN-2026-4571&select=*` → `400 Bad Request`:
+
+```text
+Could not find the 'amount_due' column of 'loans' in the schema cache
+    at Object.patch
+    at async Object.recordInstallmentPayment
+```
+
+The repayment page loaded the loan/installment schedule correctly (10 loans / 21 installments), but recording a manual installment payment failed before any write was applied.
+
+**Actual production schema findings (PostgREST + service-role probes, read-only)**
+
+- `loans` columns that exist: `id`, `loan_no`, `amount`, `status`, `workflow_status`, `repayments` (JSONB), `disbursement_date`, `loan_amount_requested`, `loan_amount_approved`, etc. **Missing:** `amount_due`, `outstanding_balance`, `repayment_status`, `amt`, `tenure_months`, `repayment_frequency`, `installment_amount`, `total_installments`, `repaid_amount`, `principal`, `loan_amount`.
+- `repayment_installments` columns that exist: `id` (UUID), `loan_id`, `installment_number`, `due_date`, `amount_due` DECIMAL(12,2) NOT NULL, `amount_paid`, `payment_date`, `payment_method` CHECK ('Cash','Bank Transfer','Other'), `reference_note`, `status` CHECK ('PENDING','PARTIALLY_PAID','PAID','OVERDUE'), `recorded_by_user_id`.
+- `repayment_transactions` / `loan_repayments`: not part of the authoritative repayment schema.
+
+**Root cause**
+
+`api.patch()` routed any path starting with `/loans/` into the generic loan-status update branch:
+
+```ts
+supabase.from('loans').update(body).eq('loan_no', id).select().single()
+```
+
+The manual-payment path `/loans/{loan_no}/repayments/{installmentId}/pay` therefore hit that branch, and the request body (carrying installment-level `amount_due`) was written against the `loans` table → PostgREST `PGRST204: Could not find the 'amount_due' column of 'loans' in the schema cache`.
+
+**Fix (commit `1bf9dac`)**
+
+- `api.patch()` now excludes `/repayments/` sub-paths from the generic loan update; specific handlers (`/repayments/generate`, `/repayments/{n}/submit|verify|log|notify-requester`, `/repayments/{n}/pay`) own their routes.
+- The `/pay` handler was rewritten to operate on the authoritative `repayment_installments` table:
+  - resolves the installment via `repayment_installments` (UUID lookup, JSONB fallback);
+  - validates the payment amount (`> 0`, `<= amount_due - amount_paid`) before writing;
+  - accumulates `amount_paid` and sets `PAID` only when fully settled, else `PARTIALLY_PAID`;
+  - normalizes `payment_method` to CHECK-allowed values (`Cash` / `Bank Transfer` / `Other`);
+  - updates `repayment_installments` and mirrors the payment onto the loan `repayments` JSONB history;
+  - recalculates outstanding balance from `repayment_installments` (`amount_due - amount_paid` summed per installment);
+  - reverts the installment update if the follow-up loan status update fails (no partial financial state).
+
+**Frontend hardening (commit `1bf9dac`)**
+
+- `MemberRepayments.tsx` / `FiledLoanDetail.tsx`: corrected installment status `'PARTIAL'` → `'PARTIALLY_PAID'` (invalid CHECK value) and normalized payment methods.
+- `Repayments.tsx` record-payment modal: amount validation, `isRecordingPayment` saving state (prevents repeated clicks), try/catch with error toast, close/refresh only after confirmed success.
+
+**Verification**
+
+- `npx tsc --noEmit` → exit 0; `npm run build` → success.
+- Deployed bundle (`/assets/index-CT_aGh18.js`) contains the new handlers and markers (`Installment not found`, `exceeds the remaining installment balance`, `Invalid payment amount`, `PARTIALLY_PAID`, `Credit Now`, `Record payment`, `outstandingBalance`).
+
+---
+
 ## 10. Final Classification & Sign-off
 
 **Classification: Ready with known limitations.**
 
 - All five reported defects have code-level fixes merged to `main` and deployed to production.
+- Manual installment payment recording was fixed in `1bf9dac` (authoritative `repayment_installments` writes, no nonexistent columns, validation, error handling, status constants).
 - Build, type-check, serverless syntax, unauthenticated API contracts, RLS visibility, migration presence and canonical data linkage are verified.
 - Production data is intact: 10 loans, 21 installments, 7 loan requests, 3 inventory items / 85 units / 3 checkouts; no rows were created, changed, or deleted during this audit.
 - The only remaining gap is authenticated end-to-end verification, which requires real member/admin/super sessions (and Twilio credentials for OTP flows).
@@ -251,6 +306,7 @@ Because the new columns are already visible through PostgREST, the schema cache 
 
 | Commit | Summary |
 |---|---|
+| `1bf9dac` | Fix manual installment payment recording (authoritative repayment writes, validation, error handling) |
 | `fcab1c7` | Surface welfare mission load failures to the user |
 | `44cafaf` | Extend authenticated fetch retry to member inventory and admin mutations |
 | `696e4fc` | Retry 401s with refreshed token, surface inventory failures, guard repayment refresh |
