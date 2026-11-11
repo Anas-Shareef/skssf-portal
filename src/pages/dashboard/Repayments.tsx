@@ -51,6 +51,7 @@ export default function Repayments() {
   const [fSearch, setFSearch] = useState('');
   const [overview, setOverview] = useState<any>(null);
   const [installments, setInstallments] = useState<any[]>([]);
+  const [repaymentsError, setRepaymentsError] = useState<string | null>(null);
   // Monotonic request id: only the newest repayment refresh may update state.
   const repaymentRefreshSeq = useRef(0);
   // Bumped after confirmed repayments so the schedule reloads without depending
@@ -63,6 +64,9 @@ export default function Repayments() {
   const [recordPaymentModal, setRecordPaymentModal] = useState<{ loan: any; installment?: any } | null>(null);
   const [notifyModal, setNotifyModal] = useState<{ loan: any; installment: any } | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ loan: any; idx: number } | null>(null);
+  const [txDetail, setTxDetail] = useState<{ loan: any; idx: number } | null>(null);
+  const [emiDetail, setEmiDetail] = useState<{ loan: any; idx: number } | null>(null);
+  const [schedView, setSchedView] = useState<'timeline' | 'table'>('timeline');
 
   useEffect(() => {
     const loadOverviewAndInstallments = async () => {
@@ -108,6 +112,7 @@ export default function Repayments() {
       if (overviewResult.status === 'fulfilled') {
         const payload = overviewResult.value as any;
         setOverview(payload?.data ?? null);
+        setRepaymentsError(null);
         console.info('[repayments] overview_loaded', {
           ...context,
           endpoint: '/admin/repayments/overview',
@@ -117,6 +122,7 @@ export default function Repayments() {
           durationMs: Date.now() - startedAt
         });
       } else {
+        setRepaymentsError('Failed to load repayment overview. Please retry.');
         console.warn('[repayments] overview_failed', {
           ...context,
           endpoint: '/admin/repayments/overview',
@@ -147,6 +153,7 @@ export default function Repayments() {
         }
       } else {
         // A failed refresh must keep the last successfully loaded schedule.
+        setRepaymentsError('Failed to load repayment schedule. Please retry.');
         console.warn('[repayments] installments_failed', {
           ...context,
           endpoint: '/admin/repayments',
@@ -193,6 +200,7 @@ export default function Repayments() {
       setMfMode('Cash');
       setMfRef('');
       setMfProof('');
+      setPaySuccess(null);
     }
   }, [recordPaymentModal]);
 
@@ -213,6 +221,7 @@ export default function Repayments() {
   const [mfRef, setMfRef] = useState('');
   const [mfProof, setMfProof] = useState('');
   const [isRecordingPayment, setIsRecordingPayment] = useState(false);
+  const [paySuccess, setPaySuccess] = useState<any>(null);
   const [toast, setToast] = useState<{ m: string; t: 's' | 'r' } | null>(null);
   const [showManualSearch, setShowManualSearch] = useState(false);
   const [lastAction] = useState<{ id: string; type: 'approved' | 'rejected' } | null>(null);
@@ -311,6 +320,25 @@ export default function Repayments() {
   const totalRejected = allGlobalRepayments.filter(({ r }) => r.request?.status === 'rejected').length;
   const approvedThisWeek = allGlobalRepayments.filter(({ r }) => (r.paid || r.request?.status === 'approved') && new Date(r.paid || r.request?.reviewedAt || 0) > thisWeekStart).length;
   const rejectedThisWeek = allGlobalRepayments.filter(({ r }) => r.request?.status === 'rejected' && new Date(r.request?.reviewedAt || 0) > thisWeekStart).length;
+
+  // Phase 4 — Repayment overview financial KPIs (computed from authoritative installment data)
+  const paidInsts = installments.filter((i: any) => String(i.status || '').toLowerCase() === 'paid');
+  const confirmedTotal = paidInsts.reduce((s: number, i: any) => s + Number(i.amount_paid || 0), 0);
+  const outstandingTotal = installments.filter((i: any) => String(i.status || '').toLowerCase() !== 'paid').reduce((s: number, i: any) => s + Math.max(0, Number(i.amount_due || 0) - Number(i.amount_paid || 0)), 0);
+  const overdueTotal = installments.filter((i: any) => String(i.status || '').toLowerCase() === 'overdue').reduce((s: number, i: any) => s + Math.max(0, Number(i.amount_due || 0) - Number(i.amount_paid || 0)), 0);
+  const pendingTotal = installments.filter((i: any) => String(i.status || '').toLowerCase() === 'pending').reduce((s: number, i: any) => s + Math.max(0, Number(i.amount_due || 0) - Number(i.amount_paid || 0)), 0);
+  const partialTotal = installments.filter((i: any) => String(i.status || '').toLowerCase() === 'partially_paid').reduce((s: number, i: any) => s + Number(i.amount_paid || 0), 0);
+  const reversedTotal = installments.reduce((s: number, i: any) => s + Number(i.reversed_amount || 0), 0);
+  const recentActivity = [...installments]
+    .filter((i: any) => i.payment_date || String(i.status || '').toLowerCase() === 'paid')
+    .sort((a: any, b: any) => new Date(b.payment_date || b.due_date || 0).getTime() - new Date(a.payment_date || a.due_date || 0).getTime())
+    .slice(0, 5);
+  const statusDistribution = ['pending', 'partially_paid', 'overdue', 'paid'].map((s) => ({
+    status: s,
+    count: installments.filter((i: any) => String(i.status || '').toLowerCase() === s).length,
+    amount: installments.filter((i: any) => String(i.status || '').toLowerCase() === s).reduce((sum: number, i: any) => sum + Math.max(0, Number(i.amount_due || 0) - Number(i.amount_paid || 0)), 0)
+  }));
+
 
   // Bottleneck detection: authorized reviewers with pending assignments older than 3 days
   const threeDaysAgo = new Date(); threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
@@ -863,7 +891,7 @@ export default function Repayments() {
                     const clr = STATUS_BG[sx];
                     
                     return (
-                      <div key={i} style={{ flex: '0 0 140px', display: 'flex', flexDirection: 'column', alignItems: 'center', position: 'relative' }}>
+                      <div key={i} style={{ flex: '0 0 140px', display: 'flex', flexDirection: 'column', alignItems: 'center', position: 'relative', cursor: 'pointer' }} onClick={() => setEmiDetail({ loan, idx: i })}>
                         {i < reps.length - 1 && <div style={{ position: 'absolute', top: 13, left: '70%', width: '100%', height: 2, background: '#e2e8f0', zIndex: 0 }} />}
                         <div style={{
                           width: 28, height: 28, borderRadius: '50%', background: clr, color: '#fff',
@@ -1236,6 +1264,12 @@ export default function Repayments() {
 
           {adminTab === 'overview' && (
             <div>
+              {repaymentsError && (
+                <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 14, padding: '14px 18px', marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#b91c1c' }}>⚠️ {repaymentsError}</div>
+                  <button className="bsm g" style={{ padding: '8px 14px', borderRadius: 10, fontSize: 12, fontWeight: 800 }} onClick={refresh}>↻ Retry</button>
+                </div>
+              )}
               {/* Summary Cards */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '20px', marginBottom: '30px' }}>
                 <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '20px', boxShadow: '0 4px 15px rgba(0,0,0,0.03)' }}>
@@ -1277,6 +1311,72 @@ export default function Repayments() {
                     All active loan balances
                   </div>
                 </div>
+              </div>
+
+              {/* Phase 4 — Enhanced Repayment Financial Summary */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '20px', marginBottom: '24px' }}>
+                {[
+                  { label: 'Total Confirmed Repayments', val: fmt(confirmedTotal), color: '#10b981', sub: `${paidInsts.length} installment(s) fully paid` },
+                  { label: 'Outstanding Balance', val: fmt(outstandingTotal), color: 'var(--teal)', sub: 'Across all active loans' },
+                  { label: 'Overdue Amount', val: fmt(overdueTotal), color: '#ef4444', sub: `${installments.filter((i: any) => String(i.status || '').toLowerCase() === 'overdue').length} installment(s) overdue` },
+                  { label: 'Pending Verification', val: fmt(pendingTotal), color: '#f59e0b', sub: `${installments.filter((i: any) => String(i.status || '').toLowerCase() === 'pending').length} awaiting admin recording` },
+                  { label: 'Partial Payments', val: fmt(partialTotal), color: '#6366f1', sub: 'Accumulated via PARTIALLY_PAID' },
+                  { label: 'Reversed Transactions', val: fmt(reversedTotal), color: '#94a3b8', sub: 'Reversed ledger entries' }
+                ].map((c, i) => (
+                  <div key={i} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '20px', boxShadow: '0 4px 15px rgba(0,0,0,0.03)' }}>
+                    <div style={{ fontSize: '12px', fontWeight: 800, color: c.color, textTransform: 'uppercase', letterSpacing: '.5px' }}>{c.label}</div>
+                    <div style={{ fontSize: '24px', fontWeight: 900, color: 'var(--dark)', marginTop: '8px' }}>{c.val}</div>
+                    <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px' }}>{c.sub}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Phase 4 — Recent Activity + Status Distribution */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px', marginBottom: '30px' }}>
+                <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '20px', boxShadow: '0 4px 15px rgba(0,0,0,0.03)' }}>
+                  <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 14 }}>Recent Payment Activity</div>
+                  {recentActivity.length === 0 ? (
+                    <div style={{ fontSize: '13px', color: 'var(--muted)', padding: '12px 0' }}>No recent repayment activity.</div>
+                  ) : (
+                    recentActivity.map((inst: any, idx: number) => (
+                      <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid #f1f5f9' }}>
+                        <div>
+                          <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--dark)' }}>EMI #{Number(inst.installment_number || 0)}</div>
+                          <div style={{ fontSize: '11px', color: 'var(--muted)' }}>Due {inst.due_date || '—'}</div>
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                          <div style={{ fontSize: '13px', fontWeight: 900, color: 'var(--teal)' }}>{fmt(inst.amount_due || 0)}</div>
+                          <div style={{ fontSize: '11px', fontWeight: 800, color: String(inst.status || '').toLowerCase() === 'paid' ? '#10b981' : 'var(--amber2)' }}>{String(inst.status || '').toUpperCase()}</div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+                <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '20px', boxShadow: '0 4px 15px rgba(0,0,0,0.03)' }}>
+                  <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 14 }}>Repayment Status Distribution</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                    {statusDistribution.map((s: any) => (
+                      <div key={s.status} style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: '10px 14px', textAlign: 'center', minWidth: 96 }}>
+                        <div style={{ fontSize: 18, fontWeight: 950, color: s.status === 'paid' ? '#10b981' : s.status === 'overdue' ? '#ef4444' : s.status === 'pending' ? '#f59e0b' : '#6366f1' }}>{s.count}</div>
+                        <div style={{ fontSize: 10, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', marginTop: 2 }}>{s.status.replace('_', ' ')}</div>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--dark)', marginTop: 2 }}>{fmt(s.amount)} due</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Phase 4 — Quick navigation to filtered transactions */}
+              <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginBottom: '30px' }}>
+                <button className="bsm g" style={{ padding: '10px 16px', borderRadius: 12, fontSize: 12.5, fontWeight: 800 }} onClick={() => { setFStatus('overdue'); setAdminTab('overview'); }}>
+                  ⚠️ View Overdue Transactions
+                </button>
+                <button className="bsm g" style={{ padding: '10px 16px', borderRadius: 12, fontSize: 12.5, fontWeight: 800 }} onClick={() => { setFStatus('pending'); setAdminTab('overview'); }}>
+                  ⏳ View Pending Verification
+                </button>
+                <button className="bsm g" style={{ padding: '10px 16px', borderRadius: 12, fontSize: 12.5, fontWeight: 800 }} onClick={() => { setFStatus('partially_paid'); setAdminTab('overview'); }}>
+                  🖊️ View Partial Payments
+                </button>
               </div>
 
               {/* Filters Panel */}
@@ -1623,6 +1723,18 @@ export default function Repayments() {
 
           {adminTab === 'schedules' && (
             <div>
+              {/* Phase 4 — Timeline / Table view toggle */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, marginBottom: 24, maxWidth: 900, flexWrap: 'wrap' }}>
+                <div style={{ fontSize: 18, fontWeight: 900, color: 'var(--dark)' }}>EMI Schedules</div>
+                <div style={{ display: 'flex', background: '#f1f5f9', borderRadius: 12, padding: 4, gap: 4 }}>
+                  <button className="bsm" onClick={() => setSchedView('timeline')} style={{ border: 'none', borderRadius: 9, padding: '8px 16px', fontSize: 12, fontWeight: 800, background: schedView === 'timeline' ? 'var(--teal)' : 'transparent', color: schedView === 'timeline' ? '#fff' : '#475569', cursor: 'pointer', border: 'none' }}>
+                    📊 Timeline
+                  </button>
+                  <button className="bsm" onClick={() => setSchedView('table')} style={{ border: 'none', borderRadius: 9, padding: '8px 16px', fontSize: 12, fontWeight: 800, background: schedView === 'table' ? 'var(--teal)' : 'transparent', color: schedView === 'table' ? '#fff' : '#475569', cursor: 'pointer', border: 'none' }}>
+                    📋 Table
+                  </button>
+                </div>
+              </div>
               <div style={{ marginBottom: 24, maxWidth: 450 }}>
                 <div className="fiw" style={{ background: '#fff', border: '1.5px solid #e2e8f0', padding: '6px 16px', borderRadius: 16, boxShadow: '0 4px 12px rgba(0,0,0,0.03)' }}>
                   <span className="fic">🔍</span>
@@ -1680,6 +1792,7 @@ export default function Repayments() {
                           <div style={{ fontSize: 11, fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 14 }}>
                             EMI Lifecycle Status
                           </div>
+                          {schedView === 'timeline' ? (
                           <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 6 }}>
                             {reps.map((r, i) => {
                               const s = statusFor(r);
@@ -1704,6 +1817,20 @@ export default function Repayments() {
                               );
                             })}
                           </div>
+                          ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                              {reps.map((r: any, i: number) => (
+                                <tr key={i} onClick={() => setEmiDetail({ loan, idx: i })} style={{ cursor: 'pointer', borderBottom: '1px solid #f1f5f9' }}>
+                                  <td style={{ padding: '12px 14px', fontSize: 13, fontWeight: 800, color: 'var(--teal)' }}>EMI #{i + 1}</td>
+                                  <td style={{ padding: '12px 14px', fontSize: 13 }}>{fmtDate(r.due_date)}</td>
+                                  <td style={{ padding: '12px 14px', fontSize: 13, fontWeight: 700 }}>{fmt(r.amt)}</td>
+                                  <td style={{ padding: '12px 14px', fontSize: 13, fontWeight: 700 }}>{fmt(r.paid ? Number(r.paid_amount || r.amt || 0) : 0)}</td>
+                                  <td style={{ padding: '12px 14px', fontSize: 13, fontWeight: 700 }}>{fmt(Math.max(0, Number(r.amt || 0) - Number(r.paid ? r.paid_amount || r.amt || 0 : 0)))}</td>
+                                  <td style={{ padding: '12px 14px', fontSize: 13, fontWeight: 800, color: statusFor(r) === 'paid' ? '#15803d' : statusFor(r) === 'overdue' ? '#b91c1c' : statusFor(r) === 'partially_paid' ? '#4338ca' : '#0369a1' }}>{String(r.status || statusFor(r))}</td>
+                                </tr>
+                              ))}
+                            </div>
+                          )}
                         </div>
 
                         {/* ROW 3: ACTIONS (Approval Focused) */}
@@ -1768,6 +1895,30 @@ export default function Repayments() {
                 <button onClick={() => setRecordPaymentModal(null)} className="cls-btn">×</button>
               </div>
               <div className="rp-modal-body">
+                {paySuccess && (
+                  <div style={{ textAlign: 'center', padding: '18px 8px' }}>
+                    <div style={{ width: 64, height: 64, borderRadius: '50%', background: 'rgba(16,185,129,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 30, margin: '0 auto 16px' }}>✅</div>
+                    <div style={{ fontSize: 17, fontWeight: 900, color: 'var(--dark)' }}>Payment Recorded</div>
+                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>The repayment transaction was confirmed and persisted to the ledger.</div>
+                    <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 14, padding: 16, marginTop: 18, textAlign: 'left' }}>
+                      {[
+                        ['Amount', `₹${paySuccess.amount?.toLocaleString() || 0}`],
+                        ['Installment', `EMI #${paySuccess.installmentNumber || (parseInt(mfInst) || 0) + 1}`],
+                        ['Status', paySuccess.status || 'PAID'],
+                        ['Outstanding Balance', `₹${(paySuccess.outstandingBalance || 0).toLocaleString()}`],
+                        ['Transaction Date', mfDate || '—'],
+                        ['Reference', paySuccess.reference || '—'],
+                        ['Recorded At', new Date(paySuccess.recordedAt || Date.now()).toLocaleString()]
+                      ].map(([k, v]) => (
+                        <div key={String(k)} style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 0', borderBottom: '1px solid #f1f5f9', fontSize: 13 }}>
+                          <span style={{ color: 'var(--muted)', fontWeight: 700 }}>{k}</span>
+                          <span style={{ fontWeight: 800, color: 'var(--dark)', textAlign: 'right' }}>{String(v)}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <button className="bsm s" style={{ width: '100%', marginTop: 18, padding: 12, borderRadius: 12 }} onClick={() => setRecordPaymentModal(null)}>Done</button>
+                  </div>
+                )}
                 {(() => {
                   const instIdx = parseInt(mfInst);
                   const activeReq = reps[instIdx]?.request;
@@ -1893,6 +2044,10 @@ export default function Repayments() {
                 })()}
               </div>
               <div className="rp-modal-ft">
+                {paySuccess ? (
+                  <button className="bsm s" style={{ width: '100%', padding: 12, borderRadius: 12, background: 'var(--teal)', border: 'none', color: '#fff', fontWeight: 800 }} onClick={() => setRecordPaymentModal(null)}>Done</button>
+                ) : (
+                  <>
                 <button className="bsm g" onClick={() => setRecordPaymentModal(null)}>Cancel</button>
                 <button className="bsm s" disabled={!canLog} onClick={async () => {
                   const instIdx = parseInt(mfInst);
@@ -1906,6 +2061,9 @@ export default function Repayments() {
                   const instBalance = instAmt - instPaid;
                   if (isNaN(amtNum) || amtNum <= 0) { setToast({ m: 'Please enter a valid payment amount.', t: 'r' }); return; }
                   if (amtNum > instBalance) { setToast({ m: `Payment amount cannot exceed the remaining balance of ₹${instBalance.toLocaleString()}.`, t: 'r' }); return; }
+
+                  const newPaidAmt = Number(instObj?.amount_paid || 0) + amtNum;
+                  const payResultStatus = newPaidAmt >= instAmt ? 'PAID' : 'PARTIALLY_PAID';
 
                   setIsRecordingPayment(true);
                   try {
@@ -1923,7 +2081,15 @@ export default function Repayments() {
 
                     refresh();
                     setRepaymentReloadNonce((n) => n + 1);
-                    setRecordPaymentModal(null);
+                    setPaySuccess({
+                      amount: amtNum,
+                      installmentNumber: instObj?.installment_number || (instIdx + 1),
+                      status: payResultStatus,
+                      outstandingBalance: Math.max(0, instAmt - newPaidAmt),
+                      reference: mfRef,
+                      recordedAt: new Date().toISOString()
+                    });
+                    setToast({ m: `Payment of ₹${amtNum.toLocaleString()} recorded successfully.`, t: 's' });
                   } catch (err: any) {
                     setToast({ m: err?.message || 'Failed to record payment.', t: 'r' });
                   } finally {
@@ -1931,6 +2097,8 @@ export default function Repayments() {
                   }
                   return;
                 }} disabled={!canLog || isRecordingPayment}>{isPreselected ? 'Record payment' : 'Credit Now'}</button>
+                </>
+                )}
               </div>
             </div>
           </div>
@@ -2105,14 +2273,16 @@ export default function Repayments() {
                                 }}>Cancel Request</button>
                               </>
                             )}
-                           {isAdmin && (r.paid || s === 'paid') && (
-                             <button className="bsm r" style={{ fontSize: 11, padding: '6px 12px' }} onClick={() => {
+                           {isAdmin && (r.paid || s === 'paid') && (<>
+                                                           <button className="bsm g" style={{ fontSize: 11, padding: '6px 12px' }} onClick={() => { setHistoryModal(null); setTxDetail({ loan }); }}>🔍 Transaction Details</button>
+                              <button className="bsm r" style={{ fontSize: 11, padding: '6px 12px' }} onClick={() => {
                                if (window.confirm('Delete this payment record?')) {
                                  localDb.deleteRepaymentsBulk(loan.id, [idx]);
                                  refresh(); setHistoryModal(null);
                                }
                              }}>🗑️ Delete</button>
-                           )}
+                            </>
+                            )}
                         </div>
                       </div>
                       
@@ -2129,6 +2299,118 @@ export default function Repayments() {
                     </div>
                   );
                 })}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* 2.5 TRANSACTION DETAIL DRAWER */}
+      {txDetail && (() => {
+        const { loan } = txDetail;
+        const r = (loan.repayments || [])[txDetail.idx];
+        const req = r?.request || {};
+        const s = statusFor(r);
+        const txAmount = Number(r?.paid_amount || req?.amt || r?.amt || 0);
+        const paidAt = r?.paid_date || req?.payDate;
+        const recordedAt = r?.recorded_at || r?.recordedAt || r?.created_at || r?.paid || new Date().toISOString();
+        const method = r?.payment_method || req?.mode || '—';
+        const refNo = r?.payment_reference || r?.reference_note || req?.ref || '—';
+        const recordedBy = r?.marked_by_user_id || r?.recorded_by_user_id || r?.recordedBy || '—';
+        const remarks = r?.notes || r?.remarks || '';
+        const receipt = r?.proof || req?.proof;
+        const isReversed = !!(r?.reversed || r?.is_reversed);
+
+        return (
+          <div className="rp-modal">
+            <div className="rp-modal-inner" style={{ maxWidth: 560 }}>
+              <div className="rp-modal-hd"><div style={{ fontWeight: 800 }}>Transaction Details — EMI #{txDetail.idx + 1}</div><button onClick={() => setTxDetail(null)} className="cls-btn">×</button></div>
+              <div className="rp-modal-body">
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 18 }}>
+                  {[
+                    ['Amount', fmt(txAmount)],
+                    ['Status', STATUS_LABEL[s] || s],
+                    ['Actual Payment Date', paidAt ? new Date(paidAt).toLocaleString() : '—'],
+                    ['Portal Recording Date', new Date(recordedAt).toLocaleString()],
+                    ['Payment Method', method],
+                    ['Reference Number', refNo],
+                    ['Recorded By', String(recordedBy)],
+                    ['Remarks', remarks || '—']
+                  ].map(([k, v], i) => (
+                    <div key={i} style={{ background: '#f8fafc', borderRadius: 12, padding: '12px 14px' }}>
+                      <div style={{ fontSize: 9, fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase' }}>{k}</div>
+                      <div style={{ fontSize: 14, fontWeight: 850, color: '#1e293b', marginTop: 4 }}>{String(v)}</div>
+                    </div>
+                  ))}
+                </div>
+                {receipt && (
+                  <div style={{ marginBottom: 14 }}>
+                    <div style={{ fontSize: 11, fontWeight: 900, color: '#64748b', marginBottom: 8 }}>RECEIPT PREVIEW</div>
+                    <img src={receipt} alt="Receipt" style={{ width: '100%', maxHeight: 180, objectFit: 'contain', borderRadius: 12, border: '1px solid #e2e8f0', background: '#fff' }} />
+                  </div>
+                )}
+                {isReversed && (
+                  <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 12, padding: '12px 14px', fontSize: 12, color: '#991b1b', fontWeight: 700, marginBottom: 14 }}>
+                    ⚠️ This transaction has been reversed. Outstanding balances were recalculated.
+                  </div>
+                )}
+              </div>
+              <div className="rp-modal-ft">
+                <button className="bsm g" onClick={() => setTxDetail(null)}>Close</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* 2.6 EMI DETAIL DRAWER */}
+      {emiDetail && (() => {
+        const { loan } = emiDetail;
+        const reps: any[] = loan.repayments || [];
+        const r = reps[emiDetail.idx];
+        const s = statusFor(r);
+        const amt = Number(r?.amt || r?.amount_due || 0);
+        const paidAmt = Number(r?.paid_amount || (r?.paid ? amt : 0));
+        const remaining = Math.max(0, amt - paidAmt);
+
+        return (
+          <div className="rp-modal">
+            <div className="rp-modal-inner" style={{ maxWidth: 560 }}>
+              <div className="rp-modal-hd">
+                <div style={{ fontWeight: 800 }}>EMI #{emiDetail.idx + 1} — {loan.loan_no || loan.id}</div>
+                <button onClick={() => setEmiDetail(null)} className="cls-btn">×</button>
+              </div>
+              <div className="rp-modal-body">
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 18 }}>
+                  {[
+                    ['EMI Number', `#${emiDetail.idx + 1}`],
+                    ['Due Date', r?.due_date || r?.due || '—'],
+                    ['Scheduled Amount', fmt(amt)],
+                    ['Amount Received', fmt(paidAmt)],
+                    ['Remaining Balance', fmt(remaining)],
+                    ['Status', STATUS_LABEL[s] || s]
+                  ].map(([k, v], i) => (
+                    <div key={i} style={{ background: '#f8fafc', borderRadius: 12, padding: '12px 14px' }}>
+                      <div style={{ fontSize: 9, fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase' }}>{k}</div>
+                      <div style={{ fontSize: 14, fontWeight: 850, color: '#1e293b', marginTop: 4 }}>{String(v)}</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ fontSize: 11, fontWeight: 900, color: '#64748b', marginBottom: 10 }}>INSTALLMENT PAYMENT HISTORY</div>
+                <div style={{ maxHeight: 260, overflowY: 'auto' }}>
+                  {(loan.repayments || []).filter((x: any) => x.paid || x.request).map((x: any, i: number) => (
+                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid #f1f5f9', fontSize: 12.5 }}>
+                      <span style={{ fontWeight: 700, color: '#1e293b' }}>Payment #{i + 1}</span>
+                      <span style={{ fontWeight: 900, color: 'var(--teal)' }}>{fmt(Number(x.paid_amount || x.request?.amt || x.amt || 0))}</span>
+                    </div>
+                  ))}
+                  {(loan.repayments || []).filter((x: any) => !x.paid && !x.request).length === 0 && (
+                    <div style={{ fontSize: 12, color: '#94a3b8', padding: '12px 0' }}>No further payment activity for this installment.</div>
+                  )}
+                </div>
+              </div>
+              <div className="rp-modal-ft">
+                <button className="bsm g" onClick={() => setEmiDetail(null)}>Close</button>
               </div>
             </div>
           </div>
