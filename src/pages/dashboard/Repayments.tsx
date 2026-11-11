@@ -53,6 +53,9 @@ export default function Repayments() {
   const [installments, setInstallments] = useState<any[]>([]);
   // Monotonic request id: only the newest repayment refresh may update state.
   const repaymentRefreshSeq = useRef(0);
+  // Bumped after confirmed repayments so the schedule reloads without depending
+  // on the `loans` cache array identity.
+  const [repaymentReloadNonce, setRepaymentReloadNonce] = useState(0);
 
   /* modals */
   const [submitModal, setSubmitModal] = useState<{ loan: any; idx: number; edit?: boolean } | null>(null);
@@ -153,7 +156,7 @@ export default function Repayments() {
       }
     };
     loadOverviewAndInstallments();
-  }, [adminTab, loans, isAdmin, profile?.id, profile?.db_id, role]);
+  }, [adminTab, isAdmin, profile?.id, profile?.db_id, role, repaymentReloadNonce]);
   const [selectedLoans, setSelectedLoans] = useState<string[]>([]);
   const [selectedQueueIds, setSelectedQueueIds] = useState<string[]>([]);
   // All admins (for committee display)
@@ -1919,6 +1922,7 @@ export default function Repayments() {
                     });
 
                     refresh();
+                    setRepaymentReloadNonce((n) => n + 1);
                     setRecordPaymentModal(null);
                   } catch (err: any) {
                     setToast({ m: err?.message || 'Failed to record payment.', t: 'r' });
