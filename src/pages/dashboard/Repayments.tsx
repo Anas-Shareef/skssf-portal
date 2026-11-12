@@ -6,8 +6,8 @@ import { api } from '../../lib/api';
 
 /* ─── Helpers ─── */
 const fmt = (n: number) => `₹${Number(n).toLocaleString('en-IN')}`;
-const fmtDate = (d: string) => new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-const fmtDateShort = (d: string) => new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+const fmtDate = (d: string) => { const t = d ? new Date(d) : null; if (!t || isNaN(t.getTime())) return 'Date not set'; return t.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }); };
+const fmtDateShort = (d: string) => { const t = d ? new Date(d) : null; if (!t || isNaN(t.getTime())) return '—'; return t.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }); };
 
 function statusFor(r: any): 'paid' | 'under_review' | 'partial' | 'rejected' | 'late' | 'upcoming' {
   if (r.paid || r.request?.status === 'approved') return 'paid';
@@ -52,6 +52,7 @@ export default function Repayments() {
   const [overview, setOverview] = useState<any>(null);
   const [installments, setInstallments] = useState<any[]>([]);
   const [repaymentsError, setRepaymentsError] = useState<string | null>(null);
+  const [overviewDetailsOpen, setOverviewDetailsOpen] = useState(false);
   // Monotonic request id: only the newest repayment refresh may update state.
   const repaymentRefreshSeq = useRef(0);
   // Bumped after confirmed repayments so the schedule reloads without depending
@@ -333,6 +334,11 @@ export default function Repayments() {
     .filter((i: any) => i.payment_date || String(i.status || '').toLowerCase() === 'paid')
     .sort((a: any, b: any) => new Date(b.payment_date || b.due_date || 0).getTime() - new Date(a.payment_date || a.due_date || 0).getTime())
     .slice(0, 5);
+  const needsAttention = [
+    ...installments.filter((i: any) => String(i.status || '').toLowerCase() === 'overdue').map((i: any) => ({ i, kind: 'overdue' })),
+    ...installments.filter((i: any) => String(i.status || '').toLowerCase() === 'pending').map((i: any) => ({ i, kind: 'pending' }))
+  ].sort((a, b) => new Date(b.i?.due_date || 0).getTime() - new Date(a.i?.due_date || 0).getTime());
+
   const statusDistribution = ['pending', 'partially_paid', 'overdue', 'paid'].map((s) => ({
     status: s,
     count: installments.filter((i: any) => String(i.status || '').toLowerCase() === s).length,
@@ -1313,12 +1319,47 @@ export default function Repayments() {
                 </div>
               </div>
 
-              {/* Phase 4 — Enhanced Repayment Financial Summary */}
+              {/* Phase 5 — Needs Attention list */}
+              <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '20px', marginBottom: '30px', boxShadow: '0 4px 15px rgba(0,0,0,0.03)' }}>
+                <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 14 }}>Needs Attention</div>
+                {needsAttention.length === 0 ? (
+                  <div style={{ fontSize: 13, color: 'var(--muted)', padding: '10px 0' }}>No overdue installments and no payments pending verification. Nice work.</div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {needsAttention.map(({ i, kind }, idx) => {
+                      const overdueDays = kind === 'overdue' ? Math.max(0, Math.ceil((Date.now() - new Date(i.due_date).getTime()) / 86400000)) : 0;
+                      const loan: any = i.loan || loans.find((l: any) => l.id === i.loan_id || l.loan_no === i.loan?.loan_no) || null;
+                      const borrower = loan?.name || i.loan?.name || 'Unknown';
+                      const loanId = loan?.loan_no || i.loan?.loan_no || i.loan_id || '';
+                      return (
+                        <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, padding: '12px 14px', background: '#f8fafc', borderRadius: 12, border: '1px solid #e2e8f0', flexWrap: 'wrap' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+                            <div style={{ width: 36, height: 36, borderRadius: '50%', background: kind === 'overdue' ? 'var(--red)' : 'var(--amber)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 900, flexShrink: 0 }}>{kind === 'overdue' ? '!' : '⚠'}</div>
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontSize: 13, fontWeight: 900, color: 'var(--dark)' }}>{borrower}</div>
+                              <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700 }}>Loan {loanId} · EMI #{Number(i.installment_number || 0)} · {fmt(i.amount_due || 0)}</div>
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                            <div style={{ textAlign: 'right' }}>
+                              <div style={{ fontSize: 12, fontWeight: 900, color: kind === 'overdue' ? 'var(--red)' : 'var(--amber2)' }}>{kind === 'overdue' ? `${overdueDays} days overdue` : 'Awaiting verification'}</div>
+                            </div>
+                            <button className="bsm s" style={{ padding: '8px 14px', borderRadius: 10, fontSize: 11.5, fontWeight: 800 }} onClick={() => { if (kind === 'overdue') { setRecordPaymentModal({ loan, installment: i }); } else { const li = (loan?.repayments || []).findIndex((r: any) => r.id === i.id || r.installment_number === i.installment_number); if (li > -1) { setSelectedReview({ loan, idx: li }); setActionStatus('approved'); setActionNote(''); setShowReview(true); } } }}>
+                              {kind === 'overdue' ? 'Record payment' : 'Verify'}
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Phase 5 — More details: financial metrics */}
+              {overviewDetailsOpen && (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '20px', marginBottom: '24px' }}>
                 {[
                   { label: 'Total Confirmed Repayments', val: fmt(confirmedTotal), color: '#10b981', sub: `${paidInsts.length} installment(s) fully paid` },
-                  { label: 'Outstanding Balance', val: fmt(outstandingTotal), color: 'var(--teal)', sub: 'Across all active loans' },
-                  { label: 'Overdue Amount', val: fmt(overdueTotal), color: '#ef4444', sub: `${installments.filter((i: any) => String(i.status || '').toLowerCase() === 'overdue').length} installment(s) overdue` },
                   { label: 'Pending Verification', val: fmt(pendingTotal), color: '#f59e0b', sub: `${installments.filter((i: any) => String(i.status || '').toLowerCase() === 'pending').length} awaiting admin recording` },
                   { label: 'Partial Payments', val: fmt(partialTotal), color: '#6366f1', sub: 'Accumulated via PARTIALLY_PAID' },
                   { label: 'Reversed Transactions', val: fmt(reversedTotal), color: '#94a3b8', sub: 'Reversed ledger entries' }
@@ -1329,6 +1370,14 @@ export default function Repayments() {
                     <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px' }}>{c.sub}</div>
                   </div>
                 ))}
+              </div>
+              )}
+
+              {/* Phase 5 — More details toggle */}
+              <div style={{ marginBottom: '24px' }}>
+                <button className="bsm g" onClick={() => setOverviewDetailsOpen((v) => !v)} style={{ padding: '8px 16px', borderRadius: 12, fontSize: 12.5, fontWeight: 800, background: overviewDetailsOpen ? '#f1f5f9' : 'var(--teal)', color: overviewDetailsOpen ? '#475569' : '#fff', border: 'none', cursor: 'pointer' }}>
+                  {overviewDetailsOpen ? 'Hide More Details' : 'More Details'}
+                </button>
               </div>
 
               {/* Phase 4 — Recent Activity + Status Distribution */}
@@ -1356,7 +1405,7 @@ export default function Repayments() {
                   <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 14 }}>Repayment Status Distribution</div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
                     {statusDistribution.map((s: any) => (
-                      <div key={s.status} style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: '10px 14px', textAlign: 'center', minWidth: 96 }}>
+                      <div key={s.status} style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: '10px 14px', textAlign: 'center', minWidth: 96, cursor: 'pointer' }} onClick={() => setFStatus(s.status)}>
                         <div style={{ fontSize: 18, fontWeight: 950, color: s.status === 'paid' ? '#10b981' : s.status === 'overdue' ? '#ef4444' : s.status === 'pending' ? '#f59e0b' : '#6366f1' }}>{s.count}</div>
                         <div style={{ fontSize: 10, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', marginTop: 2 }}>{s.status.replace('_', ' ')}</div>
                         <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--dark)', marginTop: 2 }}>{fmt(s.amount)} due</div>
@@ -1366,17 +1415,18 @@ export default function Repayments() {
                 </div>
               </div>
 
-              {/* Phase 4 — Quick navigation to filtered transactions */}
-              <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginBottom: '30px' }}>
-                <button className="bsm g" style={{ padding: '10px 16px', borderRadius: 12, fontSize: 12.5, fontWeight: 800 }} onClick={() => { setFStatus('overdue'); setAdminTab('overview'); }}>
-                  ⚠️ View Overdue Transactions
-                </button>
-                <button className="bsm g" style={{ padding: '10px 16px', borderRadius: 12, fontSize: 12.5, fontWeight: 800 }} onClick={() => { setFStatus('pending'); setAdminTab('overview'); }}>
-                  ⏳ View Pending Verification
-                </button>
-                <button className="bsm g" style={{ padding: '10px 16px', borderRadius: 12, fontSize: 12.5, fontWeight: 800 }} onClick={() => { setFStatus('partially_paid'); setAdminTab('overview'); }}>
-                  🖊️ View Partial Payments
-                </button>
+              {/* Phase 5 — Repayment status filter chips (default: All) */}
+              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '24px' }}>
+                {[
+                  { v: '', label: 'All' },
+                  { v: 'overdue', label: 'Overdue' },
+                  { v: 'pending', label: 'Pending Verification' },
+                  { v: 'partially_paid', label: 'Partial' }
+                ].map((c) => (
+                  <button key={c.v} className="bsm" onClick={() => setFStatus(c.v)} style={{ padding: '8px 16px', borderRadius: 12, fontSize: 12, fontWeight: 800, background: fStatus === c.v ? 'var(--teal)' : '#f1f5f9', color: fStatus === c.v ? '#fff' : '#475569', border: 'none', cursor: 'pointer' }}>
+                    {c.label}
+                  </button>
+                ))}
               </div>
 
               {/* Filters Panel */}
@@ -1426,6 +1476,13 @@ export default function Repayments() {
                 </div>
               </div>
 
+              {(fStatus || fDateRange !== 'all' || fMember || fSearch) && (
+                <div style={{ marginTop: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700 }}>{[fStatus, fDateRange !== 'all' ? fDateRange : '', fMember, fSearch].filter(Boolean).length} filter(s) active</div>
+                  <button className="bsm g" style={{ padding: '6px 12px', borderRadius: 8, fontSize: 11, fontWeight: 800 }} onClick={() => { setFStatus(''); setFDateRange('all'); setFMember(''); setFSearch(''); }}>Clear filters</button>
+                </div>
+              )}
+
               {/* Installments Table */}
               <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '16px', overflow: 'hidden', boxShadow: '0 4px 15px rgba(0,0,0,0.03)', marginBottom: '30px' }}>
                 <table className="tbl" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
@@ -1437,6 +1494,8 @@ export default function Repayments() {
                       <th style={{ padding: '16px 20px', fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase' }}>Installment #</th>
                       <th style={{ padding: '16px 20px', fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase' }}>Due Date</th>
                       <th style={{ padding: '16px 20px', fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase' }}>Amount Due</th>
+                      <th style={{ padding: '16px 20px', fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase' }}>Paid</th>
+                      <th style={{ padding: '16px 20px', fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase' }}>Balance</th>
                       <th style={{ padding: '16px 20px', fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase' }}>Status</th>
                       <th style={{ padding: '16px 20px', fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase' }}>Member Notified?</th>
                       <th style={{ padding: '16px 20px', fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', textAlign: 'right' }}>Action</th>
@@ -1476,7 +1535,7 @@ export default function Repayments() {
                       if (filtered.length === 0) {
                         return (
                           <tr>
-                            <td colSpan={9} style={{ padding: '40px', textAlign: 'center', color: 'var(--muted)', fontSize: '13px' }}>
+                            <td colSpan={11} style={{ padding: '40px', textAlign: 'center', color: 'var(--muted)', fontSize: '13px' }}>
                               No installments found matching the selected filters.
                             </td>
                           </tr>
@@ -1513,6 +1572,12 @@ export default function Repayments() {
                             </td>
                             <td style={{ padding: '16px 20px', fontSize: '13px', fontWeight: 700, color: 'var(--dark)' }}>
                               {fmt(inst.amount_due)}
+                            </td>
+                            <td style={{ padding: '16px 20px', fontSize: '13px', fontWeight: 700, color: 'var(--dark)' }}>
+                              {fmt(inst.status === 'paid' ? inst.amount_due : Number(inst.amount_paid || 0))}
+                            </td>
+                            <td style={{ padding: '16px 20px', fontSize: '13px', fontWeight: 700, color: 'var(--dark)' }}>
+                              {fmt(Math.max(0, Number(inst.amount_due || 0) - Number(inst.amount_paid || 0)))}
                             </td>
                             <td style={{ padding: '16px 20px' }}>
                               <span style={{ display: 'inline-block', padding: '4px 10px', borderRadius: '12px', fontSize: '11px', fontWeight: 800, background: style.bg, color: style.text, textTransform: 'capitalize' }}>
