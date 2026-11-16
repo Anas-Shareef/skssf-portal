@@ -133,10 +133,6 @@ export default function LoanManagement() {
   const [fBranch, setFBranch] = useState('');
   const [reviewerSearch, setReviewerSearch] = useState('');
 
-  // Detailed purpose expansion state
-  const [expandedPurposeIds, setExpandedPurposeIds] = useState<Record<string, boolean>>({});
-  const toggleExpandPurpose = (id: string) => setExpandedPurposeIds(prev => ({ ...prev, [id]: !prev[id] }));
-
   // Bulk selection
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
@@ -523,7 +519,7 @@ export default function LoanManagement() {
                     </th>
                     <th>App No.</th>
                     {!isMember && <th>Applicant</th>}
-                    <th>Amount / Detailed Purpose</th>
+                    <th>Amount / Purpose</th>
                     <th>Submitted</th>
                     <th>Status</th>
                     <th style={{ textAlign: 'right' }}>Action</th>
@@ -533,8 +529,6 @@ export default function LoanManagement() {
                   {filteredLoans.map(l => {
                     const isAdminOrSuper = profile?.role === 'admin' || profile?.role === 'super';
                     const parsed = parseLoanPurpose(l.purpose, l);
-                    const detailedPurpose = parsed.details || l.loan_purpose_detail || l.purpDesc || '';
-                    const isExpanded = !!expandedPurposeIds[l.id];
 
                     return (
                       <tr key={l.id} style={{ background: selectedIds.includes(l.id) ? 'var(--teal-pale)' : '' }}>
@@ -543,9 +537,9 @@ export default function LoanManagement() {
                         {!isMember && (
                           <td><b>{l.name}</b><br /><span style={{ fontSize: '11px', color: 'var(--muted)' }}>{l.memNo}</span></td>
                         )}
-                        <td style={{ minWidth: '240px', maxWidth: '380px' }}>
+                        <td>
                           <div>
-                            <div style={{ fontSize: '15px', fontWeight: 950, color: 'var(--teal)' }}>
+                            <div style={{ fontSize: '14.5px', fontWeight: 950, color: 'var(--teal)' }}>
                               ₹{(l.amt || l.amount || 0).toLocaleString()}
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px', flexWrap: 'wrap' }}>
@@ -556,52 +550,6 @@ export default function LoanManagement() {
                                 <span style={{ fontSize: '11px', color: '#15803d', background: '#dcfce7', padding: '2px 8px', borderRadius: '6px', fontWeight: 700, border: '1px solid #bbf7d0' }}>
                                   👤 Ref: {parsed.referredBy}
                                 </span>
-                              )}
-                            </div>
-                            <div style={{ marginTop: '8px' }}>
-                              <div style={{ fontSize: '10.5px', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', marginBottom: '2px' }}>
-                                Detailed Purpose:
-                              </div>
-                              {detailedPurpose ? (
-                                <div>
-                                  <div style={{
-                                    fontSize: '12px',
-                                    color: '#1e293b',
-                                    lineHeight: 1.5,
-                                    whiteSpace: 'pre-wrap',
-                                    wordBreak: 'break-word',
-                                    ...(isExpanded ? {} : {
-                                      display: '-webkit-box',
-                                      WebkitLineClamp: 3,
-                                      WebkitBoxOrient: 'vertical',
-                                      overflow: 'hidden'
-                                    })
-                                  }}>
-                                    "{detailedPurpose}"
-                                  </div>
-                                  {detailedPurpose.length > 80 && (
-                                    <button
-                                      type="button"
-                                      onClick={(e) => { e.stopPropagation(); toggleExpandPurpose(l.id); }}
-                                      style={{
-                                        background: 'none',
-                                        border: 'none',
-                                        color: 'var(--teal)',
-                                        fontSize: '11px',
-                                        fontWeight: 800,
-                                        cursor: 'pointer',
-                                        padding: '2px 0',
-                                        marginTop: '2px'
-                                      }}
-                                    >
-                                      {isExpanded ? 'Show less ▲' : 'View more ▼'}
-                                    </button>
-                                  )}
-                                </div>
-                              ) : (
-                                <div style={{ fontSize: '12px', color: '#94a3b8', fontStyle: 'italic' }}>
-                                  Detailed purpose not provided
-                                </div>
                               )}
                             </div>
                           </div>
@@ -653,8 +601,6 @@ export default function LoanManagement() {
               {filteredLoans.map(l => {
                 const isAdminOrSuper = profile?.role === 'admin' || profile?.role === 'super';
                 const parsed = parseLoanPurpose(l.purpose, l);
-                const detailedPurpose = parsed.details || l.loan_purpose_detail || l.purpDesc || '';
-                const isExpanded = !!expandedPurposeIds[l.id];
                 const isSelected = selectedIds.includes(l.id);
 
                 return (
@@ -707,54 +653,6 @@ export default function LoanManagement() {
                           </span>
                         )}
                       </div>
-                    </div>
-
-                    {/* Detailed Purpose */}
-                    <div style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
-                      <div style={{ fontSize: '10.5px', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', marginBottom: '4px' }}>
-                        Detailed Purpose:
-                      </div>
-                      {detailedPurpose ? (
-                        <div>
-                          <div style={{
-                            fontSize: '12.5px',
-                            color: '#1e293b',
-                            lineHeight: 1.5,
-                            whiteSpace: 'pre-wrap',
-                            wordBreak: 'break-word',
-                            ...(isExpanded ? {} : {
-                              display: '-webkit-box',
-                              WebkitLineClamp: 3,
-                              WebkitBoxOrient: 'vertical',
-                              overflow: 'hidden'
-                            })
-                          }}>
-                            "{detailedPurpose}"
-                          </div>
-                          {detailedPurpose.length > 80 && (
-                            <button
-                              type="button"
-                              onClick={() => toggleExpandPurpose(l.id)}
-                              style={{
-                                background: 'none',
-                                border: 'none',
-                                color: 'var(--teal)',
-                                fontSize: '11px',
-                                fontWeight: 800,
-                                cursor: 'pointer',
-                                padding: '2px 0',
-                                marginTop: '2px'
-                              }}
-                            >
-                              {isExpanded ? 'Show less ▲' : 'View more ▼'}
-                            </button>
-                          )}
-                        </div>
-                      ) : (
-                        <div style={{ fontSize: '12px', color: '#94a3b8', fontStyle: 'italic' }}>
-                          Detailed purpose not provided
-                        </div>
-                      )}
                     </div>
 
                     {/* Submission Date */}
