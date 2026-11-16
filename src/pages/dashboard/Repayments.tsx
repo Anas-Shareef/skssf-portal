@@ -53,6 +53,8 @@ export default function Repayments() {
   const [installments, setInstallments] = useState<any[]>([]);
   const [repaymentsError, setRepaymentsError] = useState<string | null>(null);
   const [overviewDetailsOpen, setOverviewDetailsOpen] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
+  const [gSearch, setGSearch] = useState('');
   // Monotonic request id: only the newest repayment refresh may update state.
   const repaymentRefreshSeq = useRef(0);
   // Bumped after confirmed repayments so the schedule reloads without depending
@@ -68,6 +70,15 @@ export default function Repayments() {
   const [txDetail, setTxDetail] = useState<{ loan: any; idx: number } | null>(null);
   const [emiDetail, setEmiDetail] = useState<{ loan: any; idx: number } | null>(null);
   const [schedView, setSchedView] = useState<'timeline' | 'table'>('timeline');
+  // Phase 5 - EMI schedule sort: Overdue first (default), Highest balance, Newest
+  const [schedSort, setSchedSort] = useState<'overdue' | 'balance' | 'newest'>('overdue');
+
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 40);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
 
   useEffect(() => {
     const loadOverviewAndInstallments = async () => {
@@ -256,6 +267,18 @@ export default function Repayments() {
                        (l.id || '').toLowerCase().includes(q) ||
                        String(l.amt).includes(q);
     return matchSearch;
+  });
+
+  // Phase 5 - Schedules: sorted view (Overdue first by default, then highest balance)
+  const schedLoans = [...activeLoan].sort((a: any, b: any) => {
+    const ovA = (a.repayments || []).filter((r: any) => !r.paid && r.due && new Date(r.due) < new Date()).length;
+    const ovB = (b.repayments || []).filter((r: any) => !r.paid && r.due && new Date(r.due) < new Date()).length;
+    const remA = a.remaining_balance ?? (a.amt - (a.total_paid ?? (a.repayments || []).reduce((s, r) => s + ((r.paid || r.request?.status === 'approved') ? (Number(r.paid_amount || r.request?.amt) || r.amt) : 0), 0)));
+    const remB = b.remaining_balance ?? (b.amt - (b.total_paid ?? (b.repayments || []).reduce((s, r) => s + ((r.paid || r.request?.status === 'approved') ? (Number(r.paid_amount || r.request?.amt) || r.amt) : 0), 0)));
+    if (schedSort === 'balance') return remB - remA;
+    if (schedSort === 'newest') return new Date(String(b.id || 0)).getTime() - new Date(String(a.id || 0)).getTime();
+    if (ovA !== ovB) return ovB - ovA;
+    return remB - remA;
   });
 
   /* admin pending queue + recently reviewed */
@@ -1112,6 +1135,14 @@ export default function Repayments() {
       {isAdmin && (
         <div style={{ maxWidth: 1200, margin: '0 auto' }}>
 
+            {/* Phase 5 - Global cross-tab search (F4) */}
+            <div style={{ marginBottom: 24 }}>
+              <div className="fiw" style={{ background: '#fff', border: '1.5px solid #e2e8f0', padding: '12px 18px', borderRadius: 16, boxShadow: '0 4px 12px rgba(0,0,0,0.03)' }}>
+                <span className="fic">🔍</span>
+                <input className="fi" placeholder="Search borrower, member or loan ID..." value={gSearch} onChange={e => { setGSearch(e.target.value); if (adminTab === 'overview') setFSearch(e.target.value); else setSearch(e.target.value); }} />
+              </div>
+            </div>
+
           {/* ═══ ADMIN MISSION CONTROL ═══ */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 30, marginBottom: 30 }}>
             {/* Pipeline Overview Widget (Visible to All Admins) */}
@@ -1129,21 +1160,24 @@ export default function Repayments() {
                   {role === 'super' ? 'SUPER ADMIN CONTROL' : 'BRANCH ADMIN VIEW'}
                 </div>
               </div>
-               <div className="matrix-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 16 }}>
-                 {[
-                   { label: 'Pending Review', val: allPending.length, color: '#f59e0b', bg: 'rgba(245,158,11,0.08)', icon: '⏳', sub: 'Action Required' },
-                   { label: 'Partially Signed', val: allPartial.length, color: '#6366f1', bg: 'rgba(99,102,241,0.08)', icon: '🖊️', sub: 'Signatures Pending' },
-                   { label: 'Total Approved', val: totalApproved, color: '#10b981', bg: 'rgba(16,185,129,0.08)', icon: '✅', sub: `+${approvedThisWeek} this week` },
-                   { label: 'Total Rejected', val: totalRejected, color: '#ef4444', bg: 'rgba(239,68,68,0.08)', icon: '❌', sub: `+${rejectedThisWeek} this week` },
-                 ].map((stat, si) => (
-                   <div key={si} style={{ background: stat.bg, borderRadius: 20, padding: '24px 16px', textAlign: 'center', border: `1px solid ${stat.color}22`, transition: 'all 0.3s' }}>
-                     <div style={{ fontSize: 24, marginBottom: 12 }}>{stat.icon}</div>
-                     <div style={{ fontSize: 32, fontWeight: 950, color: stat.color, lineHeight: 1 }}>{stat.val}</div>
-                     <div style={{ fontSize: 11, color: '#fff', fontWeight: 900, textTransform: 'uppercase', marginTop: 12, letterSpacing: 0.5 }}>{stat.label}</div>
-                     <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 700, marginTop: 4 }}>{stat.sub}</div>
-                   </div>
-                 ))}
-               </div>
+                <div className="matrix-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 16 }}>
+                  { [
+                    { key: 'pending', label: 'Pending Review', val: allPending.length, color: '#f59e0b', bg: 'rgba(245,158,11,0.08)', icon: '⏳', sub: 'Needs your action', tab: 'pending' as const },
+                    { key: 'partial', label: 'Partially Signed', val: allPartial.length, color: '#6366f1', bg: 'rgba(99,102,241,0.08)', icon: '🖊️', sub: 'Awaiting signatures', tab: 'pending' as const },
+                    { key: 'approved', label: 'Total Approved', val: totalApproved, color: '#10b981', bg: 'rgba(16,185,129,0.08)', icon: '✅', sub: `+${approvedThisWeek} this week`, tab: 'approved' as const },
+                    { key: 'rejected', label: 'Total Rejected', val: totalRejected, color: '#ef4444', bg: 'rgba(239,68,68,0.08)', icon: '❌', sub: `+${rejectedThisWeek} this week`, tab: 'rejected' as const },
+                  ].map((stat) => (
+                    <div
+                      key={stat.key}
+                      onClick={() => { setPipelineFilter(stat.tab); setAdminTab('queue'); }}
+                      style={{ background: stat.bg, borderRadius: 20, padding: '24px 16px', textAlign: 'center', border: `1px solid ${stat.color}22`, transition: 'all 0.3s', cursor: 'pointer' }}>
+                      <div style={{ fontSize: 24, marginBottom: 12 }}>{stat.icon}</div>
+                      <div style={{ fontSize: 32, fontWeight: 950, color: stat.color, lineHeight: 1 }}>{stat.val}</div>
+                      <div style={{ fontSize: 11, color: '#fff', fontWeight: 900, textTransform: 'uppercase', marginTop: 12, letterSpacing: 0.5 }}>{stat.label}</div>
+                      <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 700, marginTop: 4 }}>{stat.sub}</div>
+                    </div>
+                  ))}
+                </div>
 
               {bottleneckAdmins.length > 0 && (
                 <div style={{ marginTop: 20, padding: '12px 16px', background: 'rgba(234,179,8,0.1)', borderRadius: 14, border: '1.5px solid rgba(234,179,8,0.3)' }}>
@@ -1239,7 +1273,25 @@ export default function Repayments() {
             )}
           </div>
           
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 30 }}>
+          {/* Phase 5 - Slim sticky header bar with clickable counts (F3) */}
+          {scrolled && (
+            <div style={{ position: 'sticky', top: 0, zIndex: 60, display: 'flex', gap: 10, overflowX: 'auto', background: 'rgba(15,23,42,0.92)', backdropFilter: 'blur(8px)', borderRadius: 16, padding: '10px 14px', marginBottom: 20, boxShadow: '0 10px 30px rgba(0,0,0,0.25)', alignItems: 'center' }}>
+              {[
+                { key: 'pending', label: 'Pending Review', val: allPending.length, color: '#f59e0b', bg: 'rgba(245,158,11,0.08)', icon: '⏳', sub: 'Needs your action', tab: 'pending' as const },
+                { key: 'partial', label: 'Partially Signed', val: allPartial.length, color: '#6366f1', bg: 'rgba(99,102,241,0.08)', icon: '🖊️', sub: 'Awaiting signatures', tab: 'pending' as const },
+                { key: 'approved', label: 'Total Approved', val: totalApproved, color: '#10b981', bg: 'rgba(16,185,129,0.08)', icon: '✅', sub: `+${approvedThisWeek} this week`, tab: 'approved' as const },
+                { key: 'rejected', label: 'Total Rejected', val: totalRejected, color: '#ef4444', bg: 'rgba(239,68,68,0.08)', icon: '❌', sub: `+${rejectedThisWeek} this week`, tab: 'rejected' as const },
+              ].map((stat) => (
+                <div key={stat.key} onClick={() => { setPipelineFilter(stat.tab); setAdminTab('queue'); }} style={{ background: 'rgba(255,255,255,0.06)', borderRadius: 12, padding: '8px 14px', textAlign: 'center', border: `1px solid ${stat.color}44`, cursor: 'pointer', minWidth: 130, flexShrink: 0 }}>
+                  <div style={{ fontSize: 11, color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase', letterSpacing: 0.4 }}>{stat.label}</div>
+                  <div style={{ fontSize: 18, fontWeight: 950, color: stat.color, lineHeight: 1, marginTop: 2 }}>{stat.val}</div>
+                  <div style={{ fontSize: 9, color: '#94a3b8', fontWeight: 700, marginTop: 2 }}>{stat.sub}</div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 30, ...(scrolled ? { position: 'sticky', top: 64, zIndex: 55 } : {}) }}>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               {([
                 { key: 'overview', label: '📊 Repayment Overview', badge: 0 },
@@ -1788,7 +1840,15 @@ export default function Repayments() {
 
           {adminTab === 'schedules' && (
             <div>
-              {/* Phase 4 — Timeline / Table view toggle */}
+              {/* Phase 5 - EMI schedule sort/filter (F27) */}
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 20, maxWidth: 900 }}>
+                {(['overdue', 'balance', 'newest'] as const).map((v) => (
+                  <button key={v} className="bsm" onClick={() => setSchedSort(v)} style={{ padding: '8px 14px', borderRadius: 10, fontSize: 12, fontWeight: 800, background: schedSort === v ? 'var(--teal)' : '#f1f5f9', color: schedSort === v ? '#fff' : '#475569', border: 'none', cursor: 'pointer' }}>
+                    {v === 'overdue' ? 'Overdue first' : v === 'balance' ? 'Highest balance' : 'Newest'}
+                  </button>
+                ))}
+              </div>
+              {/* Phase 4 - Timeline / Table view toggle */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, marginBottom: 24, maxWidth: 900, flexWrap: 'wrap' }}>
                 <div style={{ fontSize: 18, fontWeight: 900, color: 'var(--dark)' }}>EMI Schedules</div>
                 <div style={{ display: 'flex', background: '#f1f5f9', borderRadius: 12, padding: 4, gap: 4 }}>
@@ -1806,18 +1866,40 @@ export default function Repayments() {
                   <input className="fi" placeholder="Search Member or Loan ID..." value={search} onChange={e => setSearch(e.target.value)} />
                 </div>
               </div>
-              {activeLoan.length === 0 ? (
+              {schedLoans.length === 0 ? (
                 <div className="card" style={{ textAlign: 'center', padding: '70px', color: 'var(--muted)' }}>
                   <div style={{ fontSize: 48, marginBottom: 12 }}>🌱</div>
                   <div style={{ fontWeight: 600 }}>No active loans found{search ? ' matching your search' : ''}.</div>
                 </div>
               ) : (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(450px, 1fr))', gap: 20 }}>
-                  {activeLoan.map(loan => {
+                  {schedLoans.map(loan => {
                     const reps: any[] = loan.repayments || [];
                     const paidAmt = loan.total_paid ?? reps.reduce((s, r) => s + ((r.paid || r.request?.status === 'approved') ? (Number(r.paid_amount || r.request?.amt) || r.amt) : 0), 0);
                     const prog = loan.amt > 0 ? Math.min((paidAmt / loan.amt) * 100, 100) : 0;
                     const remaining = loan.remaining_balance ?? (loan.amt - paidAmt);
+                    const pendingReqsHere = reps.filter((r: any) => r.request?.status === 'pending');
+                    if (!reps || reps.length === 0) {
+                      return (
+                        <div key={loan.id} className="rp-card" style={{ marginBottom: 24, overflow: 'hidden', border: '1px solid #e2e8f0', borderRadius: '16px', background: '#fff' }}>
+                          <div style={{ padding: '24px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+                            <div>
+                              <div style={{ fontWeight: 900, fontSize: 16, color: 'var(--teal)' }}>💰 {loan.id}</div>
+                              <div style={{ fontSize: 18, fontWeight: 900, color: '#0f172a', marginTop: 4 }}>{loan.name}</div>
+                            </div>
+                            <div style={{ textAlign: 'right' }}>
+                              <div style={{ fontSize: 24, fontWeight: 950, color: '#0f172a' }}>{fmt(loan.amt)}</div>
+                              <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--amber2)', marginTop: 4 }}>{fmt(remaining)} Remaining</div>
+                            </div>
+                          </div>
+                          <div style={{ padding: '20px 24px', background: '#f8fafc', borderTop: '1px solid #f1f5f9' }}>
+                            <div style={{ fontSize: 13, fontWeight: 800, color: 'var(--amber2)' }}>Schedule not generated</div>
+                            <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>No EMI schedule has been generated for this loan yet.</div>
+                            <button className="bsm g" style={{ marginTop: 12, padding: '10px 18px', borderRadius: 10, fontSize: 12, fontWeight: 800 }} onClick={() => setToast({ m: 'EMI schedule generation is not available in this build yet.', t: 's' })}>Generate schedule</button>
+                          </div>
+                        </div>
+                      );
+                    }
                     return (
                       <div key={loan.id} className="rp-card" style={{ 
                         marginBottom: 24, overflow: 'hidden', position: 'relative',
@@ -1898,39 +1980,40 @@ export default function Repayments() {
                           )}
                         </div>
 
-                        {/* ROW 3: ACTIONS (Approval Focused) */}
-                        <div style={{ padding: '20px 24px', display: 'flex', gap: 14 }}>
-                          {(() => {
-                            const nextPendingIdx = reps.findIndex(r => r.request?.status === 'pending');
-                            const hasRequest = nextPendingIdx > -1;
-                            return (
-                              <>
-                                <button 
-                                  className={`bsm ${hasRequest ? 's' : 'g'}`}
-                                  disabled={!hasRequest}
-                                  style={{ flex: 1, padding: '14px', borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, fontSize: 14, opacity: hasRequest ? 1 : 0.6 }}
-                                  onClick={() => {
-                                    const r = reps[nextPendingIdx];
-                                    setRecordPaymentModal({ loan });
-                                    setMfInst(String(nextPendingIdx));
-                                    setMfAmt(String(r.request?.amt || r.amt));
-                                    setMfDate(r.request?.payDate || new Date().toISOString().split('T')[0]);
-                                    setMfRef(r.request?.ref || '');
-                                    setMfProof(r.request?.proof || '');
-                                  }}
-                                >
-                                  <span style={{ fontSize: 18 }}>📥</span> 
-                                  {hasRequest ? 'Verify Digital Request' : 'No Pending Requests'}
-                                </button>
-                                <button 
-                                  style={{ flex: 1, padding: '14px', borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, fontSize: 14 }}
-                                  onClick={() => setHistoryModal({ loan })}
-                                >
-                                  <span style={{ fontSize: 18 }}>📜</span> History Log
-                                </button>
-                              </>
-                            );
-                          })()}
+                        {/* ROW 3: FOOTER - NEXT ACTION + HISTORY (Phase 5 F28) */}
+                        <div style={{ padding: '20px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 14, flexWrap: 'wrap', background: '#fff' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                            <span style={{ fontSize: 18 }}>🧾</span>
+                            <div style={{ fontSize: 13, fontWeight: 800, color: 'var(--dark)' }}>
+                              {pendingReqsHere.length > 0 ? `${pendingReqsHere.length} repayment request(s) awaiting verification` : 'No pending repayment requests'}
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                            {pendingReqsHere.length > 0 && (
+                              <button 
+                                className="bsm s"
+                                style={{ padding: '12px 20px', borderRadius: 12, fontSize: 13, fontWeight: 900 }}
+                                onClick={() => {
+                                  const pendingIdx = reps.findIndex((x: any) => x.request?.status === 'pending');
+                                  const r = reps[pendingIdx];
+                                  setRecordPaymentModal({ loan });
+                                  setMfInst(String(pendingIdx));
+                                  setMfAmt(String(r?.request?.amt || r?.amt));
+                                  setMfDate(r?.request?.payDate || new Date().toISOString().split('T')[0]);
+                                  setMfRef(r?.request?.ref || '');
+                                  setMfProof(r?.request?.proof || '');
+                                }}
+                              >
+                                <span style={{ fontSize: 18 }}>📥</span> Verify Repayment
+                              </button>
+                            )}
+                            <button 
+                              style={{ padding: '12px 20px', borderRadius: 12, fontSize: 13, fontWeight: 900 }}
+                              onClick={() => setHistoryModal({ loan })}
+                            >
+                              <span style={{ fontSize: 18 }}>📜</span> History Log
+                            </button>
+                          </div>
                         </div>
                       </div>
                     );
