@@ -88,7 +88,7 @@ export default async function handler(req, res) {
 
       // Super admins see every profile. Admins are scoped to their own branch
       // so one branch never exposes another branch's member data.
-      let profilesQuery = supabase.from('profiles').select('id, name, code, addr, email, role, branch, admin_title, assigned_zone, member_unique_code, is_panel_coordinator, perms, phone, occupation, bio, is_active').order('created_at');
+      let profilesQuery = supabase.from('profiles').select('id,code,role,member_no,name,phone,branch,occupation,designation,addr,dob,gender,salary,active,join_date,sahachari_paid,sah_miss,total_donated,perms,is_approver,member_unique_code,created_by,assigned_zone,is_active,must_change_password,admin_title,bio').order('created_at');
       if (!isSuper) profilesQuery = profilesQuery.eq('branch', requesterProfile.branch);
 
       const { data: profiles, error: profilesError } = await profilesQuery;
@@ -237,7 +237,7 @@ export default async function handler(req, res) {
 
       const { data: finalProfile } = await supabase
         .from('profiles')
-        .select('id, name, code, addr, email, role, branch, admin_title, assigned_zone, member_unique_code, is_panel_coordinator, perms, phone, occupation, bio, is_active')
+        .select('id,code,role,member_no,name,phone,branch,occupation,designation,addr,dob,gender,salary,active,join_date,sahachari_paid,sah_miss,total_donated,perms,is_approver,member_unique_code,created_by,assigned_zone,is_active,must_change_password,admin_title,bio')
         .eq('id', newUser.id)
         .maybeSingle();
 
@@ -450,7 +450,7 @@ export default async function handler(req, res) {
       // Get fresh profile
       const { data: finalProfile } = await supabase
         .from('profiles')
-        .select('id, name, code, addr, email, role, branch, admin_title, assigned_zone, member_unique_code, is_panel_coordinator, perms, phone, occupation, bio, is_active')
+        .select('id,code,role,member_no,name,phone,branch,occupation,designation,addr,dob,gender,salary,active,join_date,sahachari_paid,sah_miss,total_donated,perms,is_approver,member_unique_code,created_by,assigned_zone,is_active,must_change_password,admin_title,bio')
         .eq('id', id)
         .maybeSingle();
 

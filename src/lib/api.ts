@@ -1,5 +1,6 @@
 import { supabase } from './supabaseClient';
 import { getAccessToken, authenticatedFetch } from './authSession';
+import { PROFILE_COLUMNS } from './profileColumns';
 
 const isTableMissingError = (err: any) => {
   return err && (err.code === 'PGRST204' || err.code === 'PGRST205' || String(err.message || '').includes('relation') || String(err.message || '').includes('does not exist'));
@@ -94,7 +95,7 @@ export const api = {
 
       const { data: profile } = await supabase
         .from('profiles')
-        .select('id, name, code, addr, email, role, branch, admin_title, assigned_zone, member_unique_code, is_panel_coordinator, perms, phone, occupation, bio, is_active')
+        .select(PROFILE_COLUMNS)
         .eq('id', user.id)
         .maybeSingle();
 
@@ -114,7 +115,7 @@ export const api = {
 
       const { data: activeUser, error: profileError } = await supabase
         .from('profiles')
-        .select('id, name, code, addr, email, role, branch, admin_title, assigned_zone, member_unique_code, is_panel_coordinator, perms, phone, occupation, bio, is_active')
+        .select(PROFILE_COLUMNS)
         .eq('id', user.id)
         .maybeSingle();
 
@@ -512,7 +513,7 @@ export const api = {
         const user = authData.user;
         const { data: profile } = await supabase
           .from('profiles')
-          .select('id, name, code, addr, email, role, branch, admin_title, assigned_zone, member_unique_code, is_panel_coordinator, perms, phone, occupation, bio, is_active')
+          .select(PROFILE_COLUMNS)
           .eq('id', user.id)
           .maybeSingle();
 

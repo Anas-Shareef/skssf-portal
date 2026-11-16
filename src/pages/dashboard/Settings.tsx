@@ -3,6 +3,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { localDb, syncFromBackend } from '../../lib/localDb';
 import { authenticatedFetch } from '../../lib/authSession';
+import { PROFILE_COLUMNS } from '../../lib/profileColumns';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import { useLocation } from 'react-router-dom';
 
@@ -88,7 +89,7 @@ export default function Settings() {
       try {
         const { data: profiles } = await supabase
           .from('profiles')
-          .select('id, name, code, addr, email, role, branch, admin_title, assigned_zone, member_unique_code, is_panel_coordinator, perms, phone, occupation, bio, is_active')
+          .select(PROFILE_COLUMNS)
           .eq('role', 'coordinator');
         setCoordinatorsList(profiles || []);
 

@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { clearFrontendCache, syncFromBackend, setBackendSessionActive } from '../lib/localDb';
 import { api } from '../lib/api';
+import { PROFILE_COLUMNS } from '../lib/profileColumns';
 import { supabase } from '../lib/supabaseClient';
 import { AUTH_SESSION_INVALID_EVENT } from '../lib/authSession';
 
@@ -84,7 +85,7 @@ const mapProfile = (profile: any, email: string): Profile => ({
 async function fetchProfile(user: { id: string; email?: string | null }): Promise<Profile | null> {
   const { data, error } = await supabase
     .from('profiles')
-    .select('id, name, code, addr, email, role, branch, admin_title, assigned_zone, member_unique_code, is_panel_coordinator, perms, phone, occupation, bio, is_active')
+    .select(PROFILE_COLUMNS)
     .eq('id', user.id)
     .maybeSingle();
 
