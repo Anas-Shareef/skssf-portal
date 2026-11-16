@@ -6,7 +6,8 @@ import { localDb, syncFromBackend } from '../../lib/localDb';
 import { supabase } from '../../lib/supabaseClient';
 import { authenticatedFetch } from '../../lib/authSession';
 import ConfirmDialog from '../../components/ConfirmDialog';
-import { History as HistoryIcon } from 'lucide-react';
+import { History as HistoryIcon, Plus } from 'lucide-react';
+import LoanReviewDrawer from '../../components/LoanReviewDrawer';
 
 
 
@@ -15,8 +16,8 @@ export function parseLoanPurpose(purposeStr: string, rawLoan?: any) {
   if (!p.includes('Category:') && !p.includes('Referred By:')) {
     return {
       referredBy: rawLoan?.submitted_by_member_name || rawLoan?.referred_member_name || '',
-      category: p || 'General Support',
-      details: rawLoan?.purpDesc || rawLoan?.member_notes || '',
+      category: rawLoan?.loan_purpose_category || p || 'General Support',
+      details: rawLoan?.loan_purpose_detail || rawLoan?.purpDesc || rawLoan?.member_notes || rawLoan?.purpose_desc || '',
       period: rawLoan?.months ? `${rawLoan.months} Months` : (rawLoan?.repayment_period_months ? `${rawLoan.repayment_period_months} Months` : ''),
       income: rawLoan?.income || '',
       debts: rawLoan?.debts || '',
@@ -36,8 +37,8 @@ export function parseLoanPurpose(purposeStr: string, rawLoan?: any) {
   const dobMatch = p.match(/DOB:\s*(.+)/i);
 
   const referredBy = refMatch ? refMatch[1].trim() : (rawLoan?.submitted_by_member_name || '');
-  const category = catMatch ? catMatch[1].trim() : 'General Support';
-  const details = detMatch ? detMatch[1].trim() : (rawLoan?.purpDesc || '');
+  const category = catMatch ? catMatch[1].trim() : (rawLoan?.loan_purpose_category || 'General Support');
+  const details = detMatch ? detMatch[1].trim() : (rawLoan?.loan_purpose_detail || rawLoan?.purpDesc || rawLoan?.member_notes || rawLoan?.purpose_desc || '');
   const period = perMatch ? perMatch[1].trim() : (rawLoan?.months ? `${rawLoan.months} Months` : '');
   const income = incMatch ? incMatch[1].trim() : '';
   const debts = dbtMatch ? dbtMatch[1].trim() : '';
@@ -131,6 +132,10 @@ export default function LoanManagement() {
   const [fPurpose, setFPurpose] = useState('');
   const [fBranch, setFBranch] = useState('');
   const [reviewerSearch, setReviewerSearch] = useState('');
+
+  // Detailed purpose expansion state
+  const [expandedPurposeIds, setExpandedPurposeIds] = useState<Record<string, boolean>>({});
+  const toggleExpandPurpose = (id: string) => setExpandedPurposeIds(prev => ({ ...prev, [id]: !prev[id] }));
 
   // Bulk selection
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -380,11 +385,24 @@ export default function LoanManagement() {
             {isMember ? 'Track your loan requests and their status.' : 'Review applications, set status, and view the full audit trail.'}
           </div>
         </div>
-        {(isMember || profile?.role === 'super' || profile?.role === 'admin') && (
+        {(profile?.role === 'super' || profile?.role === 'admin') && (
+          <div className="pg-acts" style={{ marginLeft: 'auto', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <button
+              className="bsm s"
+              style={{ height: 48, padding: '0 24px', borderRadius: 14, display: 'inline-flex', alignItems: 'center', gap: 8, fontWeight: 800 }}
+              onClick={() => {
+                const p = profile?.role === 'super' ? '/super-admin/dashboard' : '/admin/dashboard';
+                navigate(`${p}/loans/file-new`);
+              }}
+            >
+              <span style={{ fontSize: 18, lineHeight: 1 }}>+</span> File New Application
+            </button>
+          </div>
+        )}
+        {isMember && (
           <div className="pg-acts" style={{ marginLeft: 'auto' }}>
             <button className="bsm s" style={{ height: 48, padding: '0 24px', borderRadius: 14 }} onClick={() => {
-              const prefix = profile?.role === 'super' ? '/super-admin/dashboard' : profile?.role === 'admin' ? '/admin/dashboard' : '/member/dashboard';
-              navigate(`${prefix}/apply`);
+              navigate('/member/dashboard/apply');
             }}>+ Apply for Loan</button>
           </div>
         )}
@@ -495,534 +513,340 @@ export default function LoanManagement() {
             }}>Apply for Loan →</button>}
           </div>
         ) : (
-          <div className="tbl-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th style={{ width: '36px' }}>
-                    <input type="checkbox" checked={allSelected} onChange={toggleAll} style={{ cursor: 'pointer' }} />
-                  </th>
-                  <th>App No.</th>
-                  {!isMember && <th>Applicant</th>}
-                  <th>Amount / Purpose</th>
-                  <th>Submitted</th>
-                  <th>Status</th>
-                  <th style={{ textAlign: 'right' }}>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredLoans.map(l => {
-                  const isAdminOrSuper = profile?.role === 'admin' || profile?.role === 'super';
-                  return (
-                    <tr key={l.id} style={{ background: selectedIds.includes(l.id) ? 'var(--teal-pale)' : '' }}>
-                      <td><input type="checkbox" checked={selectedIds.includes(l.id)} onChange={() => toggleOne(l.id)} style={{ cursor: 'pointer' }} /></td>
-                      <td style={{ fontSize: '11.5px', color: 'var(--muted)' }}>{l.id}</td>
-                      {!isMember && (
-                        <td><b>{l.name}</b><br /><span style={{ fontSize: '11px', color: 'var(--muted)' }}>{l.memNo}</span></td>
-                      )}
-                      <td>
-                        {(() => {
-                          const parsed = parseLoanPurpose(l.purpose, l);
-                          return (
-                            <div>
-                              <div style={{ fontSize: '14px', fontWeight: 950, color: 'var(--teal)' }}>
-                                ₹{(l.amt || l.amount || 0).toLocaleString()}
-                              </div>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px', flexWrap: 'wrap' }}>
-                                <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '6px', background: '#e0f2fe', color: '#0369a1', border: '1px solid #bae6fd', fontWeight: 800 }}>
-                                  {parsed.category}
+          <>
+            <div className="tbl-wrap loan-desktop-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th style={{ width: '36px' }}>
+                      <input type="checkbox" checked={allSelected} onChange={toggleAll} style={{ cursor: 'pointer' }} />
+                    </th>
+                    <th>App No.</th>
+                    {!isMember && <th>Applicant</th>}
+                    <th>Amount / Detailed Purpose</th>
+                    <th>Submitted</th>
+                    <th>Status</th>
+                    <th style={{ textAlign: 'right' }}>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredLoans.map(l => {
+                    const isAdminOrSuper = profile?.role === 'admin' || profile?.role === 'super';
+                    const parsed = parseLoanPurpose(l.purpose, l);
+                    const detailedPurpose = parsed.details || l.loan_purpose_detail || l.purpDesc || '';
+                    const isExpanded = !!expandedPurposeIds[l.id];
+
+                    return (
+                      <tr key={l.id} style={{ background: selectedIds.includes(l.id) ? 'var(--teal-pale)' : '' }}>
+                        <td><input type="checkbox" checked={selectedIds.includes(l.id)} onChange={() => toggleOne(l.id)} style={{ cursor: 'pointer' }} /></td>
+                        <td style={{ fontSize: '11.5px', color: 'var(--muted)' }}>{l.id}</td>
+                        {!isMember && (
+                          <td><b>{l.name}</b><br /><span style={{ fontSize: '11px', color: 'var(--muted)' }}>{l.memNo}</span></td>
+                        )}
+                        <td style={{ minWidth: '240px', maxWidth: '380px' }}>
+                          <div>
+                            <div style={{ fontSize: '15px', fontWeight: 950, color: 'var(--teal)' }}>
+                              ₹{(l.amt || l.amount || 0).toLocaleString()}
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px', flexWrap: 'wrap' }}>
+                              <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '6px', background: '#e0f2fe', color: '#0369a1', border: '1px solid #bae6fd', fontWeight: 800 }}>
+                                {parsed.category}
+                              </span>
+                              {parsed.referredBy && (
+                                <span style={{ fontSize: '11px', color: '#15803d', background: '#dcfce7', padding: '2px 8px', borderRadius: '6px', fontWeight: 700, border: '1px solid #bbf7d0' }}>
+                                  👤 Ref: {parsed.referredBy}
                                 </span>
-                                {parsed.referredBy && (
-                                  <span style={{ fontSize: '11px', color: '#15803d', background: '#dcfce7', padding: '2px 8px', borderRadius: '6px', fontWeight: 700, border: '1px solid #bbf7d0' }}>
-                                    👤 Ref: {parsed.referredBy}
-                                  </span>
-                                )}
+                              )}
+                            </div>
+                            <div style={{ marginTop: '8px' }}>
+                              <div style={{ fontSize: '10.5px', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', marginBottom: '2px' }}>
+                                Detailed Purpose:
                               </div>
-                              {parsed.details && (
-                                <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px', maxWidth: '280px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={parsed.details}>
-                                  {parsed.details}
+                              {detailedPurpose ? (
+                                <div>
+                                  <div style={{
+                                    fontSize: '12px',
+                                    color: '#1e293b',
+                                    lineHeight: 1.5,
+                                    whiteSpace: 'pre-wrap',
+                                    wordBreak: 'break-word',
+                                    ...(isExpanded ? {} : {
+                                      display: '-webkit-box',
+                                      WebkitLineClamp: 3,
+                                      WebkitBoxOrient: 'vertical',
+                                      overflow: 'hidden'
+                                    })
+                                  }}>
+                                    "{detailedPurpose}"
+                                  </div>
+                                  {detailedPurpose.length > 80 && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => { e.stopPropagation(); toggleExpandPurpose(l.id); }}
+                                      style={{
+                                        background: 'none',
+                                        border: 'none',
+                                        color: 'var(--teal)',
+                                        fontSize: '11px',
+                                        fontWeight: 800,
+                                        cursor: 'pointer',
+                                        padding: '2px 0',
+                                        marginTop: '2px'
+                                      }}
+                                    >
+                                      {isExpanded ? 'Show less ▲' : 'View more ▼'}
+                                    </button>
+                                  )}
+                                </div>
+                              ) : (
+                                <div style={{ fontSize: '12px', color: '#94a3b8', fontStyle: 'italic' }}>
+                                  Detailed purpose not provided
                                 </div>
                               )}
                             </div>
-                          );
-                        })()}
-                      </td>
-                      <td style={{ fontSize: '12px' }}>{l.submittedDate ? new Date(l.submittedDate).toLocaleDateString() : '—'}</td>
-                      <td>{stBadge(l)}</td>
-                      <td style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
-                        <button
-                          className={`bsm ${l.status === 'pending' && isAdminOrSuper ? 's' : 'g'}`}
-                          style={{ fontSize: '11px', padding: '5px 12px' }}
-                           onClick={() => { setSelectedLoanId(l.id); setActionStatus(l.status); setActionNote(''); setHistoryOpen(false); setApplicationHistory([]); setShowReview(true); }}
-                        >
-                          {l.status === 'pending' && isAdminOrSuper ? 'Review & Act →' : 'View Details'}
-                        </button>
-                        {l.status === 'approved' && !l.disbursementDate && isAdminOrSuper && (
+                          </div>
+                        </td>
+                        <td style={{ fontSize: '12px' }}>{l.submittedDate ? new Date(l.submittedDate).toLocaleDateString() : '—'}</td>
+                        <td>{stBadge(l)}</td>
+                        <td style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
                           <button
-                            className="bsm s"
-                            style={{ fontSize: '11px', padding: '5px 12px', background: 'var(--amber2)', borderColor: 'var(--amber2)' }}
-                            onClick={() => {
-                              setDisburseModalLoan(l);
-                              setDisbTenure(String(l.months || 12));
-                            }}
-                          >
-                            💰 Disburse
-                          </button>
-                        )}
-                        {((l.status === 'pending' || l.status === 'rejected') && (isMember || isAdminOrSuper)) && (
-                          <button
-                            className="bsm o"
+                            className={`bsm ${l.status === 'pending' && isAdminOrSuper ? 's' : 'g'}`}
                             style={{ fontSize: '11px', padding: '5px 12px' }}
-                            onClick={() => setEditingLoan(l)}
+                            onClick={() => { setSelectedLoanId(l.id); setActionStatus(l.status); setActionNote(''); setHistoryOpen(false); setApplicationHistory([]); setShowReview(true); }}
                           >
-                            Edit
+                            {l.status === 'pending' && isAdminOrSuper ? 'Review & Act →' : 'View Details'}
                           </button>
+                          {l.status === 'approved' && !l.disbursementDate && isAdminOrSuper && (
+                            <button
+                              className="bsm s"
+                              style={{ fontSize: '11px', padding: '5px 12px', background: 'var(--amber2)', borderColor: 'var(--amber2)' }}
+                              onClick={() => {
+                                setDisburseModalLoan(l);
+                                setDisbTenure(String(l.months || 12));
+                              }}
+                            >
+                              💰 Disburse
+                            </button>
+                          )}
+                          {((l.status === 'pending' || l.status === 'rejected') && (isMember || isAdminOrSuper)) && (
+                            <button
+                              className="bsm o"
+                              style={{ fontSize: '11px', padding: '5px 12px' }}
+                              onClick={() => setEditingLoan(l)}
+                            >
+                              Edit
+                            </button>
+                          )}
+                          {(isAdminOrSuper || (isMember && l.status === 'pending')) && (
+                            <button className="bsm r" style={{ fontSize: '11px', padding: '5px 10px' }} onClick={() => setConfirmDelete({ open: true, loan: l })}>🗑</button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile Card Transformation (Screens <= 768px) */}
+            <div className="loan-mobile-cards">
+              {filteredLoans.map(l => {
+                const isAdminOrSuper = profile?.role === 'admin' || profile?.role === 'super';
+                const parsed = parseLoanPurpose(l.purpose, l);
+                const detailedPurpose = parsed.details || l.loan_purpose_detail || l.purpDesc || '';
+                const isExpanded = !!expandedPurposeIds[l.id];
+                const isSelected = selectedIds.includes(l.id);
+
+                return (
+                  <div
+                    key={`mobile-card-${l.id}`}
+                    style={{
+                      background: isSelected ? 'var(--teal-pale)' : '#fff',
+                      border: '1.5px solid var(--border)',
+                      borderRadius: '16px',
+                      padding: '16px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '12px',
+                      boxShadow: '0 2px 6px rgba(0,0,0,0.03)'
+                    }}
+                  >
+                    {/* Header: Checkbox + Applicant Name + Reference + Status Badge */}
+                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '10px' }}>
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleOne(l.id)}
+                          style={{ cursor: 'pointer', marginTop: '3px' }}
+                        />
+                        <div>
+                          <div style={{ fontSize: '15px', fontWeight: 900, color: '#0f172a' }}>
+                            {l.name}
+                          </div>
+                          <div style={{ fontSize: '11px', color: 'var(--muted)' }}>
+                            {l.memNo ? `Mem: ${l.memNo} · ` : ''}Ref: {l.id}
+                          </div>
+                        </div>
+                      </div>
+                      <div>{stBadge(l)}</div>
+                    </div>
+
+                    {/* Amount & Category */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '6px' }}>
+                      <div style={{ fontSize: '17px', fontWeight: 950, color: 'var(--teal)' }}>
+                        ₹{(l.amt || l.amount || 0).toLocaleString()}
+                      </div>
+                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                        <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '6px', background: '#e0f2fe', color: '#0369a1', border: '1px solid #bae6fd', fontWeight: 800 }}>
+                          {parsed.category}
+                        </span>
+                        {parsed.referredBy && (
+                          <span style={{ fontSize: '11px', color: '#15803d', background: '#dcfce7', padding: '2px 8px', borderRadius: '6px', fontWeight: 700, border: '1px solid #bbf7d0' }}>
+                            👤 Ref: {parsed.referredBy}
+                          </span>
                         )}
-                        {(isAdminOrSuper || (isMember && l.status === 'pending')) && (
-                          <button className="bsm r" style={{ fontSize: '11px', padding: '5px 10px' }} onClick={() => setConfirmDelete({ open: true, loan: l })}>🗑</button>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                      </div>
+                    </div>
+
+                    {/* Detailed Purpose */}
+                    <div style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+                      <div style={{ fontSize: '10.5px', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', marginBottom: '4px' }}>
+                        Detailed Purpose:
+                      </div>
+                      {detailedPurpose ? (
+                        <div>
+                          <div style={{
+                            fontSize: '12.5px',
+                            color: '#1e293b',
+                            lineHeight: 1.5,
+                            whiteSpace: 'pre-wrap',
+                            wordBreak: 'break-word',
+                            ...(isExpanded ? {} : {
+                              display: '-webkit-box',
+                              WebkitLineClamp: 3,
+                              WebkitBoxOrient: 'vertical',
+                              overflow: 'hidden'
+                            })
+                          }}>
+                            "{detailedPurpose}"
+                          </div>
+                          {detailedPurpose.length > 80 && (
+                            <button
+                              type="button"
+                              onClick={() => toggleExpandPurpose(l.id)}
+                              style={{
+                                background: 'none',
+                                border: 'none',
+                                color: 'var(--teal)',
+                                fontSize: '11px',
+                                fontWeight: 800,
+                                cursor: 'pointer',
+                                padding: '2px 0',
+                                marginTop: '2px'
+                              }}
+                            >
+                              {isExpanded ? 'Show less ▲' : 'View more ▼'}
+                            </button>
+                          )}
+                        </div>
+                      ) : (
+                        <div style={{ fontSize: '12px', color: '#94a3b8', fontStyle: 'italic' }}>
+                          Detailed purpose not provided
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Submission Date */}
+                    <div style={{ fontSize: '11.5px', color: '#64748b' }}>
+                      <b>Submitted:</b> {l.submittedDate ? new Date(l.submittedDate).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}
+                    </div>
+
+                    {/* Actions */}
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', paddingTop: '6px', borderTop: '1px solid #f1f5f9' }}>
+                      <button
+                        className={`bsm ${l.status === 'pending' && isAdminOrSuper ? 's' : 'g'}`}
+                        style={{ fontSize: '12px', padding: '7px 14px', flex: 1, minWidth: '120px' }}
+                        onClick={() => { setSelectedLoanId(l.id); setActionStatus(l.status); setActionNote(''); setHistoryOpen(false); setApplicationHistory([]); setShowReview(true); }}
+                      >
+                        {l.status === 'pending' && isAdminOrSuper ? 'Review & Act →' : 'View Details'}
+                      </button>
+                      {l.status === 'approved' && !l.disbursementDate && isAdminOrSuper && (
+                        <button
+                          className="bsm s"
+                          style={{ fontSize: '12px', padding: '7px 14px', background: 'var(--amber2)', borderColor: 'var(--amber2)' }}
+                          onClick={() => {
+                            setDisburseModalLoan(l);
+                            setDisbTenure(String(l.months || 12));
+                          }}
+                        >
+                          💰 Disburse
+                        </button>
+                      )}
+                      {((l.status === 'pending' || l.status === 'rejected') && (isMember || isAdminOrSuper)) && (
+                        <button
+                          className="bsm o"
+                          style={{ fontSize: '12px', padding: '7px 14px' }}
+                          onClick={() => setEditingLoan(l)}
+                        >
+                          Edit
+                        </button>
+                      )}
+                      {(isAdminOrSuper || (isMember && l.status === 'pending')) && (
+                        <button className="bsm r" style={{ fontSize: '12px', padding: '7px 12px' }} onClick={() => setConfirmDelete({ open: true, loan: l })}>
+                          🗑
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
         )}
       </div>
 
-      {/* ── REVIEW MODAL ── */}
-      {showReview && selectedLoan && (
-        <div className="ov" onClick={e => { if ((e.target as HTMLElement).classList.contains('ov')) setShowReview(false); }}>
-          <div className="modal review-modal-grid loan-review-container" style={{ maxWidth: '980px', height: '90vh', maxHeight: '90vh', display: 'grid', gridTemplateColumns: '1.2fr 1fr', overflow: 'hidden', padding: 0 }}>
-
-            {/* LEFT — Original Application */}
-            <div style={{ background: 'var(--bg)', borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
-              <div className="modal-head" style={{ background: 'var(--bg)', flexShrink: 0 }}>
-                <div className="modal-title">Original Signed Form</div>
-                <button className="bsm g" style={{ fontSize: '11px' }} onClick={() => window.print()}>⬇ Print/PDF</button>
-              </div>
-              <div className="modal-body" style={{ flex: 1, overflowY: 'auto', padding: '24px' }}>
-                <div className="amt-hero">
-                  <div>
-                    <div className="ah-lbl">Requested Amount</div>
-                    <div className="ah-num">₹{selectedLoan.amt?.toLocaleString()}</div>
-                    <div className="ah-words">Interest-Free Welfare Loan</div>
-                  </div>
-                  <div className="ah-r">
-                    <div className="ah-rl">Tenure</div>
-                    <div className="ah-rn">{selectedLoan.months} Months</div>
-                  </div>
-                </div>
-                {(() => {
-                  const parsed = parseLoanPurpose(selectedLoan.purpose, selectedLoan);
-                  const contactVal = selectedLoan.mob || selectedLoan.phone || selectedLoan.requester_phone || selectedLoan.applicant_phone || '—';
-                  const salaryVal = selectedLoan.salary ? `₹${selectedLoan.salary}` : parsed.income ? parsed.income : selectedLoan.monthly_income ? `₹${Number(selectedLoan.monthly_income).toLocaleString()}` : '—';
-
-                  return (
-                    <>
-                      <div className="rv-sec">
-                        <div className="rv-sec-t">Applicant Details</div>
-                        <div className="rv-row"><div className="rv-k">Name</div><div className="rv-v">{selectedLoan.applicant_name || selectedLoan.name}</div></div>
-                        <div className="rv-row"><div className="rv-k">Application Reference</div><div className="rv-v">{selectedLoan.application_reference || selectedLoan.request?.application_reference || `REF-${String(selectedLoan.source_request_id || selectedLoan.id).slice(0, 8).toUpperCase()}`}</div></div>
-                        <div className="rv-row"><div className="rv-k">Contact</div><div className="rv-v">{contactVal}</div></div>
-                        {selectedLoan.applicant_whatsapp && <div className="rv-row"><div className="rv-k">WhatsApp</div><div className="rv-v">{selectedLoan.applicant_whatsapp}</div></div>}
-                        <div className="rv-row"><div className="rv-k">Date of Birth</div><div className="rv-v">{formatDateOnly(selectedLoan.applicant_dob)}</div></div>
-                        <div className="rv-row"><div className="rv-k">Gender</div><div className="rv-v">{selectedLoan.applicant_gender || 'Not provided'}</div></div>
-                        {selectedLoan.applicant_father_name && <div className="rv-row"><div className="rv-k">Father's Name</div><div className="rv-v">{selectedLoan.applicant_father_name}</div></div>}
-                        {selectedLoan.applicant_address && <div className="rv-row"><div className="rv-k">Address</div><div className="rv-v">{selectedLoan.applicant_address}</div></div>}
-                        {selectedLoan.applicant_address_pin && <div className="rv-row"><div className="rv-k">PIN</div><div className="rv-v">{selectedLoan.applicant_address_pin}</div></div>}
-                        {selectedLoan.applicant_occupation && <div className="rv-row"><div className="rv-k">Occupation</div><div className="rv-v">{selectedLoan.applicant_occupation}</div></div>}
-                        {selectedLoan.applicant_employer_name && <div className="rv-row"><div className="rv-k">Employer</div><div className="rv-v">{selectedLoan.applicant_employer_name}</div></div>}
-                        <div className="rv-row"><div className="rv-k">Monthly Salary</div><div className="rv-v">{salaryVal}</div></div>
-                        {selectedLoan.income_source && <div className="rv-row"><div className="rv-k">Income Source</div><div className="rv-v">{selectedLoan.income_source}</div></div>}
-                        {selectedLoan.request?.relationship && <div className="rv-row"><div className="rv-k">Member Relationship</div><div className="rv-v">{selectedLoan.request.relationship}</div></div>}
-                        {selectedLoan.member_notes && <div className="rv-row"><div className="rv-k">Member Assessment</div><div className="rv-v">{selectedLoan.member_notes}</div></div>}
-                        {filingHelper && (
-                          <div className="rv-row" style={{ background: 'var(--teal-pale)', padding: '6px 10px', borderRadius: '8px', marginTop: '10px' }}>
-                            <div className="rv-k" style={{ color: 'var(--teal)' }}>Filing Helper</div>
-                            <div className="rv-v" style={{ fontWeight: 800 }}>{filingHelper.name} ({filingHelper.member_unique_code || 'MBR-CODE'})</div>
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="rv-sec">
-                        <div className="rv-sec-t">Purpose & Specifications</div>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', background: '#f8fafc', padding: '14px', borderRadius: '14px', border: '1px solid #e2e8f0', marginBottom: '12px' }}>
-                          <div>
-                            <div style={{ fontSize: '11px', fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>Category</div>
-                            <span style={{ fontSize: '12px', padding: '3px 10px', marginTop: '4px', display: 'inline-block', borderRadius: '6px', background: '#e0f2fe', color: '#0369a1', border: '1px solid #bae6fd', fontWeight: 800 }}>
-                              {parsed.category}
-                            </span>
-                          </div>
-
-                          {parsed.referredBy && (
-                            <div>
-                              <div style={{ fontSize: '11px', fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>Referred By Member</div>
-                              <div style={{ fontSize: '13px', fontWeight: 800, color: '#166534', marginTop: '4px' }}>
-                                👤 {parsed.referredBy}
-                              </div>
-                            </div>
-                          )}
-
-                          {parsed.period && (
-                            <div>
-                              <div style={{ fontSize: '11px', fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>Repayment Period</div>
-                              <div style={{ fontSize: '13px', fontWeight: 800, color: '#0f172a', marginTop: '4px' }}>
-                                ⏱ {parsed.period}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-
-                        {parsed.details && (
-                          <div style={{ padding: '12px', background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                            <div style={{ fontSize: '11px', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', marginBottom: '4px' }}>Detailed Purpose</div>
-                            <div style={{ fontSize: '13px', color: '#334155', lineHeight: 1.5 }}>
-                              {parsed.details}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-
-                      {(parsed.dob || parsed.debts) && (
-                        <div className="rv-sec">
-                          <div className="rv-sec-t">Additional Declarations</div>
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', fontSize: '12.5px', background: '#f8fafc', padding: '12px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                            {parsed.dob && <div><b>DOB / Gender:</b> {parsed.dob}</div>}
-                            {parsed.debts && <div><b>Existing Debts:</b> {parsed.debts}</div>}
-                          </div>
-                        </div>
-                      )}
-                    </>
-                  );
-                })()}
-
-                {/* Repayment Plan */}
-                <div className="rv-sec">
-                  <div className="rv-sec-t">Repayment Plan ({selectedLoan.months} Months)</div>
-                  <table className="wit-tbl">
-                    <thead><tr><th>EMI #</th><th>Due Date</th><th>Amount</th><th>Status</th></tr></thead>
-                    <tbody>
-                      {(selectedLoan.repayments || []).map((r: any, i: number) => (
-                        <tr key={i}>
-                          <td><b>#{i + 1}</b></td>
-                          <td>{new Date(r.due).toLocaleDateString()}</td>
-                          <td><b>₹{r.amt?.toLocaleString()}</b></td>
-                          <td>{r.paid ? <span className="bdg bdg-g" style={{ fontSize: '10px' }}>Paid</span> : <span className="bdg bdg-a" style={{ fontSize: '10px' }}>Due</span>}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                {selectedLoan.guarantors?.length > 0 && (
-                  <div className="rv-sec">
-                    <div className="rv-sec-t">Guarantors</div>
-                    <table className="wit-tbl">
-                      <thead><tr><th>Name</th><th>Relation</th><th>Phone</th></tr></thead>
-                      <tbody>
-                        {selectedLoan.guarantors.map((g: any, i: number) => (
-                          <tr key={i}><td><b>{g.name}</b></td><td>{g.rel}</td><td>{g.phone}</td></tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-                {/* PRD Witness / Guarantor Verification Cards with WhatsApp 1-Click triggers */}
-                 <div className="rv-sec">
-                   <div className="rv-sec-t">Witness / Guarantor Verifications</div>
-                   <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                     {getLoanWitnesses(selectedLoan).map((witness: any, index: number) => {
-                       const idx = index + 1;
-                       const wName = witness.name;
-                       const wPhone = witness.phone;
-                       const wStatus = witness.status;
-
-                      const cleanPhone = (wPhone || '').replace(/\D/g, '');
-                      const canIssueLink = !!selectedLoan.source_request_id && cleanPhone.length === 10;
-
-                      return (
-                        <div key={idx} style={{ background: '#fff', padding: '12px 14px', borderRadius: '12px', border: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-                          <div>
-                            <div style={{ fontWeight: 800, fontSize: '13px', color: '#0f172a' }}>
-                               Witness {idx}: {wName || '—'} {wPhone && <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>({wPhone})</span>} {witness.member_no && <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>· Member {witness.member_no}</span>}
-                            </div>
-                            <div style={{ marginTop: '4px' }}>
-                              {wStatus === 'VERIFIED' ? (
-                                <span style={{ fontSize: '11px', fontWeight: 800, color: '#166534', background: '#dcfce7', padding: '2px 8px', borderRadius: '6px' }}>
-                                  🟢 Verified via secure link ✓
-                                </span>
-                              ) : wStatus === 'REJECTED' || wStatus === 'DECLINED' ? (
-                                <span style={{ fontSize: '11px', fontWeight: 800, color: '#991b1b', background: '#fee2e2', padding: '2px 8px', borderRadius: '6px' }}>
-                                  🔴 Declined by Witness
-                                </span>
-                              ) : (
-                                <span style={{ fontSize: '11px', fontWeight: 800, color: '#b45309', background: '#fef3c7', padding: '2px 8px', borderRadius: '6px' }}>
-                                  ⏳ Pending Witness Confirmation
-                                </span>
-                              )}
-                            </div>
-                          </div>
-
-                          {wPhone && (
-                            canIssueLink ? (
-                              <button
-                                type="button"
-                                onClick={() => sendWitnessVerificationLink(selectedLoan, witness, idx)}
-                                disabled={witnessLinkBusy === idx}
-                                className="bsm s"
-                                style={{ padding: '6px 12px', fontSize: '11px', background: '#25D366', borderColor: '#25D366', color: '#fff', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '4px', opacity: witnessLinkBusy === idx ? 0.6 : 1 }}
-                              >
-                                {witnessLinkBusy === idx ? 'Preparing…' : '📲 Send WhatsApp Link'}
-                              </button>
-                            ) : (
-                              <span style={{ fontSize: '11px', color: '#92400e', maxWidth: '220px', lineHeight: 1.5 }}>
-                                A secure link can only be issued for applications linked to a submitted request.
-                              </span>
-                            )
-                          )}
-                        </div>
-                       );
-                     })}
-                     {getLoanWitnesses(selectedLoan).length === 0 && <div style={{ fontSize: '12px', color: '#92400e' }}>No witness information was saved for this application.</div>}
-                   </div>
-                 </div>
-
-                {selectedLoan.signature && (
-                  <div className="rv-sec">
-                    <div className="rv-sec-t">Applicant Signature</div>
-                    <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: '8px', padding: '15px', textAlign: 'center' }}>
-                       <img src={selectedLoan.signature} alt="Signature" style={{ maxHeight: '80px' }} />
-                    </div>
-                  </div>
-                )}
-
-                <div className="decl-box" style={{ fontSize: '12px', padding: '12px', background: 'var(--white)', border: '1px solid var(--border)', borderRadius: '8px' }}>
-                  ✅ <b>Declaration Signed</b> — This application was digitally signed by {selectedLoan.name} on {selectedLoan.submittedDate}.
-                </div>
-              </div>
-            </div>
-
-            {/* RIGHT — Actions + Audit */}
-            <div style={{ display: 'flex', flexDirection: 'column', background: 'var(--white)', minHeight: 0, overflow: 'hidden' }}>
-              <div className="modal-head" style={{ flexShrink: 0 }}>
-                <div className="modal-title">{isMember ? 'Loan Application Status' : 'Validation & Audit Trail'}</div>
-                <button className="modal-close" onClick={() => setShowReview(false)}>✕</button>
-              </div>
-              <div className="modal-body" style={{ flex: 1, overflowY: 'auto', padding: '24px' }}>
-                {!isMember && (
-                  <div style={{ marginBottom: '16px' }}>
-                    <button className="bsm o" style={{ fontSize: '11px', padding: '7px 12px' }} onClick={() => void loadApplicationHistory(selectedLoan)} disabled={historyLoading}>
-                      <HistoryIcon size={14} /> {historyLoading ? 'Loading History…' : 'View Change History'}
-                    </button>
-                    {historyOpen && (
-                      <div style={{ marginTop: '10px', padding: '12px', borderRadius: '12px', background: '#f8fafc', border: '1px solid #e2e8f0' }}>
-                        <div style={{ fontSize: '11px', fontWeight: 900, textTransform: 'uppercase', color: '#64748b', marginBottom: '8px' }}>Application History</div>
-                        {applicationHistory.length === 0 ? <div style={{ fontSize: '12px', color: '#64748b' }}>No edits recorded. This is the original submitted application.</div> : applicationHistory.map((version: any) => (
-                          <div key={version.id} style={{ borderTop: '1px solid #e2e8f0', paddingTop: '8px', marginTop: '8px' }}>
-                            <div style={{ fontSize: '12px', fontWeight: 800 }}>Version {version.application_version} — {version.editor_role === 'applicant' ? 'Original Submission' : 'Edited by Member'}</div>
-                            <div style={{ fontSize: '11px', color: '#64748b', marginTop: '3px' }}>{version.editor?.name || version.edited_by || 'Applicant'} · {new Date(version.created_at).toLocaleString()}</div>
-                            {(version.changed_fields || []).map((change: any) => <div key={change.field} style={{ fontSize: '11px', color: '#475569', marginTop: '3px' }}><b>{change.field}</b>: {historyValue(change.previous_value)} → {historyValue(change.new_value)}</div>)}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-                
-                {/* PRD Section 28: Applicant Previous Loan History Detector */}
-                {(() => {
-                  const applicantName = selectedLoan.name || selectedLoan.applicant_name || '';
-                  const prevLoans = loans.filter(l => l.id !== selectedLoan.id && (l.name === applicantName || l.applicant_name === applicantName));
-                  const completedPrev = prevLoans.filter(l => l.status === 'completed' || l.workflow_status === 'REPAYMENT_COMPLETE').length;
-                  const activePrev = prevLoans.filter(l => l.status === 'approved' || l.status === 'completed' || l.workflow_status === 'APPROVED' || l.workflow_status === 'DISBURSED').length;
-                  const hasActiveOrOverdue = activePrev > 0;
-
-                  return (
-                    <div style={{ background: '#f8fafc', padding: '14px', borderRadius: '14px', border: '1px solid #e2e8f0', marginBottom: '16px' }}>
-                      <div style={{ fontSize: '11px', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', marginBottom: '8px' }}>
-                        🔍 Applicant Previous Loan History
-                      </div>
-                      <div style={{ display: 'flex', gap: '8px', fontSize: '12px', flexWrap: 'wrap' }}>
-                        <span style={{ padding: '3px 8px', background: '#fff', borderRadius: '6px', border: '1px solid #cbd5e1', fontWeight: 700 }}>
-                          Total Previous: <b>{prevLoans.length}</b>
-                        </span>
-                        <span style={{ padding: '3px 8px', background: '#dcfce7', color: '#166534', borderRadius: '6px', fontWeight: 700 }}>
-                          Completed: <b>{completedPrev}</b>
-                        </span>
-                        <span style={{ padding: '3px 8px', background: '#e0f2fe', color: '#0369a1', borderRadius: '6px', fontWeight: 700 }}>
-                          Active: <b>{activePrev}</b>
-                        </span>
-                      </div>
-
-                      {hasActiveOrOverdue && (
-                        <div style={{ marginTop: '10px', background: '#fef2f2', border: '1px solid #fecaca', padding: '8px 12px', borderRadius: '8px', color: '#991b1b', fontSize: '11.5px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <span>⚠ Warning: Applicant currently has an active / outstanding loan.</span>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })()}
-
-                {/* PRD Section 29: Verification Checklist */}
-                {!isMember && (
-                  <div style={{ background: '#f8fafc', padding: '14px', borderRadius: '14px', border: '1px solid #e2e8f0', marginBottom: '16px' }}>
-                    <div style={{ fontSize: '11px', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', marginBottom: '8px' }}>
-                      ✅ Admin Verification Checklist
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '12px', color: '#0f172a' }}>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                        <input type="checkbox" defaultChecked style={{ accentColor: 'var(--teal)' }} /> Membership Number Verified
-                      </label>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                        <input type="checkbox" defaultChecked style={{ accentColor: 'var(--teal)' }} /> Applicant Identity Verified
-                      </label>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                        <input type="checkbox" defaultChecked style={{ accentColor: 'var(--teal)' }} /> Financial & Occupation Reviewed
-                      </label>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                        <input type="checkbox" defaultChecked style={{ accentColor: 'var(--teal)' }} /> Witness / Guarantors Checked
-                      </label>
-                    </div>
-                  </div>
-                )}
-
-                {isMember && selectedLoan.status === 'pending' && (
-                  <div style={{ background: '#f8fafc', borderRadius: 12, padding: '16px', marginBottom: '24px', border: '1px solid #e2e8f0' }}>
-                    <div style={{ fontSize: '12px', fontWeight: 800, color: '#1e40af', textTransform: 'uppercase', marginBottom: '12px' }}>Consensus Progress</div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px' }}>
-                      {allAdmins.filter((a: any) => config.authorizedReviewers?.includes(a.id)).map((admin: any) => {
-                        const assignedIds: string[] = selectedLoan.assignedReviewers || [];
-                        const assigned = assignedIds.length === 0 || assignedIds.includes(admin.id);
-                        if (!assigned) return null;
-                        
-                        const approval = (selectedLoan.approvals || []).find((ap: any) => ap.id === admin.id || ap.by === admin.name);
-                        const dotColor = approval?.status === 'approved' ? '#10b981' : approval?.status === 'rejected' ? '#ef4444' : '#6366f1';
-                        
-                        return (
-                          <div key={admin.id} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <div style={{ position: 'relative' }}>
-                              <div className="sb-av" style={{ width: '28px', height: '28px', fontSize: '11px' }}>{admin.name[0]}</div>
-                              <div style={{ position: 'absolute', bottom: '-1px', right: '-1px', width: '10px', height: '10px', borderRadius: '50%', background: dotColor, border: '2px solid #fff' }}></div>
-                            </div>
-                            <div style={{ fontSize: '11px', fontWeight: 700 }}>{admin.name}</div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-                {!isMember && (
-                  <>
-                    {/* Committee Status & Assignment */}
-                  <div style={{ background: '#f8fafc', borderRadius: 12, padding: '14px', marginBottom: '20px', border: '1px solid #e2e8f0' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                      <div style={{ fontSize: '11px', fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>Committee & Consensus</div>
-                      {profile?.role === 'super' && <span style={{ fontSize: '10px', color: 'var(--teal)', fontWeight: 700 }}>Click to Assign</span>}
-                    </div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
-                      {allAdmins.filter((a: any) => config.authorizedReviewers?.includes(a.id)).map((admin: any) => {
-                        const assignedIds: string[] = selectedLoan.assignedReviewers || [];
-                        const assigned = assignedIds.length === 0 || assignedIds.includes(admin.id);
-                        const approval = (selectedLoan.approvals || []).find((ap: any) => ap.id === admin.id || ap.by === admin.name);
-                        const dotColor = approval?.status === 'approved' ? '#10b981' : approval?.status === 'rejected' ? '#ef4444' : assigned ? '#6366f1' : '#e2e8f0';
-                        
-                        const toggle = () => {
-                          if (profile?.role !== 'super') return;
-                          const isAssignedTag = assignedIds.includes(admin.id);
-                          const newAssigned = isAssignedTag
-                            ? assignedIds.filter((id: string) => id !== admin.id)
-                            : [...assignedIds, admin.id];
-                          // Update both top-level assignedReviewers and request.assignedReviewers so backend persists it
-                          const updatedRequest = { ...(selectedLoan.request || {}), assignedReviewers: newAssigned };
-                          localDb.updateLoan(selectedLoanId!, { assignedReviewers: newAssigned, request: updatedRequest });
-                          localDb.addAuditLog(selectedLoanId!, 'Committee Updated', profile?.name || 'Super Admin', `${isAssignedTag ? 'Removed' : 'Assigned'} ${admin.name} to reviewers.`);
-                          refreshLoans();
-                        };
-
-                        return (
-                          <div key={admin.id} onClick={toggle} style={{ 
-                            display: 'flex', alignItems: 'center', gap: '8px', padding: '5px 10px', borderRadius: '10px',
-                            background: assigned ? '#fff' : 'transparent',
-                            border: assigned ? '1.5px solid var(--teal)' : '1.5px solid transparent',
-                            cursor: profile?.role === 'super' ? 'pointer' : 'default',
-                            opacity: assigned || profile?.role === 'super' ? 1 : 0.4,
-                            transition: 'all .2s'
-                          }}>
-                            <div style={{ position: 'relative' }}>
-                              <div className="sb-av" style={{ width: '24px', height: '24px', fontSize: '10px' }}>{admin.name[0]}</div>
-                              <div style={{ position: 'absolute', bottom: '-2px', right: '-2px', width: '9px', height: '9px', borderRadius: '50%', background: dotColor, border: '2px solid #fff' }}></div>
-                            </div>
-                            <div style={{ fontSize: '11px', fontWeight: 700 }}>{admin.name}</div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {!canSign && isGlobalApprover && (
-                    <div style={{ background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: '10px', padding: '12px', marginBottom: '20px', display: 'flex', gap: '10px', alignItems: 'center' }}>
-                      <span style={{ fontSize: '20px' }}>⚠️</span>
-                      <div style={{ fontSize: '11px', color: '#92400e', fontWeight: 600 }}>
-                        You are not an assigned reviewer for this case. You can view details, but only committee members can sign.
-                      </div>
-                    </div>
-                  )}
-
-                  <label className="fl2" style={{ marginBottom: '10px' }}>Your Verdict *</label>
-                  <div style={{ display: 'flex', gap: '6px', marginBottom: '16px' }}>
-                    {[
-                      { id: 'approved', lbl: '✅ Approve', color: '#10b981' },
-                      { id: 'rejected', lbl: '❌ Reject', color: '#ef4444' },
-                      { id: 'pending', lbl: '⏳ Pending', color: '#f59e0b' }
-                    ].map(s => (
-                      <label key={s.id} className={`radio-opt ${actionStatus === s.id ? 'sel' : ''} ${!canSign ? 'dis' : ''}`} 
-                        style={{ flex: 1, marginBottom: 0, padding: '10px 5px', textAlign: 'center', borderColor: actionStatus === s.id ? s.color : '', fontSize: '11px', opacity: canSign ? 1 : 0.6, pointerEvents: canSign ? 'auto' : 'none' }} 
-                        onClick={() => canSign && setActionStatus(s.id)}>
-                        <input type="radio" checked={actionStatus === s.id} readOnly />
-                        <div className="ro-lbl" style={{ fontWeight: 800, fontSize: '11px' }}>{s.lbl}</div>
-                      </label>
-                    ))}
-                  </div>
-                  <textarea className="ta2" placeholder={canSign ? "Explain your decision..." : "Read-only view"} value={actionNote} readOnly={!canSign} onChange={e => setActionNote(e.target.value)} style={{ marginBottom: '16px' }} />
-                  <button 
-                    className="bsm s" 
-                    style={{ width: '100%', padding: '14px', marginBottom: '24px', fontWeight: 800, opacity: canSign ? 1 : 0.5 }} 
-                    disabled={!canSign}
-                    onClick={() => setConfirmSave(true)}
-                  >
-                     {canSign ? 'Record My Signature →' : 'Signature Restricted'}
-                  </button>
-                </>
-              )}
-
-                <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--dark2)', marginBottom: '14px', borderTop: '1px solid var(--border)', paddingTop: '14px' }}>
-                  Action History
-                </div>
-                <div style={{ paddingLeft: '14px', borderLeft: '2px solid var(--border2)' }}>
-                  {[...(selectedLoan.audit || [])].reverse().map((log: any, i: number) => (
-                    <div key={i} style={{ marginBottom: '18px', position: 'relative' }}>
-                      <div style={{
-                        position: 'absolute', width: '11px', height: '11px', borderRadius: '50%', left: '-22px', top: '2px',
-                        background: log.action === 'Approved' ? 'var(--green)' : log.action === 'Rejected' ? 'var(--red)' : log.action === 'Submitted' ? 'var(--blue)' : 'var(--amber)',
-                        border: '2px solid var(--white)'
-                      }}></div>
-                      <div style={{ fontSize: '13.5px', fontWeight: 700, color: 'var(--dark)' }}>{log.action}</div>
-                      <div style={{ fontSize: '11.5px', color: 'var(--muted)', marginTop: '2px' }}>By <b>{log.by}</b> · {log.date}</div>
-                      {log.note && (
-                        <div style={{ marginTop: '6px', fontSize: '12px', fontStyle: 'italic', background: 'var(--bg)', padding: '8px 12px', borderRadius: '6px', color: 'var(--dark2)' }}>
-                          "{log.note}"
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* ── REVIEW DRAWER ── */}
+      <LoanReviewDrawer
+        open={showReview}
+        loan={selectedLoan!}
+        loans={loans}
+        profile={profile}
+        config={config}
+        allAdmins={allAdmins}
+        selectedMember={selectedMember}
+        filingHelper={filingHelper}
+        canSign={canSign}
+        isGlobalApprover={isGlobalApprover}
+        actionStatus={actionStatus}
+        actionNote={actionNote}
+        historyLoading={historyLoading}
+        historyOpen={historyOpen}
+        applicationHistory={applicationHistory}
+        witnessLinkBusy={witnessLinkBusy}
+        parseLoanPurpose={parseLoanPurpose}
+        formatDateOnly={formatDateOnly}
+        historyValue={historyValue}
+        getLoanWitnesses={getLoanWitnesses}
+        onClose={() => setShowReview(false)}
+        onActionStatusChange={setActionStatus}
+        onActionNoteChange={setActionNote}
+        onRecordSignature={() => setConfirmSave(true)}
+        onLoadHistory={loadApplicationHistory}
+        onSendWitnessLink={sendWitnessVerificationLink}
+        onToggleReviewer={(adminId) => {
+          if (!selectedLoanId || profile?.role !== 'super') return;
+          const assignedIds: string[] = selectedLoan?.assignedReviewers || [];
+          const isAssignedTag = assignedIds.includes(adminId);
+          const newAssigned = isAssignedTag
+            ? assignedIds.filter((id: string) => id !== adminId)
+            : [...assignedIds, adminId];
+          const updatedRequest = { ...(selectedLoan?.request || {}), assignedReviewers: newAssigned };
+          localDb.updateLoan(selectedLoanId, { assignedReviewers: newAssigned, request: updatedRequest });
+          localDb.addAuditLog(selectedLoanId, 'Committee Updated', profile?.name || 'Super Admin', `${isAssignedTag ? 'Removed' : 'Assigned'} reviewer.`);
+          refreshLoans();
+        }}
+      />
 
       {/* ── EDIT LOAN MODAL (Members only) ── */}
       {editingLoan && (
@@ -1152,7 +976,24 @@ export default function LoanManagement() {
         onCancel={() => setConfirmExport(false)}
       />
       <style>{`
+        /* Pipeline Statistics Grid */
+        .loan-pipeline-grid {
+          display: grid !important;
+          grid-template-columns: repeat(4, 1fr) !important;
+          gap: 14px !important;
+        }
+
+        @media (min-width: 769px) {
+          .loan-mobile-cards {
+            display: none !important;
+          }
+        }
+
         @media (max-width: 1024px) {
+          .loan-pipeline-grid {
+            grid-template-columns: repeat(2, 1fr) !important;
+            gap: 12px !important;
+          }
           .pg-hd {
             flex-direction: column !important;
             align-items: flex-start !important;
@@ -1163,6 +1004,7 @@ export default function LoanManagement() {
           }
           .pg-acts button {
             width: 100%;
+            justify-content: center;
           }
           .inv-ctrls {
             flex-direction: column !important;
@@ -1178,6 +1020,15 @@ export default function LoanManagement() {
         }
 
         @media (max-width: 768px) {
+          .loan-desktop-table {
+            display: none !important;
+          }
+          .loan-mobile-cards {
+            display: flex !important;
+            flex-direction: column !important;
+            gap: 14px !important;
+            padding: 16px !important;
+          }
           .loan-review-container {
             grid-template-columns: 1fr !important;
             height: 95vh !important;
@@ -1229,6 +1080,12 @@ export default function LoanManagement() {
           }
           .inv-actions-group > div:first-child {
             grid-column: 1 / -1;
+          }
+        }
+
+        @media (max-width: 360px) {
+          .loan-pipeline-grid {
+            grid-template-columns: 1fr !important;
           }
         }
       `}</style>

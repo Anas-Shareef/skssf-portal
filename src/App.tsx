@@ -25,6 +25,9 @@ import PublicLoanServices from './pages/PublicLoanServices';
 import ApplicantTracking from './pages/ApplicantTracking';
 import WitnessVerify from './pages/WitnessVerify';
 
+// Admin-filed loan application
+import AdminNewLoanApplication from './pages/dashboard/AdminNewLoanApplication';
+
 // Member sub-pages
 import MemberInbox from './pages/dashboard/MemberInbox';
 import FiledLoans from './pages/dashboard/FiledLoans';
@@ -87,6 +90,7 @@ function App() {
             <Route path="admins" element={<Admins />} />
             <Route path="members" element={<Members />} />
             <Route path="loans" element={<LoanManagement />} />
+            <Route path="loans/file-new" element={<AdminNewLoanApplication />} />
             <Route path="repayments" element={<Repayments />} />
             <Route path="sahachari" element={<Sahachari />} />
             <Route path="donations" element={<Donations />} />
@@ -108,6 +112,7 @@ function App() {
             <Route index element={<Dashboard />} />
             <Route path="members" element={<Members />} />
             <Route path="loans" element={<LoanManagement />} />
+            <Route path="loans/file-new" element={<AdminNewLoanApplication />} />
             <Route path="repayments" element={<Repayments />} />
             <Route path="sahachari" element={<Sahachari />} />
             <Route path="donations" element={<Donations />} />
