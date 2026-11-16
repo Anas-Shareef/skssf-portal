@@ -184,7 +184,10 @@ const mapLoanFromApi = (l: any, usersByUuid: Map<string, any>) => {
     witness2_status: l.witness2_status || l.request?.witness2_status || null,
     db_id: l.id,   // original numeric Supabase row ID, for member detail navigation
     workflow_status: l.workflow_status || null,
-    workflow_type: l.workflow_type || 'CONFIGURABLE',
+    workflow_type: l.workflow_type
+      || ((l.president_vote || l.secretary_vote || l.panel_coordinator_vote || l.coordinator_review_status || l.panel_coordinator_id)
+        ? 'LEGACY_VOTES'
+        : 'CONFIGURABLE'),
     review_decision_history: Array.isArray(l.review_decision_history)
       ? l.review_decision_history
       : (Array.isArray(l.request?.reviewHistory) ? l.request.reviewHistory : []),

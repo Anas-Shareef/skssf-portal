@@ -146,7 +146,10 @@ export default function LoanReviewDrawer({
   const [isAnimatingOut, setIsAnimatingOut] = useState(false);
 
   // ── Configurable workflow decision state ──────────────────────────────────
-  const isLegacyLoan = (loan?.workflow_type || 'CONFIGURABLE') === 'LEGACY_VOTES';
+  const isLegacyLoan = loan
+    ? (loan.workflow_type === 'LEGACY_VOTES'
+      || (!loan.workflow_type && !!(loan.president_vote || loan.secretary_vote || loan.panel_coordinator_vote || loan.coordinator_review_status)))
+    : false;
   const reviewHistory: any[] = Array.isArray(loan?.review_decision_history)
     ? loan.review_decision_history
     : (Array.isArray(loan?.request?.reviewHistory) ? loan.request.reviewHistory : []);

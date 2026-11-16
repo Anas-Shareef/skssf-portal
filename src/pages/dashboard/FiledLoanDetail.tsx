@@ -48,7 +48,7 @@ export default function FiledLoanDetail() {
 
       // 2. Fetch repayment instalments if loan is approved or active
       const status = loanData.workflow_status || loanData.status;
-      if (status === 'APPROVED' || status === 'DISBURSED' || status === 'REPAYMENT_COMPLETE') {
+      if (status === 'APPROVED' || status === 'DISBURSED' || status === 'REPAYMENT_COMPLETE' || loanData.status === 'approved') {
         const { data: instData, error: instErr } = await supabase
           .from('repayment_installments')
           .select('*')
@@ -209,7 +209,10 @@ export default function FiledLoanDetail() {
   if (!loan) return null;
 
   const isApproved = loan.workflow_status === 'APPROVED' || loan.workflow_status === 'DISBURSED' || loan.workflow_status === 'REPAYMENT_COMPLETE';
-  const workflowType = loan.workflow_type || 'CONFIGURABLE';
+  const workflowType = loan.workflow_type
+    || ((loan.president_vote || loan.secretary_vote || loan.panel_coordinator_vote || loan.coordinator_review_status || loan.panel_coordinator_id)
+      ? 'LEGACY_VOTES'
+      : 'CONFIGURABLE');
   const isLegacyWorkflow = workflowType === 'LEGACY_VOTES';
   const reviewHistory: any[] = Array.isArray(loan.review_decision_history)
     ? loan.review_decision_history
