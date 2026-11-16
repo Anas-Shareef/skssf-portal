@@ -7,6 +7,30 @@ const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 // Create Supabase client with Service Role Key for admin privileges
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
+// Profile columns shared by every read path. The governance columns are
+// appended opportunistically: they only exist once the 20261116 migration has
+// been applied, so reads retry without them on PostgREST 42703.
+const PROFILE_SELECT_BASE =
+  'id,code,role,member_no,name,phone,branch,occupation,designation,addr,dob,gender,salary,active,join_date,sahachari_paid,sah_miss,total_donated,perms,is_approver,member_unique_code,created_by,assigned_zone,is_active,must_change_password,admin_title,bio';
+const GOVERNANCE_COLUMNS = ['can_review_loans', 'can_approve_loans', 'can_review_repayments', 'can_verify_repayments'];
+const PROFILE_SELECT_GOVERNANCE = `${PROFILE_SELECT_BASE},${GOVERNANCE_COLUMNS.join(',')}`;
+
+const isMissingColumnError = err => err && (err.code === '42703' || err.code === 'PGRST204');
+
+const pickGovernance = source => GOVERNANCE_COLUMNS.reduce((acc, column) => {
+  if (source && source[column] !== undefined) acc[column] = !!source[column];
+  return acc;
+}, {});
+
+// Run a profile query builder factory twice: with governance columns, then
+// without them when the migration has not been applied yet.
+async function withGovernanceColumns(makeQuery) {
+  const first = await makeQuery(PROFILE_SELECT_GOVERNANCE);
+  if (!isMissingColumnError(first.error)) return first;
+  return makeQuery(PROFILE_SELECT_BASE);
+}
+
+
 function hasSubsetPermissions(requesterPerms, targetPerms) {
   if (!targetPerms) return true;
   const requester = requesterPerms || {};
@@ -88,10 +112,11 @@ export default async function handler(req, res) {
 
       // Super admins see every profile. Admins are scoped to their own branch
       // so one branch never exposes another branch's member data.
-      let profilesQuery = supabase.from('profiles').select('id,code,role,member_no,name,phone,branch,occupation,designation,addr,dob,gender,salary,active,join_date,sahachari_paid,sah_miss,total_donated,perms,is_approver,member_unique_code,created_by,assigned_zone,is_active,must_change_password,admin_title,bio').order('created_at');
-      if (!isSuper) profilesQuery = profilesQuery.eq('branch', requesterProfile.branch);
-
-      const { data: profiles, error: profilesError } = await profilesQuery;
+      const { data: profiles, error: profilesError } = await withGovernanceColumns(columns => {
+        let query = supabase.from('profiles').select(columns).order('created_at');
+        if (!isSuper) query = query.eq('branch', requesterProfile.branch);
+        return query;
+      });
 
       if (profilesError) {
         console.error('Error fetching profiles:', profilesError);
@@ -162,6 +187,10 @@ export default async function handler(req, res) {
         active = true,
         join_date,
         is_approver = false,
+        can_review_loans,
+        can_approve_loans,
+        can_review_repayments,
+        can_verify_repayments,
         perms = {},
         avatar = ''
       } = req.body;
@@ -208,26 +237,43 @@ export default async function handler(req, res) {
       const cleanJoinDate = join_date || new Date().toISOString().split('T')[0];
 
       // Update public profile details (they are auto-inserted on auth sign up but need admin overrides)
-      const { error: updateError } = await supabase
+      const profilePayload = {
+        code: code || null,
+        member_no: member_no || null,
+        phone: phone || null,
+        branch: branch || null,
+        designation: designation || null,
+        occupation: occupation || null,
+        addr: cleanAddress,
+        dob: dob || null,
+        gender: gender || null,
+        salary: Number(salary),
+        active: !!active,
+        join_date: cleanJoinDate,
+        is_approver: !!is_approver,
+        perms: perms,
+        avatar: avatar || null
+      };
+      const governanceValues = pickGovernance({
+        can_review_loans,
+        can_approve_loans,
+        can_review_repayments,
+        can_verify_repayments
+      });
+
+      let { error: updateError } = await supabase
         .from('profiles')
-        .update({
-          code: code || null,
-          member_no: member_no || null,
-          phone: phone || null,
-          branch: branch || null,
-          designation: designation || null,
-          occupation: occupation || null,
-          addr: cleanAddress,
-          dob: dob || null,
-          gender: gender || null,
-          salary: Number(salary),
-          active: !!active,
-          join_date: cleanJoinDate,
-          is_approver: !!is_approver,
-          perms: perms,
-          avatar: avatar || null
-        })
+        .update({ ...profilePayload, ...governanceValues })
         .eq('id', newUser.id);
+
+      // Pre-migration fallback: the boolean columns do not exist yet, but the
+      // `perms` JSON already carries the same grants.
+      if (isMissingColumnError(updateError) && Object.keys(governanceValues).length) {
+        ({ error: updateError } = await supabase
+          .from('profiles')
+          .update(profilePayload)
+          .eq('id', newUser.id));
+      }
 
       if (updateError) {
         console.error('Error updating public profile:', updateError);
@@ -237,7 +283,7 @@ export default async function handler(req, res) {
 
       const { data: finalProfile } = await supabase
         .from('profiles')
-        .select('id,code,role,member_no,name,phone,branch,occupation,designation,addr,dob,gender,salary,active,join_date,sahachari_paid,sah_miss,total_donated,perms,is_approver,member_unique_code,created_by,assigned_zone,is_active,must_change_password,admin_title,bio')
+        .select(PROFILE_SELECT_BASE)
         .eq('id', newUser.id)
         .maybeSingle();
 
@@ -249,6 +295,7 @@ export default async function handler(req, res) {
         success: true,
         user: {
           ...finalProfile,
+          ...governanceValues,
           email: newUser.email || email.trim(),
           address: finalProfile.addr
         }
@@ -309,6 +356,10 @@ export default async function handler(req, res) {
         active,
         join_date,
         is_approver,
+        can_review_loans,
+        can_approve_loans,
+        can_review_repayments,
+        can_verify_repayments,
         perms,
         sahachari_paid,
         sah_miss,
@@ -415,6 +466,13 @@ export default async function handler(req, res) {
       if (active !== undefined) profileUpdates.active = !!active;
       if (join_date !== undefined) profileUpdates.join_date = join_date === '' ? null : join_date;
       if (is_approver !== undefined) profileUpdates.is_approver = !!is_approver;
+      const governanceValues = pickGovernance({
+        can_review_loans,
+        can_approve_loans,
+        can_review_repayments,
+        can_verify_repayments
+      });
+      Object.assign(profileUpdates, governanceValues);
       if (perms !== undefined) profileUpdates.perms = perms;
       if (sahachari_paid !== undefined) profileUpdates.sahachari_paid = sahachari_paid;
       if (sah_miss !== undefined) profileUpdates.sah_miss = sah_miss;
@@ -422,10 +480,21 @@ export default async function handler(req, res) {
       if (avatar !== undefined) profileUpdates.avatar = avatar;
 
       if (Object.keys(profileUpdates).length > 0) {
-        const { error: updateError } = await supabase
+        let { error: updateError } = await supabase
           .from('profiles')
           .update(profileUpdates)
           .eq('id', id);
+
+        // Pre-migration fallback: retry without the governance columns. The
+        // `perms` JSON was part of the same payload and still persists.
+        if (isMissingColumnError(updateError) && Object.keys(governanceValues).length) {
+          const fallbackUpdates = { ...profileUpdates };
+          GOVERNANCE_COLUMNS.forEach(column => { delete fallbackUpdates[column]; });
+          ({ error: updateError } = await supabase
+            .from('profiles')
+            .update(fallbackUpdates)
+            .eq('id', id));
+        }
 
         if (updateError) {
           console.error('Error updating profiles table:', updateError);
@@ -448,11 +517,9 @@ export default async function handler(req, res) {
       }
 
       // Get fresh profile
-      const { data: finalProfile } = await supabase
-        .from('profiles')
-        .select('id,code,role,member_no,name,phone,branch,occupation,designation,addr,dob,gender,salary,active,join_date,sahachari_paid,sah_miss,total_donated,perms,is_approver,member_unique_code,created_by,assigned_zone,is_active,must_change_password,admin_title,bio')
-        .eq('id', id)
-        .maybeSingle();
+      const { data: finalProfile } = await withGovernanceColumns(columns =>
+        supabase.from('profiles').select(columns).eq('id', id).maybeSingle()
+      );
 
       if (!finalProfile) {
         return res.status(404).json({ message: 'User profile not found' });
@@ -465,6 +532,7 @@ export default async function handler(req, res) {
         success: true,
         user: {
           ...finalProfile,
+          ...governanceValues,
           email: freshAuthUser?.email || email || '',
           address: finalProfile.addr
         }

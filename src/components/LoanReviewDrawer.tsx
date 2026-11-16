@@ -14,6 +14,7 @@ interface LoanReviewDrawerProps {
   filingHelper: any;
   canSign: boolean;
   isGlobalApprover: boolean;
+  loanPermissions?: { canReview: boolean; canApprove: boolean; isSuper: boolean };
   actionStatus: string;
   actionNote: string;
   historyLoading: boolean;
@@ -31,6 +32,12 @@ interface LoanReviewDrawerProps {
   onLoadHistory: (loan: any) => void;
   onSendWitnessLink: (loan: any, witness: any, index: number) => void;
   onToggleReviewer: (adminId: string) => void;
+  onRecordDecision?: (decision: {
+    type: 'RECOMMEND' | 'APPROVE' | 'REJECT';
+    approvedAmount?: number | null;
+    recommendedAmount?: number | null;
+    firstDueDate?: string | null;
+  }) => void;
 }
 
 // ─── Status Badge ────────────────────────────────────────────────────────────
@@ -109,6 +116,7 @@ export default function LoanReviewDrawer({
   filingHelper,
   canSign,
   isGlobalApprover,
+  loanPermissions,
   actionStatus,
   actionNote,
   historyLoading,
@@ -126,6 +134,7 @@ export default function LoanReviewDrawer({
   onLoadHistory,
   onSendWitnessLink,
   onToggleReviewer,
+  onRecordDecision,
 }: LoanReviewDrawerProps) {
 
   const isMember = profile?.role === 'member';
@@ -135,6 +144,32 @@ export default function LoanReviewDrawer({
   const [showUnsaved, setShowUnsaved] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
   const [isAnimatingOut, setIsAnimatingOut] = useState(false);
+
+  // ── Configurable workflow decision state ──────────────────────────────────
+  const isLegacyLoan = (loan?.workflow_type || 'CONFIGURABLE') === 'LEGACY_VOTES';
+  const reviewHistory: any[] = Array.isArray(loan?.review_decision_history)
+    ? loan.review_decision_history
+    : (Array.isArray(loan?.request?.reviewHistory) ? loan.request.reviewHistory : []);
+  const [decisionAmount, setDecisionAmount] = useState('');
+  const [decisionDue, setDecisionDue] = useState('');
+
+  useEffect(() => {
+    if (!open || !loan) return;
+    const suggested = loan.loan_amount_approved || loan.loan_amount_requested || loan.amt || '';
+    setDecisionAmount(suggested ? String(suggested) : '');
+    setDecisionDue(loan.first_installment_due || '');
+  }, [open, loan?.id, loan?.loan_amount_approved, loan?.loan_amount_requested, loan?.first_installment_due]);
+
+  const submitDecision = (type: 'RECOMMEND' | 'APPROVE' | 'REJECT') => {
+    if (!onRecordDecision) return;
+    const amount = decisionAmount === '' ? null : Number(decisionAmount);
+    onRecordDecision({
+      type,
+      ...(type === 'APPROVE' ? { approvedAmount: amount } : {}),
+      ...(type === 'RECOMMEND' ? { recommendedAmount: amount } : {}),
+      ...(type === 'APPROVE' ? { firstDueDate: decisionDue || null } : {})
+    });
+  };
 
   // Determine whether the admin has made unsaved review changes
   const hasUnsavedChanges = useCallback(() => {
@@ -676,8 +711,8 @@ export default function LoanReviewDrawer({
                 </div>
               )}
 
-              {/* Admin: Committee & Consensus + Verdict */}
-              {!isMember && (
+              {/* Admin: Committee & Consensus + Verdict (legacy loans only) */}
+              {!isMember && isLegacyLoan && (
                 <>
                   {/* Committee */}
                   <div style={{ background: '#f8fafc', borderRadius: 10, padding: 12, marginBottom: 18, border: '1px solid #e2e8f0' }}>
@@ -762,6 +797,120 @@ export default function LoanReviewDrawer({
                 </>
               )}
 
+              {/* Admin: Configurable Review & Approval panel */}
+              {!isMember && !isLegacyLoan && (
+                <div style={{ background: '#f8fafc', borderRadius: 12, padding: 14, marginBottom: 16, border: '1px solid #e2e8f0' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10 }}>
+                    <div style={{ fontSize: 10, fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>⚖️ Review &amp; Approval</div>
+                    <span className="bdg bdg-b" style={{ fontSize: 9 }}>CONFIGURABLE</span>
+                  </div>
+
+                  {reviewHistory.length > 0 ? (
+                    <div style={{ display: 'grid', gap: 8, marginBottom: 14 }}>
+                      {reviewHistory.map((entry: any, index: number) => (
+                        <div key={index} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: '9px 11px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'baseline' }}>
+                            <b style={{ fontSize: 12, color: entry.action === 'APPROVED' ? '#047857' : entry.action === 'REJECTED' ? '#b91c1c' : '#0f766e' }}>
+                              {entry.action === 'APPROVED' ? '✅ Approved' : entry.action === 'REJECTED' ? '⛔ Rejected' : '🔎 Recommended'}
+                            </b>
+                            <span style={{ fontSize: 10, color: '#64748b' }}>{entry.timestamp ? new Date(entry.timestamp).toLocaleString() : ''}</span>
+                          </div>
+                          <div style={{ fontSize: 11, color: '#475569', marginTop: 2 }}>
+                            {entry.admin_name || 'Admin'}{entry.admin_designation ? ` · ${entry.admin_designation}` : ''}
+                          </div>
+                          {entry.recommended_amount != null && (
+                            <div style={{ fontSize: 11, marginTop: 2 }}>Recommended: ₹{Number(entry.recommended_amount).toLocaleString('en-IN')}</div>
+                          )}
+                          {entry.approved_amount != null && (
+                            <div style={{ fontSize: 11, marginTop: 2 }}>Approved: ₹{Number(entry.approved_amount).toLocaleString('en-IN')}</div>
+                          )}
+                          {entry.notes && (
+                            <div style={{ fontSize: 11, fontStyle: 'italic', marginTop: 4, background: '#f8fafc', padding: '5px 8px', borderRadius: 5 }}>“{entry.notes}”</div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: 11, color: '#64748b', marginBottom: 12 }}>No administrative decisions recorded yet.</div>
+                  )}
+
+                  {(loanPermissions?.canReview || loanPermissions?.canApprove) ? (
+                    <div style={{ display: 'grid', gap: 10 }}>
+                      <label style={{ display: 'grid', gap: 5, fontSize: 11, fontWeight: 700, color: '#334155' }}>
+                        {loanPermissions?.canApprove ? 'Approved Loan Amount (₹)' : 'Recommended Amount (₹)'}
+                        <input
+                          className="fi2"
+                          type="number"
+                          min={0}
+                          inputMode="numeric"
+                          value={decisionAmount}
+                          onChange={e => setDecisionAmount(e.target.value)}
+                          placeholder="25000"
+                        />
+                      </label>
+
+                      {loanPermissions?.canApprove && (
+                        <label style={{ display: 'grid', gap: 5, fontSize: 11, fontWeight: 700, color: '#334155' }}>
+                          First Installment Due Date
+                          <input
+                            className="fi2"
+                            type="date"
+                            value={decisionDue}
+                            onChange={e => setDecisionDue(e.target.value)}
+                          />
+                        </label>
+                      )}
+
+                      <label style={{ display: 'grid', gap: 5, fontSize: 11, fontWeight: 700, color: '#334155' }}>
+                        Notes {loanPermissions?.canApprove ? '(required to reject)' : ''}
+                        <textarea
+                          className="ta2"
+                          rows={3}
+                          value={actionNote}
+                          onChange={e => onActionNoteChange(e.target.value)}
+                          placeholder="All documents verified…"
+                          style={{ fontSize: 12 }}
+                        />
+                      </label>
+
+                      <div className="drawer-action-bar" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        {loanPermissions?.canReview && (
+                          <button
+                            className="bsm s"
+                            style={{ flex: '1 1 180px', minHeight: 44, fontWeight: 800, fontSize: 12 }}
+                            onClick={() => submitDecision('RECOMMEND')}
+                          >
+                            🔎 Verify &amp; Recommend
+                          </button>
+                        )}
+                        {loanPermissions?.canApprove && (
+                          <>
+                            <button
+                              className="bsm g"
+                              style={{ flex: '1 1 160px', minHeight: 44, fontWeight: 800, fontSize: 12 }}
+                              onClick={() => submitDecision('APPROVE')}
+                            >
+                              ✅ Final Approve Loan
+                            </button>
+                            <button
+                              className="bsm r"
+                              style={{ flex: '1 1 140px', minHeight: 44, fontWeight: 800, fontSize: 12 }}
+                              onClick={() => submitDecision('REJECT')}
+                            >
+                              ⛔ Reject Application
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 8, padding: '9px 11px', fontSize: 11, color: '#92400e', fontWeight: 600 }}>
+                      🔒 You do not have review or approval rights for loan applications.
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Action History */}
               <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--dark2)', marginBottom: 12, borderTop: '1px solid var(--border)', paddingTop: 12 }}>
                 Action History
@@ -787,8 +936,8 @@ export default function LoanReviewDrawer({
 
             </div>
 
-            {/* ── STICKY ACTION FOOTER (admin only) ── */}
-            {!isMember && canSign && (
+            {/* ── STICKY ACTION FOOTER (legacy loans only) ── */}
+            {!isMember && canSign && isLegacyLoan && (
               <div style={{
                 position: 'sticky', bottom: 0, zIndex: 2,
                 background: '#fff',
@@ -819,8 +968,8 @@ export default function LoanReviewDrawer({
               </div>
             )}
 
-            {/* Read-only footer for non-signers */}
-            {!isMember && !canSign && (
+            {/* Read-only footer for non-signers (legacy loans only) */}
+            {!isMember && !canSign && isLegacyLoan && (
               <div style={{
                 position: 'sticky', bottom: 0, zIndex: 2,
                 background: '#fffbeb',

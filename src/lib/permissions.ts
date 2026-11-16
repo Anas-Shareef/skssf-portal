@@ -77,6 +77,18 @@ export const PERMISSION_MODULES: PermissionModule[] = [
     ]
   },
   {
+    name: 'Loan & Repayment Governance',
+    icon: '⚖️',
+    items: [
+      { key: 'loans.view', label: 'View Loan Applications' },
+      { key: 'loans.review', label: 'Review Loan Applications (Verify / Recommend)' },
+      { key: 'loans.approve', label: 'Final Loan Approval (Approve / Reject / Set Amount)' },
+      { key: 'repayments.view', label: 'View Repayments & Ledger' },
+      { key: 'repayments.review', label: 'Review Member Repayment Submissions' },
+      { key: 'repayments.verify', label: 'Verify Repayments & Update Balance' }
+    ]
+  },
+  {
     name: 'Settings',
     icon: '⚙️',
     items: [
@@ -157,3 +169,90 @@ export const DEFAULT_MEMBER_PERMISSIONS: Record<string, boolean> = {
   'checkout.create': true,
   'checkout.return': true
 };
+
+// ─── Loan & repayment governance ────────────────────────────────────────────
+// The DB columns (`profiles.can_review_loans`, …) are the long-term source of
+// truth, but the migration may not have been applied yet. The `perms` JSON is
+// always present, so it is the working source and the boolean columns are read
+// when they exist.
+
+export const GOVERNANCE_COLUMN_KEYS = {
+  can_review_loans: 'loans.review',
+  can_approve_loans: 'loans.approve',
+  can_review_repayments: 'repayments.review',
+  can_verify_repayments: 'repayments.verify'
+} as const;
+
+export type GovernanceColumn = keyof typeof GOVERNANCE_COLUMN_KEYS;
+
+const explicitPerm = (profile: any, key: string): boolean | null => {
+  const perms = profile?.perms;
+  if (!perms || typeof perms !== 'object') return null;
+  if (!Object.prototype.hasOwnProperty.call(perms, key)) return null;
+  return perms[key] === true;
+};
+
+const resolveGovernance = (
+  profile: any,
+  column: GovernanceColumn,
+  legacyValue?: boolean
+): boolean => {
+  if (profile?.role === 'super') return true;
+  const key = GOVERNANCE_COLUMN_KEYS[column];
+  const fromPerms = explicitPerm(profile, key);
+  if (fromPerms !== null) return fromPerms;
+  const fromColumn = profile?.[column];
+  if (typeof fromColumn === 'boolean') return fromColumn;
+  return legacyValue === true;
+};
+
+export type LoanPermissions = {
+  isSuper: boolean;
+  canView: boolean;
+  canReview: boolean;
+  canApprove: boolean;
+  /** True when the user may open the review drawer at all. */
+  canAct: boolean;
+};
+
+/**
+ * Effective loan permissions for the signed-in profile.
+ *
+ * Precedence: super admin → explicit `perms` entry → new boolean column →
+ * legacy `is_approver` (approval only, so existing approvers are never locked
+ * out before the migration lands).
+ */
+export const effectiveLoanPermissions = (profile: any): LoanPermissions => {
+  const isSuper = profile?.role === 'super';
+  const canApprove = resolveGovernance(profile, 'can_approve_loans', profile?.is_approver === true);
+  const canReview = resolveGovernance(profile, 'can_review_loans', false);
+  const explicitView = explicitPerm(profile, 'loans.view');
+  const canView = isSuper || explicitView === true || canReview || canApprove;
+  return { isSuper, canView, canReview, canApprove, canAct: isSuper || canReview || canApprove };
+};
+
+export type RepaymentPermissions = {
+  isSuper: boolean;
+  canView: boolean;
+  canReview: boolean;
+  canVerify: boolean;
+};
+
+/**
+ * Effective repayment permissions. `can_verify_repayments` is the only key that
+ * authorises a ledger mutation; `can_review_repayments` is read-only review.
+ */
+export const effectiveRepaymentPermissions = (profile: any): RepaymentPermissions => {
+  const isSuper = profile?.role === 'super';
+  const canVerify = resolveGovernance(profile, 'can_verify_repayments', profile?.is_approver === true);
+  const canReview = resolveGovernance(profile, 'can_review_repayments', false);
+  const explicitView = explicitPerm(profile, 'repayments.view');
+  const canView = isSuper || explicitView === true || canReview || canVerify;
+  return { isSuper, canView, canReview, canVerify };
+};
+
+/** Build the `perms` patch for a governance column change. */
+export const governancePermsPatch = (
+  column: GovernanceColumn,
+  enabled: boolean
+): Record<string, boolean> => ({ [GOVERNANCE_COLUMN_KEYS[column]]: enabled });

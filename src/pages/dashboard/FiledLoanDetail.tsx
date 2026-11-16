@@ -209,7 +209,25 @@ export default function FiledLoanDetail() {
   if (!loan) return null;
 
   const isApproved = loan.workflow_status === 'APPROVED' || loan.workflow_status === 'DISBURSED' || loan.workflow_status === 'REPAYMENT_COMPLETE';
-  const isRejected = (loan.workflow_status || '').includes('REJECTED');
+  const workflowType = loan.workflow_type || 'CONFIGURABLE';
+  const isLegacyWorkflow = workflowType === 'LEGACY_VOTES';
+  const reviewHistory: any[] = Array.isArray(loan.review_decision_history)
+    ? loan.review_decision_history
+    : (Array.isArray(loan.request?.reviewHistory) ? loan.request.reviewHistory : []);
+  const recommendation = [...reviewHistory].reverse().find((entry: any) => entry?.action === 'RECOMMENDED');
+  const finalDecision = [...reviewHistory].reverse().find((entry: any) => entry?.action === 'APPROVED' || entry?.action === 'REJECTED');
+
+  // Strict approval check: a loan is only "genuinely approved" when the stored
+  // workflow says so AND a real decision record exists. This prevents the
+  // premature green banner on pending applications.
+  const isGenuinelyApproved = isLegacyWorkflow
+    ? (isApproved || loan.status === 'approved')
+    : (isApproved || loan.status === 'approved')
+      && !!(loan.final_approved_at || loan.approved_date || finalDecision?.action === 'APPROVED');
+
+  const isRejected = (loan.workflow_status || '').includes('REJECTED')
+    || loan.status === 'rejected'
+    || finalDecision?.action === 'REJECTED';
   const refCode = `REF-${String(loan.id).slice(0, 8).toUpperCase()}`;
 
   // Schedule Summary Calculations
@@ -246,8 +264,12 @@ export default function FiledLoanDetail() {
           <button onClick={handleDownloadPDF} className="bsm g" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
             <Download size={15} /> Download PDF
           </button>
-          <span className={`bdg ${isApproved ? 'bdg-g' : isRejected ? 'bdg-r' : 'bdg-a'}`} style={{ fontSize: '12px', padding: '8px 16px', borderRadius: '12px' }}>
-            {loan.workflow_status ? loan.workflow_status.replace(/_/g, ' ') : 'PENDING'}
+          <span className={`bdg ${isGenuinelyApproved ? 'bdg-g' : isRejected ? 'bdg-r' : 'bdg-a'}`} style={{ fontSize: '12px', padding: '8px 16px', borderRadius: '12px' }}>
+            {isGenuinelyApproved
+              ? 'APPROVED'
+              : isRejected
+                ? 'REJECTED'
+                : (loan.workflow_status ? loan.workflow_status.replace(/_/g, ' ') : 'PENDING')}
           </span>
         </div>
       </div>
@@ -321,7 +343,7 @@ export default function FiledLoanDetail() {
           </div>
 
           {/* SECTION E — 📅 Repayment Schedule (Auto-Generated on Approval) */}
-          {isApproved ? (
+          {isGenuinelyApproved ? (
             <div className="card" style={{ padding: '24px', borderRadius: '24px', background: '#fff', border: '1.5px solid #e2e8f0' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
                 <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 950, color: '#0f172a' }}>
@@ -429,7 +451,7 @@ export default function FiledLoanDetail() {
             <div className="card" style={{ padding: '24px', borderRadius: '24px', background: '#f8fafc', border: '1.5px dashed #cbd5e1', textAlign: 'center', color: '#64748b' }}>
               <Clock size={36} style={{ margin: '0 auto 12px', opacity: 0.5, color: 'var(--teal)' }} />
               <h4 style={{ margin: 0, fontSize: '15px', fontWeight: 900, color: '#0f172a' }}>Repayment Schedule Pending Approval</h4>
-              <p style={{ margin: '6px 0 0 0', fontSize: '13px' }}>The monthly repayment schedule will be auto-generated as soon as the 3-person panel approves the application.</p>
+              <p style={{ margin: '6px 0 0 0', fontSize: '13px' }}>The monthly repayment schedule is generated automatically as soon as final approval is recorded.</p>
             </div>
           )}
 
@@ -444,59 +466,119 @@ export default function FiledLoanDetail() {
             </h3>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              
-              {/* Step 1: Member Submission */}
-              <div style={{ borderLeft: '3px solid #10b981', paddingLeft: '14px' }}>
-                <div style={{ fontSize: '13px', fontWeight: 900, color: '#0f172a' }}>1. Member Submission</div>
-                <div style={{ fontSize: '12px', color: '#10b981', fontWeight: 800, marginTop: '2px' }}>✅ Completed</div>
-                <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>Submitted by {profile?.name || 'Member'}</div>
-              </div>
 
-              {/* Step 2: Coordinator Review */}
-              <div style={{ borderLeft: `3px solid ${loan.coordinator_review_status === 'VERIFIED' ? '#10b981' : loan.coordinator_review_status === 'REJECTED' ? '#ef4444' : '#f59e0b'}`, paddingLeft: '14px' }}>
-                <div style={{ fontSize: '13px', fontWeight: 900, color: '#0f172a' }}>2. Coordinator Review</div>
-                <div style={{ fontSize: '12px', fontWeight: 800, color: loan.coordinator_review_status === 'VERIFIED' ? '#10b981' : loan.coordinator_review_status === 'REJECTED' ? '#ef4444' : '#f59e0b', marginTop: '2px' }}>
-                  {loan.coordinator_review_status === 'VERIFIED' ? '✅ Verified' : loan.coordinator_review_status === 'REJECTED' ? '❌ Rejected' : '⏳ In Progress'}
-                </div>
-                {loan.coordinator_review_notes && <div style={{ fontSize: '11px', color: '#475569', fontStyle: 'italic', marginTop: '2px' }}>"{loan.coordinator_review_notes}"</div>}
-              </div>
+              {isLegacyWorkflow ? (
+                <>
+                  {/* Historical 5-stage vote view */}
+                  <div style={{ borderLeft: '3px solid #10b981', paddingLeft: '14px' }}>
+                    <div style={{ fontSize: '13px', fontWeight: 900, color: '#0f172a' }}>1. Member Submission</div>
+                    <div style={{ fontSize: '12px', color: '#10b981', fontWeight: 800, marginTop: '2px' }}>✅ Completed</div>
+                    <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>Submitted by {loan.applicant_name || loan.name || profile?.name || 'Member'}</div>
+                  </div>
 
-              {/* Step 3: President Vote */}
-              <div style={{ borderLeft: `3px solid ${loan.president_vote === 'APPROVE' ? '#10b981' : loan.president_vote === 'REJECT' ? '#ef4444' : '#cbd5e1'}`, paddingLeft: '14px' }}>
-                <div style={{ fontSize: '13px', fontWeight: 900, color: '#0f172a' }}>3. President Vote</div>
-                <div style={{ fontSize: '12px', fontWeight: 800, color: loan.president_vote === 'APPROVE' ? '#10b981' : loan.president_vote === 'REJECT' ? '#ef4444' : '#64748b', marginTop: '2px' }}>
-                  {loan.president_vote ? loan.president_vote : '⏳ Pending'}
-                </div>
-              </div>
+                  <div style={{ borderLeft: `3px solid ${loan.coordinator_review_status === 'VERIFIED' ? '#10b981' : loan.coordinator_review_status === 'REJECTED' ? '#ef4444' : '#f59e0b'}`, paddingLeft: '14px' }}>
+                    <div style={{ fontSize: '13px', fontWeight: 900, color: '#0f172a' }}>2. Coordinator Review</div>
+                    <div style={{ fontSize: '12px', fontWeight: 800, color: loan.coordinator_review_status === 'VERIFIED' ? '#10b981' : loan.coordinator_review_status === 'REJECTED' ? '#ef4444' : '#f59e0b', marginTop: '2px' }}>
+                      {loan.coordinator_review_status === 'VERIFIED' ? '✅ Verified' : loan.coordinator_review_status === 'REJECTED' ? '❌ Rejected' : '⏳ In Progress'}
+                    </div>
+                    {loan.coordinator_review_notes && <div style={{ fontSize: '11px', color: '#475569', fontStyle: 'italic', marginTop: '2px' }}>"{loan.coordinator_review_notes}"</div>}
+                  </div>
 
-              {/* Step 4: Secretary Vote */}
-              <div style={{ borderLeft: `3px solid ${loan.secretary_vote === 'APPROVE' ? '#10b981' : loan.secretary_vote === 'REJECT' ? '#ef4444' : '#cbd5e1'}`, paddingLeft: '14px' }}>
-                <div style={{ fontSize: '13px', fontWeight: 900, color: '#0f172a' }}>4. Secretary Vote</div>
-                <div style={{ fontSize: '12px', fontWeight: 800, color: loan.secretary_vote === 'APPROVE' ? '#10b981' : loan.secretary_vote === 'REJECT' ? '#ef4444' : '#64748b', marginTop: '2px' }}>
-                  {loan.secretary_vote ? loan.secretary_vote : '⏳ Pending'}
-                </div>
-              </div>
+                  <div style={{ borderLeft: `3px solid ${loan.president_vote === 'APPROVE' ? '#10b981' : loan.president_vote === 'REJECT' ? '#ef4444' : '#cbd5e1'}`, paddingLeft: '14px' }}>
+                    <div style={{ fontSize: '13px', fontWeight: 900, color: '#0f172a' }}>3. President Vote</div>
+                    <div style={{ fontSize: '12px', fontWeight: 800, color: loan.president_vote === 'APPROVE' ? '#10b981' : loan.president_vote === 'REJECT' ? '#ef4444' : '#64748b', marginTop: '2px' }}>
+                      {loan.president_vote ? loan.president_vote : '⏳ Pending'}
+                    </div>
+                  </div>
 
-              {/* Step 5: Panel Coordinator Vote */}
-              <div style={{ borderLeft: `3px solid ${loan.panel_coordinator_vote === 'APPROVE' ? '#10b981' : loan.panel_coordinator_vote === 'REJECT' ? '#ef4444' : '#cbd5e1'}`, paddingLeft: '14px' }}>
-                <div style={{ fontSize: '13px', fontWeight: 900, color: '#0f172a' }}>5. Panel Coordinator Vote</div>
-                <div style={{ fontSize: '12px', fontWeight: 800, color: loan.panel_coordinator_vote === 'APPROVE' ? '#10b981' : loan.panel_coordinator_vote === 'REJECT' ? '#ef4444' : '#64748b', marginTop: '2px' }}>
-                  {loan.panel_coordinator_vote ? loan.panel_coordinator_vote : '⏳ Pending'}
-                </div>
-              </div>
+                  <div style={{ borderLeft: `3px solid ${loan.secretary_vote === 'APPROVE' ? '#10b981' : loan.secretary_vote === 'REJECT' ? '#ef4444' : '#cbd5e1'}`, paddingLeft: '14px' }}>
+                    <div style={{ fontSize: '13px', fontWeight: 900, color: '#0f172a' }}>4. Secretary Vote</div>
+                    <div style={{ fontSize: '12px', fontWeight: 800, color: loan.secretary_vote === 'APPROVE' ? '#10b981' : loan.secretary_vote === 'REJECT' ? '#ef4444' : '#64748b', marginTop: '2px' }}>
+                      {loan.secretary_vote ? loan.secretary_vote : '⏳ Pending'}
+                    </div>
+                  </div>
 
-              {/* Final Banner */}
-              {isApproved && (
+                  <div style={{ borderLeft: `3px solid ${loan.panel_coordinator_vote === 'APPROVE' ? '#10b981' : loan.panel_coordinator_vote === 'REJECT' ? '#ef4444' : '#cbd5e1'}`, paddingLeft: '14px' }}>
+                    <div style={{ fontSize: '13px', fontWeight: 900, color: '#0f172a' }}>5. Panel Coordinator Vote</div>
+                    <div style={{ fontSize: '12px', fontWeight: 800, color: loan.panel_coordinator_vote === 'APPROVE' ? '#10b981' : loan.panel_coordinator_vote === 'REJECT' ? '#ef4444' : '#64748b', marginTop: '2px' }}>
+                      {loan.panel_coordinator_vote ? loan.panel_coordinator_vote : '⏳ Pending'}
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  {/* Configurable 3-stage view */}
+                  <div style={{ borderLeft: '3px solid #10b981', paddingLeft: '14px' }}>
+                    <div style={{ fontSize: '13px', fontWeight: 900, color: '#0f172a' }}>1. Member Submission</div>
+                    <div style={{ fontSize: '12px', color: '#10b981', fontWeight: 800, marginTop: '2px' }}>✅ Completed</div>
+                    <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
+                      Submitted{loan.submitted_date ? ` ${new Date(loan.submitted_date).toLocaleDateString()}` : ''} by {loan.applicant_name || loan.name || profile?.name || 'Member'}
+                    </div>
+                  </div>
+
+                  <div style={{ borderLeft: `3px solid ${recommendation ? '#10b981' : '#f59e0b'}`, paddingLeft: '14px' }}>
+                    <div style={{ fontSize: '13px', fontWeight: 900, color: '#0f172a' }}>2. Administrative Review</div>
+                    {recommendation ? (
+                      <>
+                        <div style={{ fontSize: '12px', color: '#10b981', fontWeight: 800, marginTop: '2px' }}>✅ Recommended for Approval</div>
+                        <div style={{ fontSize: '11px', color: '#475569', marginTop: '2px' }}>
+                          {recommendation.admin_name || 'Admin'}{recommendation.admin_designation ? ` · ${recommendation.admin_designation}` : ''}
+                        </div>
+                        {recommendation.recommended_amount != null && (
+                          <div style={{ fontSize: '11px', color: '#334155', marginTop: '2px' }}>Recommended: <b>₹{Number(recommendation.recommended_amount).toLocaleString('en-IN')}</b></div>
+                        )}
+                        {recommendation.notes && <div style={{ fontSize: '11px', color: '#475569', fontStyle: 'italic', marginTop: '2px' }}>"{recommendation.notes}"</div>}
+                      </>
+                    ) : (
+                      <div style={{ fontSize: '12px', color: '#f59e0b', fontWeight: 800, marginTop: '2px' }}>⏳ Administrative Review In Progress</div>
+                    )}
+                  </div>
+
+                  <div style={{ borderLeft: `3px solid ${finalDecision?.action === 'APPROVED' ? '#10b981' : finalDecision?.action === 'REJECTED' ? '#ef4444' : '#cbd5e1'}`, paddingLeft: '14px' }}>
+                    <div style={{ fontSize: '13px', fontWeight: 900, color: '#0f172a' }}>3. Executive Approval</div>
+                    {finalDecision?.action === 'APPROVED' ? (
+                      <>
+                        <div style={{ fontSize: '12px', color: '#10b981', fontWeight: 800, marginTop: '2px' }}>✅ Approved</div>
+                        <div style={{ fontSize: '11px', color: '#475569', marginTop: '2px' }}>
+                          {finalDecision.admin_name || 'Admin'}{finalDecision.admin_designation ? ` · ${finalDecision.admin_designation}` : ''}
+                        </div>
+                        {finalDecision.approved_amount != null && (
+                          <div style={{ fontSize: '11px', color: '#334155', marginTop: '2px' }}>Approved: <b>₹{Number(finalDecision.approved_amount).toLocaleString('en-IN')}</b></div>
+                        )}
+                        {finalDecision.timestamp && (
+                          <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>{new Date(finalDecision.timestamp).toLocaleString()}</div>
+                        )}
+                      </>
+                    ) : finalDecision?.action === 'REJECTED' ? (
+                      <>
+                        <div style={{ fontSize: '12px', color: '#ef4444', fontWeight: 800, marginTop: '2px' }}>⛔ Rejected</div>
+                        <div style={{ fontSize: '11px', color: '#475569', marginTop: '2px' }}>
+                          {finalDecision.admin_name || 'Admin'}{finalDecision.admin_designation ? ` · ${finalDecision.admin_designation}` : ''}
+                        </div>
+                        {finalDecision.notes && <div style={{ fontSize: '11px', color: '#475569', fontStyle: 'italic', marginTop: '2px' }}>Reason: "{finalDecision.notes}"</div>}
+                      </>
+                    ) : (
+                      <div style={{ fontSize: '12px', color: '#64748b', fontWeight: 800, marginTop: '2px' }}>⏳ Awaiting Final Approval</div>
+                    )}
+                  </div>
+                </>
+              )}
+
+              {/* Final Banner — only for genuinely approved loans */}
+              {isGenuinelyApproved && (
                 <div style={{ background: '#f0fdf4', border: '1.5px solid #bbf7d0', padding: '14px', borderRadius: '14px', color: '#166534', textAlign: 'center', marginTop: '8px' }}>
                   <div style={{ fontWeight: 950, fontSize: '14px' }}>🎉 LOAN APPROVED</div>
-                  <div style={{ fontSize: '12px', marginTop: '2px' }}>Approved Amount: <b>₹{Number(loan.loan_amount_approved || loan.loan_amount_requested).toLocaleString()}</b></div>
+                  <div style={{ fontSize: '12px', marginTop: '2px' }}>Approved Amount: <b>₹{Number(loan.loan_amount_approved || loan.loan_amount_requested || loan.amount || 0).toLocaleString('en-IN')}</b></div>
+                  {!isLegacyWorkflow && finalDecision?.admin_name && (
+                    <div style={{ fontSize: '11px', marginTop: '2px' }}>Approved by {finalDecision.admin_name}{finalDecision.admin_designation ? ` (${finalDecision.admin_designation})` : ''}</div>
+                  )}
                 </div>
               )}
 
               {isRejected && (
                 <div style={{ background: '#fef2f2', border: '1.5px solid #fecaca', padding: '14px', borderRadius: '14px', color: '#991b1b', textAlign: 'center', marginTop: '8px' }}>
                   <div style={{ fontWeight: 950, fontSize: '14px' }}>⛔ LOAN REJECTED</div>
-                  {loan.rejection_reason && <div style={{ fontSize: '12px', marginTop: '4px' }}>Reason: "{loan.rejection_reason}"</div>}
+                  {(loan.rejection_reason || finalDecision?.notes) && <div style={{ fontSize: '12px', marginTop: '4px' }}>Reason: "{loan.rejection_reason || finalDecision?.notes}"</div>}
                 </div>
               )}
 

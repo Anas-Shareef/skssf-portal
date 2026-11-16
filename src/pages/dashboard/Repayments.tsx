@@ -3,6 +3,7 @@ import { useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { localDb } from '../../lib/localDb';
 import { api } from '../../lib/api';
+import { effectiveRepaymentPermissions } from '../../lib/permissions';
 
 /* ─── Helpers ─── */
 const fmt = (n: number) => `₹${Number(n).toLocaleString('en-IN')}`;
@@ -39,6 +40,9 @@ export default function Repayments() {
   const role = profile?.role || 'member';
   const isMember = role === 'member';
   const isAdmin = role === 'admin' || role === 'super';
+  const freshProfile = profile ? { ...profile, ...(localDb.getUserById(profile.id) || {}) } : null;
+  const repaymentPermissions = effectiveRepaymentPermissions(freshProfile);
+  const canVerifyRepayments = repaymentPermissions.canVerify;
   const [loans, setLoans] = useState<any[]>(() => localDb.getLoans());
   const [search, setSearch] = useState('');
   const [adminTab, setAdminTab] = useState<'overview' | 'queue' | 'schedules'>('overview');
@@ -344,6 +348,18 @@ export default function Repayments() {
   const totalRejected = allGlobalRepayments.filter(({ r }) => r.request?.status === 'rejected').length;
   const approvedThisWeek = allGlobalRepayments.filter(({ r }) => (r.paid || r.request?.status === 'approved') && new Date(r.paid || r.request?.reviewedAt || 0) > thisWeekStart).length;
   const rejectedThisWeek = allGlobalRepayments.filter(({ r }) => r.request?.status === 'rejected' && new Date(r.request?.reviewedAt || 0) > thisWeekStart).length;
+
+  // ── Consolidated 4-metric overview ──────────────────────────────────────
+  const collectedTotal = allGlobalRepayments.reduce((sum: number, { r }: any) => {
+    const paid = r.paid || r.request?.status === 'approved';
+    return paid ? sum + Number(r.paid_amount || r.request?.amt || r.amt || 0) : sum;
+  }, 0);
+  const pendingVerificationTotal = allPending.reduce((sum: number, { r }: any) => sum + Number(r.request?.amt || r.amt || 0), 0);
+  const activeRepaymentAccounts = new Set(allGlobalRepayments.map(({ loan }: any) => loan.id)).size;
+  const overdueAmount = allGlobalRepayments.reduce((sum: number, { r }: any) => {
+    const isOverdue = !r.paid && r.request?.status !== 'approved' && r.due && new Date(r.due) < new Date();
+    return isOverdue ? sum + Number(r.amt || 0) : sum;
+  }, 0);
 
   // Phase 4 — Repayment overview financial KPIs (computed from authoritative installment data)
   const paidInsts = installments.filter((i: any) => String(i.status || '').toLowerCase() === 'paid');
@@ -979,9 +995,14 @@ export default function Repayments() {
                 </div>
               )}
 
-              {!reviewed && !isMember && (
+              {!reviewed && !isMember && canVerifyRepayments && (
                 <div style={{ marginTop: 24, display: 'flex', justifyContent: 'flex-end' }}>
                    <button className="bsm s" style={{ padding: '12px 24px', fontSize: 14, fontWeight: 900, borderRadius: 12 }} onClick={(e) => { e.stopPropagation(); setSelectedReview({loan, idx}); setShowReview(true); setActionStatus('approved'); setActionNote(''); }}>Proceed to Audit →</button>
+                </div>
+              )}
+              {!reviewed && !isMember && !canVerifyRepayments && (
+                <div style={{ marginTop: 20, background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 10, padding: '9px 12px', fontSize: 11.5, fontWeight: 700, color: '#92400e' }}>
+                  🔒 Verification requires Repayment Verification permission.
                 </div>
               )}
             </div>
@@ -1143,136 +1164,25 @@ export default function Repayments() {
               </div>
             </div>
 
-          {/* ═══ ADMIN MISSION CONTROL ═══ */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 30, marginBottom: 30 }}>
-            {/* Pipeline Overview Widget (Visible to All Admins) */}
-            <div style={{
-              background: 'linear-gradient(135deg, #0f172a, #1e293b)',
-              borderRadius: 24, padding: '24px 30px',
-              boxShadow: '0 12px 40px rgba(0,0,0,0.15)'
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-                <div>
-                  <div style={{ fontSize: 16, fontWeight: 900, color: '#fff', letterSpacing: 0.5 }}>📊 Repayment Portal Matrix</div>
-                  <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>Real-time synchronization across all branch nodes</div>
+          {/* ═══ CONSOLIDATED REPAYMENT OVERVIEW ═══ */}
+          <div className="repay-metrics" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 16, marginBottom: 28 }}>
+            {[
+              { label: 'Total Collected', val: fmt(collectedTotal), color: '#10b981', bg: 'rgba(16,185,129,0.08)', icon: '💰', sub: `${paidInsts.length} verified payment(s)` },
+              { label: 'Pending Verification', val: fmt(pendingVerificationTotal), color: '#f59e0b', bg: 'rgba(245,158,11,0.08)', icon: '⏳', sub: `${allPending.length} request(s) awaiting action` },
+              { label: 'Active Repayment Accounts', val: String(activeRepaymentAccounts), color: '#6366f1', bg: 'rgba(99,102,241,0.08)', icon: '🏦', sub: 'loans with a repayment schedule' },
+              { label: 'Overdue Amount', val: fmt(overdueAmount), color: '#ef4444', bg: 'rgba(239,68,68,0.08)', icon: '⚠️', sub: `${allGlobalRepayments.filter(({ r }: any) => !r.paid && r.due && new Date(r.due) < new Date()).length} overdue EMI(s)` }
+            ].map(stat => (
+              <div key={stat.label} style={{ background: stat.bg, borderRadius: 20, padding: '20px 18px', border: `1px solid ${stat.color}22` }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, fontWeight: 900, color: stat.color, textTransform: 'uppercase', letterSpacing: 0.4 }}>
+                  <span style={{ fontSize: 16 }}>{stat.icon}</span> {stat.label}
                 </div>
-                <div style={{ fontSize: 10, background: 'rgba(20,184,166,0.2)', color: '#14b8a6', padding: '6px 14px', borderRadius: 20, fontWeight: 900 }}>
-                  {role === 'super' ? 'SUPER ADMIN CONTROL' : 'BRANCH ADMIN VIEW'}
-                </div>
+                <div style={{ fontSize: 26, fontWeight: 950, color: '#0f172a', marginTop: 10, lineHeight: 1 }}>{stat.val}</div>
+                <div style={{ fontSize: 11, color: '#64748b', fontWeight: 700, marginTop: 6 }}>{stat.sub}</div>
               </div>
-                <div className="matrix-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 16 }}>
-                  { [
-                    { key: 'pending', label: 'Pending Review', val: allPending.length, color: '#f59e0b', bg: 'rgba(245,158,11,0.08)', icon: '⏳', sub: 'Needs your action', tab: 'pending' as const },
-                    { key: 'partial', label: 'Partially Signed', val: allPartial.length, color: '#6366f1', bg: 'rgba(99,102,241,0.08)', icon: '🖊️', sub: 'Awaiting signatures', tab: 'pending' as const },
-                    { key: 'approved', label: 'Total Approved', val: totalApproved, color: '#10b981', bg: 'rgba(16,185,129,0.08)', icon: '✅', sub: `+${approvedThisWeek} this week`, tab: 'approved' as const },
-                    { key: 'rejected', label: 'Total Rejected', val: totalRejected, color: '#ef4444', bg: 'rgba(239,68,68,0.08)', icon: '❌', sub: `+${rejectedThisWeek} this week`, tab: 'rejected' as const },
-                  ].map((stat) => (
-                    <div
-                      key={stat.key}
-                      onClick={() => { setPipelineFilter(stat.tab); setAdminTab('queue'); }}
-                      style={{ background: stat.bg, borderRadius: 20, padding: '24px 16px', textAlign: 'center', border: `1px solid ${stat.color}22`, transition: 'all 0.3s', cursor: 'pointer' }}>
-                      <div style={{ fontSize: 24, marginBottom: 12 }}>{stat.icon}</div>
-                      <div style={{ fontSize: 32, fontWeight: 950, color: stat.color, lineHeight: 1 }}>{stat.val}</div>
-                      <div style={{ fontSize: 11, color: '#fff', fontWeight: 900, textTransform: 'uppercase', marginTop: 12, letterSpacing: 0.5 }}>{stat.label}</div>
-                      <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 700, marginTop: 4 }}>{stat.sub}</div>
-                    </div>
-                  ))}
-                </div>
-
-              {bottleneckAdmins.length > 0 && (
-                <div style={{ marginTop: 20, padding: '12px 16px', background: 'rgba(234,179,8,0.1)', borderRadius: 14, border: '1.5px solid rgba(234,179,8,0.3)' }}>
-                  <div style={{ fontSize: 12, fontWeight: 900, color: '#fbbf24', marginBottom: 8 }}>⚠️ Critical Bottlenecks: Reviewers with 3+ Day Overdue Tasks</div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                    {bottleneckAdmins.map((a: any) => (
-                      <span key={a.id} style={{ background: 'rgba(234,179,8,0.2)', color: '#fbbf24', fontSize: 11, fontWeight: 800, padding: '4px 12px', borderRadius: 20 }}>
-                        {a.name} ({a.desig})
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* 🛡️ UNIFIED AUTHORIZATION HUB (SUPER ADMIN ONLY) */}
-            {role === 'super' && (
-              <div className="card" style={{ padding: '24px 30px', borderRadius: 24, background: '#fff', border: '1.5px solid #e2e8f0', boxShadow: '0 8px 30px rgba(0,0,0,0.03)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <div style={{ width: 44, height: 44, background: 'var(--teal-pale)', borderRadius: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22 }}>🛡️</div>
-                    <div>
-                      <div style={{ fontWeight: 950, fontSize: 17, color: '#0f172a' }}>Repayment Portal Authorization Hub</div>
-                      <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>Reviewer pool · Consensus policy · Default committee</div>
-                    </div>
-                  </div>
-                  <Link
-                    to={`/super-admin/dashboard/admins`}
-                    style={{
-                      display: 'inline-flex', alignItems: 'center', gap: 8,
-                      padding: '10px 20px', borderRadius: 14, fontSize: 12, fontWeight: 800,
-                      background: 'linear-gradient(135deg, var(--teal), #0891b2)',
-                      color: '#fff', textDecoration: 'none',
-                      boxShadow: '0 4px 14px rgba(20,184,166,0.3)', transition: 'all .2s'
-                    }}
-                  >
-                    ⚙️ Manage Reviewers
-                  </Link>
-                </div>
-
-                {/* Reviewer Pool Summary */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16, marginBottom: 20 }}>
-                  <div style={{ background: '#f8fafc', borderRadius: 16, padding: '16px 20px', border: '1px solid #e2e8f0' }}>
-                    <div style={{ fontSize: 10, fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 8 }}>Authorized Reviewers</div>
-                    <div style={{ fontSize: 28, fontWeight: 950, color: '#0f172a' }}>
-                      {allAdmins.filter((a: any) => (config.authorizedReviewers || []).includes(a.id)).length}
-                    </div>
-                    <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>admins in pool</div>
-                  </div>
-                  <div style={{ background: '#f8fafc', borderRadius: 16, padding: '16px 20px', border: '1px solid #e2e8f0' }}>
-                    <div style={{ fontSize: 10, fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 8 }}>Loan Signatures</div>
-                    <div style={{ fontSize: 28, fontWeight: 950, color: '#6366f1' }}>{config.loanApprovalsNeeded || 2}</div>
-                    <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>required to approve</div>
-                  </div>
-                  <div style={{ background: '#f8fafc', borderRadius: 16, padding: '16px 20px', border: '1px solid #e2e8f0' }}>
-                    <div style={{ fontSize: 10, fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 8 }}>Repayment Signatures</div>
-                    <div style={{ fontSize: 28, fontWeight: 950, color: 'var(--teal)' }}>{config.repaymentApprovalsNeeded || 1}</div>
-                    <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>required to approve</div>
-                  </div>
-                </div>
-
-
-                {/* Active Reviewer Chips */}
-                <div>
-                  <div style={{ fontSize: 10, fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 10 }}>Active Reviewer Pool</div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                    {allAdmins.filter((a: any) => (config.authorizedReviewers || []).includes(a.id)).map((admin: any) => {
-                      const inDefault = (config.defaultCommittee || []).includes(admin.id);
-                      return (
-                        <div key={admin.id} style={{
-                          display: 'flex', alignItems: 'center', gap: 8, padding: '6px 14px',
-                          background: inDefault ? 'rgba(20,184,166,0.08)' : '#fff',
-                          border: `1.5px solid ${inDefault ? 'var(--teal)' : '#e2e8f0'}`,
-                          color: inDefault ? 'var(--teal)' : '#475569',
-                          borderRadius: 25, fontSize: 12, fontWeight: 800
-                        }}>
-                          <div className="sb-av" style={{ width: 22, height: 22, fontSize: 9, flexShrink: 0, overflow: 'hidden' }}>
-                            {admin.avatar ? <img src={admin.avatar} alt="" style={{ width: '100%', height: '100%', borderRadius: '50%' }} /> : admin.name[0]}
-                          </div>
-                          {admin.name}
-                          {inDefault && <span style={{ fontSize: 9, opacity: 0.7 }}>· Default</span>}
-                        </div>
-                      );
-                    })}
-                     {allAdmins.filter((a: any) => (config.authorizedReviewers || []).includes(a.id)).length === 0 && (
-                      <div style={{ fontSize: 12, color: '#94a3b8', fontStyle: 'italic', padding: '10px 0' }}>
-                        No reviewers authorized. <Link to="/super-admin/dashboard/admins" style={{ color: 'var(--teal)', fontWeight: 700 }}>Go to Admin Management →</Link>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
+            ))}
           </div>
-          
+
+
           {/* Phase 5 - Slim sticky header bar with clickable counts (F3) */}
           {scrolled && (
             <div style={{ position: 'sticky', top: 0, zIndex: 60, display: 'flex', gap: 10, overflowX: 'auto', background: 'rgba(15,23,42,0.92)', backdropFilter: 'blur(8px)', borderRadius: 16, padding: '10px 14px', marginBottom: 20, boxShadow: '0 10px 30px rgba(0,0,0,0.25)', alignItems: 'center' }}>
@@ -1396,9 +1306,13 @@ export default function Repayments() {
                             <div style={{ textAlign: 'right' }}>
                               <div style={{ fontSize: 12, fontWeight: 900, color: kind === 'overdue' ? 'var(--red)' : 'var(--amber2)' }}>{kind === 'overdue' ? `${overdueDays} days overdue` : 'Awaiting verification'}</div>
                             </div>
-                            <button className="bsm s" style={{ padding: '8px 14px', borderRadius: 10, fontSize: 11.5, fontWeight: 800 }} onClick={() => { if (kind === 'overdue') { setRecordPaymentModal({ loan, installment: i }); } else { const li = (loan?.repayments || []).findIndex((r: any) => r.id === i.id || r.installment_number === i.installment_number); if (li > -1) { setSelectedReview({ loan, idx: li }); setActionStatus('approved'); setActionNote(''); setShowReview(true); } } }}>
-                              {kind === 'overdue' ? 'Record payment' : 'Verify'}
-                            </button>
+                            {canVerifyRepayments ? (
+                              <button className="bsm s" style={{ padding: '8px 14px', borderRadius: 10, fontSize: 11.5, fontWeight: 800 }} onClick={() => { if (kind === 'overdue') { setRecordPaymentModal({ loan, installment: i }); } else { const li = (loan?.repayments || []).findIndex((r: any) => r.id === i.id || r.installment_number === i.installment_number); if (li > -1) { setSelectedReview({ loan, idx: li }); setActionStatus('approved'); setActionNote(''); setShowReview(true); } } }}>
+                                {kind === 'overdue' ? 'Record payment' : 'Verify'}
+                              </button>
+                            ) : (
+                              <span style={{ fontSize: 10.5, fontWeight: 800, color: '#94a3b8', background: '#f1f5f9', borderRadius: 8, padding: '6px 10px' }}>🔒 Read only</span>
+                            )}
                           </div>
                         </div>
                       );
@@ -1536,7 +1450,7 @@ export default function Repayments() {
               )}
 
               {/* Installments Table */}
-              <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '16px', overflow: 'hidden', boxShadow: '0 4px 15px rgba(0,0,0,0.03)', marginBottom: '30px' }}>
+              <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '16px', overflowX: 'auto', overflowY: 'hidden', boxShadow: '0 4px 15px rgba(0,0,0,0.03)', marginBottom: '30px', WebkitOverflowScrolling: 'touch' }}>
                 <table className="tbl" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
                   <thead>
                     <tr style={{ background: '#f8fafc', borderBottom: '1.5px solid #e2e8f0' }}>
@@ -1646,7 +1560,7 @@ export default function Repayments() {
                               )}
                             </td>
                             <td style={{ padding: '16px 20px', textAlign: 'right' }}>
-                              {inst.status !== 'paid' && loanObj && (
+                              {inst.status !== 'paid' && loanObj && canVerifyRepayments && (
                                 <button 
                                   onClick={() => setRecordPaymentModal({ loan: loanObj, installment: inst })}
                                   className="bsm s"
@@ -1989,7 +1903,7 @@ export default function Repayments() {
                             </div>
                           </div>
                           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                            {pendingReqsHere.length > 0 && (
+                            {pendingReqsHere.length > 0 && canVerifyRepayments && (
                               <button 
                                 className="bsm s"
                                 style={{ padding: '12px 20px', borderRadius: 12, fontSize: 13, fontWeight: 900 }}
@@ -2197,7 +2111,8 @@ export default function Repayments() {
                 ) : (
                   <>
                 <button className="bsm g" onClick={() => setRecordPaymentModal(null)}>Cancel</button>
-                <button className="bsm s" disabled={!canLog} onClick={async () => {
+                <button className="bsm s" disabled={!canLog || !canVerifyRepayments} onClick={async () => {
+                  if (!canVerifyRepayments) { setToast({ m: 'You need Repayment Verification permission to record payments.', t: 'r' }); return; }
                   const instIdx = parseInt(mfInst);
                   const instObj = recordPaymentModal.installment || reps[instIdx];
                   const instId = instObj?.id || `inst-${l.id}-${instIdx}`;
@@ -2652,11 +2567,15 @@ export default function Repayments() {
                   </div>
 
                   <div style={{ marginTop: 20 }}>
-                    <button className="bsm s" style={{ width: '100%', height: 52, borderRadius: 14, fontSize: 16, fontWeight: 950, boxShadow: '0 8px 25px rgba(20,184,166,0.25)' }} onClick={() => {
+                    <button className="bsm s" style={{ width: '100%', height: 52, borderRadius: 14, fontSize: 16, fontWeight: 950, boxShadow: '0 8px 25px rgba(20,184,166,0.25)', opacity: canVerifyRepayments ? 1 : 0.55, cursor: canVerifyRepayments ? 'pointer' : 'not-allowed' }} disabled={!canVerifyRepayments} onClick={() => {
+                      if (!canVerifyRepayments) {
+                        setToast({ m: 'You need Repayment Verification permission to record a decision.', t: 'r' });
+                        return;
+                      }
                       localDb.verifyRepaymentRequest(loan.id, idx, actionStatus, actionNote, profile?.name, profile?.role, profile?.id);
                       refresh(); setShowReview(false);
                       setToast({ m: `Audit for ${loan.name} saved successfully.${req?.isFullClearance ? ' Full Loan Cleared.' : ''}`, t: 's' });
-                    }}>Execute Decision →</button>
+                    }}>{canVerifyRepayments ? 'Execute Decision →' : '🔒 Verification Not Permitted'}</button>
                   </div>
                </div>
             </div>

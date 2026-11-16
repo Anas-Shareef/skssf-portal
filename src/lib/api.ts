@@ -1,6 +1,29 @@
 import { supabase } from './supabaseClient';
 import { getAccessToken, authenticatedFetch } from './authSession';
 import { PROFILE_COLUMNS } from './profileColumns';
+import { effectiveLoanPermissions } from './permissions';
+
+// Governance columns are additive and only exist once the 20261116 migration
+// has been applied. Reads retry without them on PostgREST 42703 so the app
+// keeps working before the migration lands.
+const GOVERNANCE_COLUMNS = 'can_review_loans,can_approve_loans,can_review_repayments,can_verify_repayments';
+const PROFILE_COLUMNS_WITH_GOVERNANCE = `${PROFILE_COLUMNS},${GOVERNANCE_COLUMNS}`;
+
+const isMissingColumnError = (err: any) => !!err && (err.code === '42703' || err.code === 'PGRST204');
+
+const selectProfile = async (id: string): Promise<any> => {
+  const first = await supabase
+    .from('profiles')
+    .select(PROFILE_COLUMNS_WITH_GOVERNANCE)
+    .eq('id', id)
+    .maybeSingle();
+  if (!isMissingColumnError(first.error)) return first;
+  return supabase
+    .from('profiles')
+    .select(PROFILE_COLUMNS)
+    .eq('id', id)
+    .maybeSingle();
+};
 
 const isTableMissingError = (err: any) => {
   return err && (err.code === 'PGRST204' || err.code === 'PGRST205' || String(err.message || '').includes('relation') || String(err.message || '').includes('does not exist'));
@@ -93,11 +116,7 @@ export const api = {
       const { data: { user }, error: userError } = await supabase.auth.getUser(token);
       if (userError || !user) throw new Error('Unauthenticated');
 
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select(PROFILE_COLUMNS)
-        .eq('id', user.id)
-        .maybeSingle();
+      const { data: profile } = await selectProfile(user.id);
 
       if (!profile) {
         throw new Error('Your account is authenticated but has no portal profile.');
@@ -113,11 +132,7 @@ export const api = {
       const { data: { user }, error: userError } = await supabase.auth.getUser(token);
       if (userError || !user) throw new Error('Unauthenticated');
 
-      const { data: activeUser, error: profileError } = await supabase
-        .from('profiles')
-        .select(PROFILE_COLUMNS)
-        .eq('id', user.id)
-        .maybeSingle();
+      const { data: activeUser, error: profileError } = await selectProfile(user.id);
 
       if (profileError) throw profileError;
       if (!activeUser) {
@@ -511,11 +526,7 @@ export const api = {
 
       if (!authError && authData?.user) {
         const user = authData.user;
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select(PROFILE_COLUMNS)
-          .eq('id', user.id)
-          .maybeSingle();
+        const { data: profile } = await selectProfile(user.id);
 
         if (!profile) {
           // Never fabricate a profile or let an orphan auth user into the app.
@@ -627,107 +638,236 @@ export const api = {
       const { data: loan, error: fetchErr } = await supabase.from('loans').select('*').eq('loan_no', loanNo).single();
       if (fetchErr || !loan) throw new Error('Loan not found');
 
+      const nowIso = new Date().toISOString();
+      const decisionType = String(
+        body.decision || (body.status === 'approved' ? 'APPROVE' : body.status === 'rejected' ? 'REJECT' : 'RECOMMEND')
+      ).toUpperCase();
+
+      // Historical loans keep the legacy vote workflow. A loan is legacy only
+      // when it carries legacy vote evidence or was explicitly tagged.
+      const legacyEvidence = !!(loan.president_vote || loan.secretary_vote || loan.panel_coordinator_vote || loan.coordinator_review_status);
+      const workflowType = (loan.workflow_type === 'LEGACY_VOTES' || (!loan.workflow_type && legacyEvidence)) ? 'LEGACY_VOTES' : 'CONFIGURABLE';
+      const isLegacy = workflowType === 'LEGACY_VOTES';
+
+      // Resolve the acting admin from the authenticated session so the
+      // permission check cannot be spoofed by the request body.
+      let actor: any = null;
+      try {
+        const { data: authData } = await supabase.auth.getUser();
+        const actorId = authData?.user?.id || null;
+        if (actorId) {
+          const { data: actorProfile } = await supabase
+            .from('profiles')
+            .select('id,role,name,designation,perms,is_approver')
+            .eq('id', actorId)
+            .maybeSingle();
+          actor = actorProfile ? { ...actorProfile, id: actorId } : { id: actorId, role: body.adminRole };
+        }
+      } catch (actorErr) {
+        console.warn('Could not resolve acting admin for loan decision:', actorErr);
+      }
+
+      const perms = effectiveLoanPermissions(actor || { role: body.adminRole });
+      if (actor) {
+        if (decisionType === 'APPROVE' && !perms.canApprove) throw new Error('You are not authorised to approve loans.');
+        if (decisionType === 'RECOMMEND' && !(perms.canReview || perms.canApprove)) throw new Error('You are not authorised to review loans.');
+        if (decisionType === 'REJECT' && !perms.canAct) throw new Error('You are not authorised to reject loans.');
+      }
+
+      const adminId = actor?.id || body.adminId || null;
+      const adminName = actor?.name || body.adminBy || 'Admin';
+      const adminDesignation = actor?.designation || body.adminRole || 'Admin';
+      const approvedAmount = body.approvedAmount != null ? Number(body.approvedAmount) : null;
+      const recommendedAmount = body.recommendedAmount != null ? Number(body.recommendedAmount) : null;
+      const firstDueDate = body.firstDueDate || null;
+
       const approval = {
-        id: body.adminId || null,
-        by: body.adminBy || 'Admin',
+        id: adminId,
+        by: adminName,
         role: body.adminRole || 'admin',
-        date: new Date().toISOString(),
+        date: nowIso,
         note: body.adminNotes || '',
         status: body.status
       };
 
       const requestState = loan.request ?? {};
-      requestState.approvals = requestState.approvals ?? [];
-      requestState.threshold = requestState.threshold ?? 2;
-
-      let found = false;
-      for (let i = 0; i < requestState.approvals.length; i++) {
-        if ((approval.id && requestState.approvals[i].id === approval.id) || requestState.approvals[i].by === approval.by) {
-          requestState.approvals[i] = approval;
-          found = true;
-          break;
-        }
+      const history = Array.isArray(body.reviewHistory)
+        ? [...body.reviewHistory]
+        : [...(Array.isArray(loan.review_decision_history) ? loan.review_decision_history : [])];
+      if (!Array.isArray(body.reviewHistory)) {
+        history.push({
+          step: decisionType === 'RECOMMEND' ? 'ADMIN_REVIEW' : 'FINAL_APPROVAL',
+          action: decisionType === 'APPROVE' ? 'APPROVED' : decisionType === 'REJECT' ? 'REJECTED' : 'RECOMMENDED',
+          admin_id: adminId,
+          admin_name: adminName,
+          admin_designation: adminDesignation,
+          recommended_amount: recommendedAmount,
+          approved_amount: approvedAmount,
+          notes: body.adminNotes || '',
+          timestamp: nowIso
+        });
       }
-      if (!found) requestState.approvals.push(approval);
-
-      const approved = requestState.approvals.filter((a: any) => a.status === 'approved');
-      const rejected = requestState.approvals.filter((a: any) => a.status === 'rejected');
-      const superApproved = approved.some((a: any) => a.role === 'super');
+      requestState.reviewHistory = history;
 
       let resolvedStatus = 'pending';
       let loanStatus = 'pending';
+      let workflowStatus = 'PENDING_APPROVAL_PANEL';
+      let finalAmount: number | null = null;
 
-      if (superApproved || approved.length >= requestState.threshold) {
+      if (isLegacy) {
+        // ── Legacy vote workflow (unchanged consensus semantics) ───────────
+        requestState.approvals = requestState.approvals ?? [];
+        requestState.threshold = requestState.threshold ?? 2;
+
+        let found = false;
+        for (let i = 0; i < requestState.approvals.length; i++) {
+          if ((approval.id && requestState.approvals[i].id === approval.id) || requestState.approvals[i].by === approval.by) {
+            requestState.approvals[i] = approval;
+            found = true;
+            break;
+          }
+        }
+        if (!found) requestState.approvals.push(approval);
+
+        const approved = requestState.approvals.filter((a: any) => a.status === 'approved');
+        const rejected = requestState.approvals.filter((a: any) => a.status === 'rejected');
+        const superApproved = approved.some((a: any) => a.role === 'super');
+
+        if (superApproved || approved.length >= requestState.threshold) {
+          resolvedStatus = 'approved';
+          loanStatus = 'approved';
+        } else if (rejected.length > 0) {
+          resolvedStatus = 'rejected';
+          loanStatus = 'rejected';
+        } else if (approved.length > 0) {
+          resolvedStatus = 'partially_approved';
+          loanStatus = 'pending';
+        }
+
+        workflowStatus = loanStatus === 'approved'
+          ? 'APPROVED'
+          : loanStatus === 'rejected'
+            ? 'REJECTED_BY_PANEL'
+            : 'PENDING_APPROVAL_PANEL';
+        requestState.status = resolvedStatus;
+        loan.request = requestState;
+        loan.status = loanStatus;
+        if (loanStatus === 'approved') {
+          loan.approved_date = nowIso.split('T')[0];
+          finalAmount = Number(loan.amount || loan.loan_amount_approved || 0);
+        }
+      } else if (decisionType === 'APPROVE') {
+        // ── Configurable workflow: a single authorised approver decides ────
         resolvedStatus = 'approved';
         loanStatus = 'approved';
-      } else if (rejected.length > 0) {
+        workflowStatus = 'APPROVED';
+        finalAmount = approvedAmount ?? Number(loan.loan_amount_approved || loan.loan_amount_requested || loan.amount || 0);
+        requestState.status = resolvedStatus;
+        requestState.approved_amount = finalAmount;
+        loan.request = requestState;
+        loan.status = loanStatus;
+        loan.approved_date = nowIso.split('T')[0];
+      } else if (decisionType === 'REJECT') {
         resolvedStatus = 'rejected';
         loanStatus = 'rejected';
-      } else if (approved.length > 0) {
+        workflowStatus = 'REJECTED_BY_PANEL';
+        requestState.status = resolvedStatus;
+        requestState.rejection_reason = body.adminNotes || '';
+        loan.request = requestState;
+        loan.status = loanStatus;
+      } else {
         resolvedStatus = 'partially_approved';
         loanStatus = 'pending';
+        workflowStatus = 'PENDING_APPROVAL_PANEL';
+        requestState.status = resolvedStatus;
+        requestState.recommended_amount = recommendedAmount ?? requestState.recommended_amount ?? null;
+        loan.request = requestState;
+        loan.status = loanStatus;
       }
 
-      requestState.status = resolvedStatus;
-      loan.request = requestState;
-      loan.status = loanStatus;
-      if (loanStatus === 'approved') {
-        loan.approved_date = new Date().toISOString().split('T')[0];
-        if (!loan.repayments || loan.repayments.length === 0) {
-          const months = Number(loan.repayment_period_months || loan.months || 12);
-          const amt = Number(loan.amount || loan.amt || 0);
-          const emi = Math.round(amt / Math.max(1, months));
-          const schedule = [];
-          const now = new Date();
-          for (let i = 1; i <= months; i++) {
-            const dueDate = new Date(now.getFullYear(), now.getMonth() + i, 1).toISOString().split('T')[0];
-            schedule.push({ amt: emi, due: dueDate, paid: null });
+      // Generate the repayment schedule on a genuine approval.
+      if (loanStatus === 'approved' && (!loan.repayments || loan.repayments.length === 0)) {
+        const months = Number(loan.repayment_period_months || loan.months || 12);
+        const amt = Number(finalAmount || loan.amount || loan.amt || 0);
+        const emi = Math.round(amt / Math.max(1, months));
+        const start = firstDueDate ? new Date(firstDueDate) : null;
+        const schedule = [];
+        for (let i = 0; i < months; i += 1) {
+          const dueDate = start
+            ? new Date(start.getFullYear(), start.getMonth() + i, start.getDate())
+            : new Date(new Date().getFullYear(), new Date().getMonth() + i + 1, 1);
+          schedule.push({ amt: emi, due: dueDate.toISOString().split('T')[0], paid: null });
+        }
+        loan.repayments = schedule;
+        try {
+          for (let i = 0; i < schedule.length; i += 1) {
+            await supabase.from('repayment_installments').upsert({
+              loan_id: loan.id,
+              installment_number: i + 1,
+              due_date: schedule[i].due,
+              amount_due: schedule[i].amt,
+              amount_paid: 0,
+              status: 'PENDING'
+            }, { onConflict: 'loan_id,installment_number' });
           }
-          loan.repayments = schedule;
-          try {
-            for (let i = 0; i < schedule.length; i++) {
-              await supabase.from('repayment_installments').upsert({
-                loan_id: loan.id,
-                installment_number: i + 1,
-                due_date: schedule[i].due,
-                amount_due: schedule[i].amt,
-                amount_paid: 0,
-                status: 'PENDING'
-              }, { onConflict: 'loan_id,installment_number' });
-            }
-          } catch (instErr) {
-            console.warn('Failed to auto-generate repayment_installments table rows:', instErr);
-          }
+        } catch (instErr) {
+          console.warn('Failed to auto-generate repayment_installments rows:', instErr);
         }
       }
 
       const audit = loan.audit ?? [];
       audit.push({
-        action: body.status === 'approved' ? 'Loan Verified' : (body.status === 'rejected' ? 'Loan Rejected' : 'Loan Deliberation'),
-        by: approval.by,
+        action: decisionType === 'APPROVE'
+          ? 'Loan Approved'
+          : decisionType === 'REJECT'
+            ? 'Loan Rejected'
+            : 'Loan Recommended for Approval',
+        by: adminName,
         date: new Date().toLocaleString(),
         note: body.adminNotes || '',
         category: 'loan'
       });
       loan.audit = audit;
 
-      let workflowStatus = 'PENDING_APPROVAL_PANEL';
-      if (loanStatus === 'approved') {
-        workflowStatus = 'APPROVED';
-      } else if (loanStatus === 'rejected') {
-        workflowStatus = 'REJECTED_BY_PANEL';
-      } else if (resolvedStatus === 'partially_approved') {
-        workflowStatus = 'PENDING_APPROVAL_PANEL';
-      }
-
-      const { data: updatedLoan, error: updateErr } = await supabase.from('loans').update({
+      const coreUpdate: Record<string, any> = {
         status: loan.status,
         approved_date: loan.approved_date,
         request: loan.request,
         audit: loan.audit,
         repayments: loan.repayments,
         workflow_status: workflowStatus
-      }).eq('id', loan.id).select().single();
+      };
+      const workflowUpdate: Record<string, any> = {
+        workflow_type: workflowType,
+        review_decision_history: history
+      };
+      if (decisionType === 'APPROVE' && !isLegacy) {
+        workflowUpdate.loan_amount_approved = finalAmount;
+        workflowUpdate.final_approved_by = adminId;
+        workflowUpdate.final_approved_at = nowIso;
+        workflowUpdate.first_installment_due = firstDueDate;
+      }
+      if (decisionType === 'REJECT' && !isLegacy) {
+        workflowUpdate.rejection_reason = body.adminNotes || '';
+      }
+
+      let { data: updatedLoan, error: updateErr } = await supabase
+        .from('loans')
+        .update({ ...coreUpdate, ...workflowUpdate })
+        .eq('id', loan.id)
+        .select()
+        .single();
+
+      // Pre-migration fallback: retry without the new columns. The review
+      // history still reaches the member page through `request.reviewHistory`.
+      if (updateErr && (updateErr.code === '42703' || updateErr.code === 'PGRST204')) {
+        ({ data: updatedLoan, error: updateErr } = await supabase
+          .from('loans')
+          .update(coreUpdate)
+          .eq('id', loan.id)
+          .select()
+          .single());
+      }
       if (updateErr) throw new Error(updateErr.message);
 
       // Final decisions are delivered through the server so RLS never allows

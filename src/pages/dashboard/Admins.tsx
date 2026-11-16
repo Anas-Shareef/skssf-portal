@@ -3,7 +3,7 @@ import { Navigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { localDb } from '../../lib/localDb';
 import ConfirmDialog from '../../components/ConfirmDialog';
-import { PERMISSION_MODULES, DEFAULT_ADMIN_PERMISSIONS } from '../../lib/permissions';
+import { PERMISSION_MODULES, DEFAULT_ADMIN_PERMISSIONS, effectiveLoanPermissions, effectiveRepaymentPermissions } from '../../lib/permissions';
 
 export default function Admins() {
   const { profile } = useAuth();
@@ -46,6 +46,53 @@ export default function Admins() {
     }));
   };
 
+  // ── Loan & Repayment Governance ──────────────────────────────────────────
+  // These four toggles are persisted twice: as `perms` JSON keys (always
+  // available) and as the new boolean profile columns (once the migration has
+  // run). The generic module list hides this module to avoid duplicate
+  // controls; the dedicated block below is the single source of truth.
+  const GOVERNANCE_TOGGLES = [
+    { column: 'can_review_loans', key: 'loans.review', viewKey: 'loans.view', icon: '🔎', label: 'Loan Application Review', hint: 'Verify documents and recommend an amount.' },
+    { column: 'can_approve_loans', key: 'loans.approve', viewKey: 'loans.view', icon: '✅', label: 'Loan Final Approval', hint: 'Approve / reject and set the approved amount.' },
+    { column: 'can_review_repayments', key: 'repayments.review', viewKey: 'repayments.view', icon: '📄', label: 'Repayment Review', hint: 'Review member repayment submissions.' },
+    { column: 'can_verify_repayments', key: 'repayments.verify', viewKey: 'repayments.view', icon: '🏦', label: 'Repayment Verification', hint: 'Verify payments and update the balance.' }
+  ] as const;
+
+  const governanceOn = (column: string) => {
+    const toggle = GOVERNANCE_TOGGLES.find(t => t.column === column);
+    if (!toggle) return false;
+    // An explicit perms entry always wins, so unchecking a governance toggle is
+    // sticky even while the legacy "Authorized Reviewer" flag is on.
+    if (Object.prototype.hasOwnProperty.call(selectedPerms, toggle.key)) {
+      return selectedPerms[toggle.key] === true;
+    }
+    return column === 'can_approve_loans' && isReviewer;
+  };
+
+  const toggleGovernance = (column: string) => {
+    const toggle = GOVERNANCE_TOGGLES.find(t => t.column === column);
+    if (!toggle) return;
+    setSelectedPerms(prev => {
+      const next = !prev[toggle.key];
+      return {
+        ...prev,
+        [toggle.key]: next,
+        ...(next ? { [toggle.viewKey]: true } : {})
+      };
+    });
+  };
+
+  const governancePayload = () => {
+    const loan = effectiveLoanPermissions({ role: 'admin', perms: selectedPerms, is_approver: isReviewer });
+    const repay = effectiveRepaymentPermissions({ role: 'admin', perms: selectedPerms, is_approver: isReviewer });
+    return {
+      can_review_loans: loan.canReview,
+      can_approve_loans: loan.canApprove,
+      can_review_repayments: repay.canReview,
+      can_verify_repayments: repay.canVerify
+    };
+  };
+
   const prefix = currentRole === 'super' ? '/super-admin/dashboard' : currentRole === 'admin' ? '/admin/dashboard' : '/member/dashboard';
   if (currentRole !== 'super') {
     return <Navigate to={prefix} replace />;
@@ -76,6 +123,7 @@ export default function Admins() {
       pass: pass || undefined,
       active: editingAdmin ? editingAdmin.active : true,
       is_approver: isReviewer,
+      ...governancePayload(),
       perms: {
         ...selectedPerms,
         isReviewer
@@ -108,7 +156,27 @@ export default function Admins() {
     const fresh = localDb.getUsers().find((u: any) => u.id === admin.id) || admin;
     setEditingAdmin(fresh);
     setAvatar(fresh.avatar || '');
-    setSelectedPerms(fresh.perms || DEFAULT_ADMIN_PERMISSIONS);
+    // Seed governance keys from the effective permissions so legacy approvers
+    // (is_approver = true, no explicit key yet) show their true authority. Only
+    // materialise a key when the profile already carries an explicit signal
+    // (perms JSON entry or the new boolean column); otherwise the legacy
+    // fallback stays intact so marking "Authorized Reviewer" still works.
+    const loan = effectiveLoanPermissions(fresh);
+    const repay = effectiveRepaymentPermissions(fresh);
+    const existingPerms = fresh.perms || {};
+    const seeded: Record<string, boolean> = { ...DEFAULT_ADMIN_PERMISSIONS, ...existingPerms };
+    const seedIfSignalled = (key: string, column: string, value: boolean) => {
+      const hasPerm = Object.prototype.hasOwnProperty.call(existingPerms, key);
+      const hasColumn = typeof fresh[column] === 'boolean';
+      if (hasPerm || hasColumn) seeded[key] = value;
+    };
+    seedIfSignalled('loans.review', 'can_review_loans', loan.canReview);
+    seedIfSignalled('loans.approve', 'can_approve_loans', loan.canApprove);
+    seedIfSignalled('repayments.review', 'can_review_repayments', repay.canReview);
+    seedIfSignalled('repayments.verify', 'can_verify_repayments', repay.canVerify);
+    seeded['loans.view'] = loan.canView;
+    seeded['repayments.view'] = repay.canView;
+    setSelectedPerms(seeded);
     setIsReviewer(!!fresh.is_approver);
     setShowModal(true);
   };
@@ -245,20 +313,24 @@ export default function Admins() {
                     <td style={{ fontSize: '12px' }}>{a.email}</td>
                     <td style={{ fontSize: '12px' }}>{a.phone || '—'}</td>
                     <td style={{ fontSize: '11.5px' }}>
-                      {[
-                        a.perms?.['inventory.view'] ? '📦 Inventory' : '',
-                        a.perms?.['members.view'] ? '👥 Members' : '',
-                        a.perms?.loan ? '💰 Loan' : '',
-                      ].filter(Boolean).join(' · ') || 'None'}
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                        {effectiveLoanPermissions(a).canReview && <span className="bdg bdg-t" style={{ fontSize: 10 }}>🔎 Review</span>}
+                        {effectiveLoanPermissions(a).canApprove && <span className="bdg bdg-g" style={{ fontSize: 10 }}>✅ Approve</span>}
+                        {effectiveRepaymentPermissions(a).canReview && <span className="bdg bdg-p" style={{ fontSize: 10 }}>📄 Repay Review</span>}
+                        {effectiveRepaymentPermissions(a).canVerify && <span className="bdg bdg-a" style={{ fontSize: 10 }}>🏦 Verify</span>}
+                        {a.perms?.['inventory.view'] && <span className="bdg bdg-gr" style={{ fontSize: 10 }}>📦 Inventory</span>}
+                        {a.perms?.['members.view'] && <span className="bdg bdg-gr" style={{ fontSize: 10 }}>👥 Members</span>}
+                        {!effectiveLoanPermissions(a).canAct && !effectiveRepaymentPermissions(a).canView && !a.perms?.['inventory.view'] && !a.perms?.['members.view'] && <span style={{ color: 'var(--muted)' }}>None</span>}
+                      </div>
                       {a.is_approver && (
                         <span style={{
                           display: 'inline-flex', alignItems: 'center', gap: 4,
                           background: 'linear-gradient(135deg, rgba(20,184,166,.12), rgba(13,115,119,.08))',
                           color: 'var(--teal)', fontSize: 10, fontWeight: 800,
                           padding: '2px 8px', borderRadius: 20, border: '1px solid rgba(20,184,166,.25)',
-                          marginLeft: 6
+                          marginTop: 4
                         }}>
-                          🛡️ Reviewer
+                          🛡️ Legacy Reviewer
                         </span>
                       )}
                     </td>
@@ -351,8 +423,8 @@ export default function Admins() {
 
               <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--dark2)', margin: '14px 0 10px' }}>Access Permissions</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', maxHeight: '350px', overflowY: 'auto', paddingRight: '6px' }}>
-                {PERMISSION_MODULES.map((mod, idx) => (
-                  <div key={idx} style={{ borderBottom: idx < PERMISSION_MODULES.length - 1 ? '1px solid #e2e8f0' : 'none', paddingBottom: '16px' }}>
+                {PERMISSION_MODULES.filter(mod => mod.name !== 'Loan & Repayment Governance').map((mod, idx, arr) => (
+                  <div key={idx} style={{ borderBottom: idx < arr.length - 1 ? '1px solid #e2e8f0' : 'none', paddingBottom: '16px' }}>
                     <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--teal)', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' }}>
                       <span>{mod.icon}</span> {mod.name}
                     </div>
@@ -374,6 +446,30 @@ export default function Admins() {
                   </div>
                 ))}
                 
+                {/* Loan & Repayment Governance */}
+                <div style={{ borderBottom: '1px solid #e2e8f0', paddingBottom: '16px' }}>
+                  <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--teal)', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
+                    <span>⚖️</span> Loan &amp; Repayment Governance
+                  </div>
+                  <p style={{ margin: '0 0 10px', fontSize: '11.5px', color: 'var(--muted)', lineHeight: 1.5 }}>
+                    Review and approval are independent. Only an admin with <b>Loan Final Approval</b> can approve a loan or set the approved amount.
+                  </p>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '9px' }}>
+                    {GOVERNANCE_TOGGLES.map(toggle => {
+                      const checked = governanceOn(toggle.column);
+                      return (
+                        <label key={toggle.column} className="cb-row" style={{ background: checked ? 'var(--teal-pale)' : 'var(--bg)', border: checked ? '1px solid var(--teal)' : '1px solid transparent', borderRadius: '9px', padding: '10px 12px', cursor: 'pointer', display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                          <input type="checkbox" checked={checked} onChange={() => toggleGovernance(toggle.column)} style={{ marginTop: '2px' }} />
+                          <span style={{ display: 'grid', gap: '2px' }}>
+                            <span style={{ fontSize: '12.5px', fontWeight: 700, color: 'var(--dark)' }}>{toggle.icon} {toggle.label}</span>
+                            <span style={{ fontSize: '11px', color: 'var(--muted)', lineHeight: 1.4 }}>{toggle.hint}</span>
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+
                 {/* Legacy / Special permissions */}
                 <div style={{ paddingTop: '8px' }}>
                   <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--teal)', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' }}>

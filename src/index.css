@@ -946,3 +946,72 @@ button {
     .matrix-grid { grid-template-columns: repeat(2, 1fr) !important; gap: 12px !important; }
     .auth-hub-grid { grid-template-columns: 1fr !important; gap: 16px !important; }
   }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PHASE 6 — RESPONSIVE POLISH
+   Consolidated repayment metrics, sticky drawer action bar, touch targets and
+   horizontal-overflow guards for the loan/repayment workflows.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+@media (max-width: 900px) {
+  .repay-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 12px !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .repay-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 10px !important;
+  }
+  .repay-metrics > div {
+    padding: 14px 12px !important;
+    border-radius: 14px !important;
+    min-width: 0;
+  }
+  .repay-metrics > div > div:nth-child(2) {
+    font-size: 20px !important;
+  }
+
+  /* Sticky mobile action bar inside the loan review drawer */
+  .drawer-action-bar {
+    position: sticky !important;
+    bottom: 0 !important;
+    z-index: 6 !important;
+    background: #fff !important;
+    padding: 10px 0 4px !important;
+    box-shadow: 0 -10px 24px rgba(15, 23, 42, 0.10);
+  }
+  .drawer-action-bar button {
+    min-height: 44px;
+    width: 100%;
+  }
+
+  /* Comfortable touch targets for primary admin actions */
+  .tab-btn,
+  .rp-modal-ft button,
+  .modal-foot button,
+  .bsm.s,
+  .bsm.g,
+  .bsm.r {
+    min-height: 44px;
+  }
+
+  /* Never allow a card to create a horizontal page scroll */
+  .card,
+  .rp-modal-inner,
+  .modal {
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+  .tbl {
+    min-width: 620px;
+  }
+}
+
+@media (max-width: 420px) {
+  .repay-metrics {
+    grid-template-columns: 1fr !important;
+  }
+}

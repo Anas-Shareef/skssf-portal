@@ -2,6 +2,7 @@
 // This module keeps a short-lived in-memory snapshot for the existing pages.
 // It must not seed demo users or persist application data in browser storage.
 import { api } from './api';
+import { effectiveLoanPermissions, effectiveRepaymentPermissions } from './permissions';
 
 // Generate a random ID
 const uuid = () => Math.random().toString(36).substring(2, 9);
@@ -100,6 +101,10 @@ const mapUserFromApi = (u: any) => ({
   total_donated: Number(u.total_donated || 0),
   perms: u.perms || {},
   is_approver: !!u.is_approver,
+  can_review_loans: u.can_review_loans ?? undefined,
+  can_approve_loans: u.can_approve_loans ?? undefined,
+  can_review_repayments: u.can_review_repayments ?? undefined,
+  can_verify_repayments: u.can_verify_repayments ?? undefined,
   member_unique_code: u.member_unique_code || u.memberUniqueCode || '',
   created_by: u.created_by || null,
   assigned_zone: u.assigned_zone || '',
@@ -178,7 +183,16 @@ const mapLoanFromApi = (l: any, usersByUuid: Map<string, any>) => {
     witness2_member_no: l.witness2_member_no || l.request?.witness2_member_no || null,
     witness2_status: l.witness2_status || l.request?.witness2_status || null,
     db_id: l.id,   // original numeric Supabase row ID, for member detail navigation
-    workflow_status: l.workflow_status || null
+    workflow_status: l.workflow_status || null,
+    workflow_type: l.workflow_type || 'CONFIGURABLE',
+    review_decision_history: Array.isArray(l.review_decision_history)
+      ? l.review_decision_history
+      : (Array.isArray(l.request?.reviewHistory) ? l.request.reviewHistory : []),
+    final_approved_by: l.final_approved_by || null,
+    final_approved_at: l.final_approved_at || null,
+    first_installment_due: l.first_installment_due || null,
+    rejection_reason: l.rejection_reason || l.request?.rejection_reason || '',
+    recommended_amount: l.recommended_amount ?? l.request?.recommended_amount ?? null
   };
   
   // Financial Integrity Audit: Ensure 'paid' flags match approved requests
@@ -472,6 +486,10 @@ export const localDb = {
           designation: user.desig || '',
           avatar: user.avatar || '',
           is_approver: !!user.is_approver,
+          can_review_loans: !!user.can_review_loans,
+          can_approve_loans: !!user.can_approve_loans,
+          can_review_repayments: !!user.can_review_repayments,
+          can_verify_repayments: !!user.can_verify_repayments,
           dob: user.dob || '',
           gender: user.gender || '',
           salary: Number(user.salary || 0),
@@ -532,6 +550,10 @@ export const localDb = {
             sah_miss: users[idx].sah_miss || [],
             total_donated: Number(users[idx].total_donated || 0),
             is_approver: !!users[idx].is_approver,
+            can_review_loans: !!users[idx].can_review_loans,
+            can_approve_loans: !!users[idx].can_approve_loans,
+            can_review_repayments: !!users[idx].can_review_repayments,
+            can_verify_repayments: !!users[idx].can_verify_repayments,
             dob: users[idx].dob || '',
             gender: users[idx].gender || '',
             salary: Number(users[idx].salary || 0),
@@ -770,13 +792,13 @@ export const localDb = {
       const rep = loan.repayments[monthIdx];
       const req = rep.request;
       const byName = adminBy || 'Admin';
-      const isSuper = adminRole === 'super';
       
       const adminProfile = adminId ? localDb.getUserById(adminId) : null;
-      const isAdminApprover = adminProfile?.role === 'admin' && adminProfile?.is_approver;
+      // Only a profile with repayment verification rights may mutate the ledger.
+      const perms = effectiveRepaymentPermissions(adminProfile || { role: adminRole });
+      if (!perms.canVerify) return false;
 
-      if (!isSuper) {
-        if (!isAdminApprover) return false;
+      if (!perms.isSuper) {
         const assigned = req.assignedReviewers || [];
         if (assigned.length > 0 && !assigned.includes(adminId || '')) return false;
       }
@@ -946,31 +968,92 @@ export const localDb = {
     return newLoan;
   },
 
-  verifyLoanRequest(loanId: string, status: string, adminNotes?: string, adminBy?: string, adminRole?: string, adminId?: string) {
+  /**
+   * Record a review / approval / rejection decision.
+   * Thin, explicit wrapper around `verifyLoanRequest` used by the drawer.
+   */
+  recordLoanDecision(
+    loanId: string,
+    decision: { type: 'RECOMMEND' | 'APPROVE' | 'REJECT'; approvedAmount?: number | null; recommendedAmount?: number | null; firstDueDate?: string | null },
+    admin: { id?: string; name?: string; role?: string },
+    notes?: string
+  ) {
+    const status = decision.type === 'APPROVE' ? 'approved' : decision.type === 'REJECT' ? 'rejected' : 'pending';
+    return localDb.verifyLoanRequest(loanId, status, notes, admin?.name, admin?.role, admin?.id, decision);
+  },
+
+  verifyLoanRequest(
+    loanId: string,
+    status: string,
+    adminNotes?: string,
+    adminBy?: string,
+    adminRole?: string,
+    adminId?: string,
+    decision?: { type?: string; approvedAmount?: number | null; recommendedAmount?: number | null; firstDueDate?: string | null }
+  ) {
     const loans = localDb.getLoans();
     const loan = loans.find((l: any) => l.id === loanId);
-    if (loan && loan.request) {
-      const byName = adminBy || 'Admin';
-      const isSuper = adminRole === 'super';
-      
-      // Permit if Super Admin OR if Admin is a designated Approver
-      const adminProfile = adminId ? localDb.getUserById(adminId) : null;
-      const isAdminApprover = adminProfile?.role === 'admin' && adminProfile?.is_approver;
+    if (!loan) return false;
 
-      if (!isSuper) {
-        if (!isAdminApprover) return false;
-        const assigned = loan.request.assignedReviewers || [];
-        if (assigned.length > 0 && !assigned.includes(adminId || '')) return false;
-      }
-      
-      if (!loan.request.approvals) loan.request.approvals = [];
+    if (!loan.request) loan.request = {};
+    if (!Array.isArray(loan.audit)) loan.audit = [];
+    if (!Array.isArray(loan.review_decision_history)) {
+      loan.review_decision_history = Array.isArray(loan.request.reviewHistory) ? loan.request.reviewHistory : [];
+    }
+
+    const adminProfile = adminId ? localDb.getUserById(adminId) : null;
+    const perms = effectiveLoanPermissions(adminProfile || { role: adminRole });
+
+    const decisionType = String(
+      decision?.type || (status === 'approved' ? 'APPROVE' : status === 'rejected' ? 'REJECT' : 'RECOMMEND')
+    ).toUpperCase();
+
+    // ── Permission gate ────────────────────────────────────────────────────
+    if (decisionType === 'APPROVE' && !perms.canApprove) return false;
+    if (decisionType === 'RECOMMEND' && !(perms.canReview || perms.canApprove)) return false;
+    if (decisionType === 'REJECT' && !perms.canAct) return false;
+
+    const workflowType = loan.workflow_type === 'LEGACY_VOTES' ? 'LEGACY_VOTES' : 'CONFIGURABLE';
+    const isLegacy = workflowType === 'LEGACY_VOTES';
+
+    if (isLegacy && !perms.isSuper) {
+      const assigned = loan.request.assignedReviewers || [];
+      if (assigned.length > 0 && !assigned.includes(adminId || '')) return false;
+    }
+
+    const byName = adminBy || adminProfile?.name || 'Admin';
+    const designation = adminProfile?.desig || adminProfile?.designation || adminRole || 'Admin';
+    const nowIso = new Date().toISOString();
+    const approvedAmount = decision?.approvedAmount != null ? Number(decision.approvedAmount) : null;
+    const recommendedAmount = decision?.recommendedAmount != null ? Number(decision.recommendedAmount) : null;
+
+    // ── Append an immutable review event ───────────────────────────────────
+    const event = {
+      step: decisionType === 'RECOMMEND' ? 'ADMIN_REVIEW' : 'FINAL_APPROVAL',
+      action: decisionType === 'APPROVE' ? 'APPROVED' : decisionType === 'REJECT' ? 'REJECTED' : 'RECOMMENDED',
+      admin_id: adminId || null,
+      admin_name: byName,
+      admin_designation: designation,
+      recommended_amount: recommendedAmount,
+      approved_amount: approvedAmount,
+      notes: adminNotes || '',
+      timestamp: nowIso,
+      ...(decision?.firstDueDate ? { first_due_date: decision.firstDueDate } : {})
+    };
+    loan.review_decision_history.push(event);
+    // Mirror into the request JSON so the member page works before the
+    // `review_decision_history` column exists.
+    loan.request.reviewHistory = loan.review_decision_history;
+    loan.workflow_type = workflowType;
+
+    if (isLegacy) {
+      // Historical loans keep the original consensus behaviour unchanged.
+      if (!Array.isArray(loan.request.approvals)) loan.request.approvals = [];
       const sigIdx = loan.request.approvals.findIndex((a: any) => a.id === adminId || a.by === byName);
-      const signature = { id: adminId, by: byName, role: adminRole || 'Admin', date: new Date().toISOString(), note: adminNotes || '', status: status || 'pending' };
-      
+      const signature = { id: adminId, by: byName, role: adminRole || 'Admin', date: nowIso, note: adminNotes || '', status: status || 'pending' };
       if (sigIdx > -1) loan.request.approvals[sigIdx] = signature;
       else loan.request.approvals.push(signature);
 
-      // --- Dynamic Consensus Calculation for Loan Application ---
       const apprs = loan.request.approvals.filter((a: any) => a.status === 'approved');
       const rejs = loan.request.approvals.filter((a: any) => a.status === 'rejected');
       const threshold = loan.request.threshold || 2;
@@ -979,14 +1062,14 @@ export const localDb = {
       if (superApprover) {
         loan.status = 'approved';
         loan.request.status = 'approved';
-        loan.approvedDate = new Date().toISOString().split('T')[0];
+        loan.approvedDate = nowIso.split('T')[0];
       } else if (rejs.length > 0) {
         loan.status = 'rejected';
         loan.request.status = 'rejected';
       } else if (apprs.length >= threshold) {
         loan.status = 'approved';
         loan.request.status = 'approved';
-        loan.approvedDate = new Date().toISOString().split('T')[0];
+        loan.approvedDate = nowIso.split('T')[0];
       } else if (apprs.length > 0) {
         loan.status = 'pending';
         loan.request.status = 'partially_approved';
@@ -995,33 +1078,77 @@ export const localDb = {
         loan.request.status = 'pending';
       }
 
-      let wfStatus = 'PENDING_APPROVAL_PANEL';
-      if (loan.status === 'approved') wfStatus = 'APPROVED';
-      else if (loan.status === 'rejected') wfStatus = 'REJECTED_BY_PANEL';
-      else if (loan.request.status === 'partially_approved') wfStatus = 'PENDING_APPROVAL_PANEL';
-      loan.workflow_status = wfStatus;
+      if (loan.status === 'approved') loan.workflow_status = 'APPROVED';
+      else if (loan.status === 'rejected') loan.workflow_status = 'REJECTED_BY_PANEL';
+      else loan.workflow_status = 'PENDING_APPROVAL_PANEL';
+    } else if (decisionType === 'APPROVE') {
+      const finalAmount = approvedAmount ?? Number(loan.loan_amount_approved || loan.loan_amount_requested || loan.amt || 0);
+      loan.status = 'approved';
+      loan.request.status = 'approved';
+      loan.approvedDate = nowIso.split('T')[0];
+      loan.workflow_status = 'APPROVED';
+      loan.loan_amount_approved = finalAmount;
+      loan.amt = finalAmount || loan.amt;
+      loan.final_approved_by = adminId || null;
+      loan.final_approved_at = nowIso;
+      if (decision?.firstDueDate) loan.first_installment_due = decision.firstDueDate;
 
-      loan.audit.push({
-        action: status === 'approved' ? 'Loan Verified' : status === 'rejected' ? 'Loan Rejected' : 'Loan Deliberation',
-        by: byName,
-        date: new Date().toLocaleString(),
-        note: status === 'approved' ? `Signed approval for request.` : status === 'rejected' ? `Rejected: ${adminNotes}` : `Set back to pending for review.`,
-        category: 'loan'
-      });
-
-      if (hasBackendSession()) {
-        backendCacheStorage.setItem('db_loans', JSON.stringify(loans));
-        syncLater(api.post(`/loans/${loanId}/verify`, {
-          status,
-          adminNotes,
-          adminBy,
-          adminRole,
-          adminId,
-        }).then(() => syncFromBackend()));
+      if (!loan.repayments || loan.repayments.length === 0) {
+        const months = Number(loan.repayment_period_months || loan.months || 12);
+        const emi = Math.round(finalAmount / Math.max(1, months));
+        const start = decision?.firstDueDate ? new Date(decision.firstDueDate) : null;
+        loan.repayments = Array.from({ length: months }, (_, i) => {
+          const due = start
+            ? new Date(start.getFullYear(), start.getMonth() + i, start.getDate())
+            : new Date(new Date().getFullYear(), new Date().getMonth() + i + 1, 1);
+          return { amt: emi, due: due.toISOString().split('T')[0], paid: null };
+        });
       }
-      return true;
+    } else if (decisionType === 'REJECT') {
+      loan.status = 'rejected';
+      loan.request.status = 'rejected';
+      loan.workflow_status = 'REJECTED_BY_PANEL';
+      loan.rejection_reason = adminNotes || '';
+    } else {
+      loan.status = 'pending';
+      loan.request.status = 'partially_approved';
+      loan.workflow_status = 'PENDING_APPROVAL_PANEL';
+      if (recommendedAmount != null) loan.recommended_amount = recommendedAmount;
     }
-    return false;
+
+    loan.audit.push({
+      action:
+        decisionType === 'APPROVE' ? 'Loan Approved'
+          : decisionType === 'REJECT' ? 'Loan Rejected'
+            : 'Loan Recommended for Approval',
+      by: byName,
+      date: new Date().toLocaleString(),
+      note:
+        decisionType === 'APPROVE'
+          ? `Approved${approvedAmount != null ? ` ₹${approvedAmount}` : ''}. ${adminNotes || ''}`.trim()
+          : decisionType === 'REJECT'
+            ? `Rejected: ${adminNotes || ''}`
+            : `Recommended${recommendedAmount != null ? ` ₹${recommendedAmount}` : ''}. ${adminNotes || ''}`.trim(),
+      category: 'loan'
+    });
+
+    if (hasBackendSession()) {
+      backendCacheStorage.setItem('db_loans', JSON.stringify(loans));
+      syncLater(api.post(`/loans/${loanId}/verify`, {
+        status,
+        adminNotes,
+        adminBy,
+        adminRole,
+        adminId,
+        decision: decisionType,
+        approvedAmount,
+        recommendedAmount,
+        firstDueDate: decision?.firstDueDate || null,
+        reviewHistory: loan.review_decision_history,
+        workflowType
+      }).then(() => syncFromBackend()));
+    }
+    return true;
   },
 
   deleteLoansBulk(ids: string[]) {

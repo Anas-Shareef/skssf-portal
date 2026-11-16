@@ -8,6 +8,7 @@ import { authenticatedFetch } from '../../lib/authSession';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import { History as HistoryIcon, Plus } from 'lucide-react';
 import LoanReviewDrawer from '../../components/LoanReviewDrawer';
+import { effectiveLoanPermissions } from '../../lib/permissions';
 
 
 
@@ -220,7 +221,9 @@ export default function LoanManagement() {
   };
 
   // Real-time permission check (Global)
-  const isGlobalApprover = profile?.role === 'super' || config.authorizedReviewers?.includes(profile?.id || '') || localDb.getUserById(profile?.id || '')?.is_approver;
+  const freshProfile = profile ? { ...profile, ...(localDb.getUserById(profile.id) || {}) } : null;
+  const loanPermissions = effectiveLoanPermissions(freshProfile);
+  const isGlobalApprover = loanPermissions.canApprove;
 
   // Scope: results are already scoped by the backend API.
   // We just trust the 'loans' array as returned by localDb.
@@ -288,6 +291,44 @@ export default function LoanManagement() {
       setToast({ m: 'Action failed. Are you an authorized Approver?', t: 'r' });
       setTimeout(() => setToast(null), 3000);
     }
+  };
+
+  /**
+   * Configurable workflow: record a review recommendation, final approval or
+   * rejection. The drawer supplies the amount and first due date.
+   */
+  const handleRecordDecision = (decision: {
+    type: 'RECOMMEND' | 'APPROVE' | 'REJECT';
+    approvedAmount?: number | null;
+    recommendedAmount?: number | null;
+    firstDueDate?: string | null;
+  }) => {
+    if (!selectedLoanId || !profile) return;
+    if (decision.type === 'REJECT' && !actionNote.trim()) {
+      setToast({ m: 'Rejection notes are required.', t: 'r' });
+      setTimeout(() => setToast(null), 3000);
+      return;
+    }
+    const ok = localDb.recordLoanDecision(
+      selectedLoanId,
+      decision,
+      { id: profile.id, name: profile.name, role: profile.role },
+      actionNote
+    );
+    if (ok) {
+      refreshLoans();
+      setShowReview(false);
+      setConfirmSave(false);
+      setActionNote('');
+      setActionStatus('pending');
+      setToast({
+        m: decision.type === 'APPROVE' ? 'Loan approved successfully.' : decision.type === 'REJECT' ? 'Loan rejected.' : 'Recommendation recorded.',
+        t: 's'
+      });
+    } else {
+      setToast({ m: 'Action failed — check your loan permissions.', t: 'r' });
+    }
+    setTimeout(() => setToast(null), 3000);
   };
 
   const doDeleteLoan = (id: string) => {
@@ -716,6 +757,7 @@ export default function LoanManagement() {
         filingHelper={filingHelper}
         canSign={canSign}
         isGlobalApprover={isGlobalApprover}
+        loanPermissions={loanPermissions}
         actionStatus={actionStatus}
         actionNote={actionNote}
         historyLoading={historyLoading}
@@ -730,6 +772,7 @@ export default function LoanManagement() {
         onActionStatusChange={setActionStatus}
         onActionNoteChange={setActionNote}
         onRecordSignature={() => setConfirmSave(true)}
+        onRecordDecision={handleRecordDecision}
         onLoadHistory={loadApplicationHistory}
         onSendWitnessLink={sendWitnessVerificationLink}
         onToggleReviewer={(adminId) => {
