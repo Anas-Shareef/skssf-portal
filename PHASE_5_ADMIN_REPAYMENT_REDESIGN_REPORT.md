@@ -1,9 +1,9 @@
 # PHASE 5 — ADMIN REPAYMENT UI/UX REDESIGN REPORT
 
-**Date:** 2026-11-12  
+**Date:** 2026-11-16  
 **Production:** https://skssf-portal.vercel.app  
 **Target page:** `/admin/dashboard/repayments`  
-**Current deployed commit:** `3fa4903`  
+**Current deployed commit:** `b39caac`  
 **Branch:** `main`
 
 ## 1. Source
@@ -27,7 +27,7 @@ Phase 5 redesign brief: "PRD: Repayment Portal Redesign — Page: /admin/dashboa
 | 11. Overdue not obvious / no days | **Partially** | Needs-attention list shows days overdue (F7) |
 | 12. No clear next action | **Addressed** | Needs-attention rows carry Verify / Record payment actions (F7) |
 
-## 3. Phase 5.0 / Phase 5.1 implementation log (commit `3fa4903`)
+## 3. Phase 5.0 / 5.1 implementation log (commit `3fa4903`)
 
 - `fmtDate` / `fmtDateShort` hardened → no more `Invalid Date`; missing dates render `Date not set` / `—`.
 - Removed duplicate Outstanding Balance / Overdue Amount from secondary summary; secondary row now holds Total Confirmed Repayments, Pending Verification, Partial Payments, Reversed Transactions, rendered inside a collapsible **More details** block (`overviewDetailsOpen`, default closed).
@@ -37,23 +37,39 @@ Phase 5 redesign brief: "PRD: Repayment Portal Redesign — Page: /admin/dashboa
 - Added **Paid** and **Balance** columns to Overview installments table; colSpan updated (F11).
 - Added **Clear filters** control with active-filter indicator (F10).
 
-## 4. Validation
+## 4. Phase 5.2 / 5.3 implementation log (commit `b39caac`) — header & schedules
+
+- **F1 / F2 — clickable KPI tiles + helper copy:** the four "Repayment Portal Matrix" tiles (Pending Review, Partially Signed, Total Approved, Total Rejected) are now clickable and deep-link into the Transaction Pipeline pre-filtered for that status (`setPipelineFilter` + `setAdminTab('queue')`). Helper copy updated to plain language (`Needs your action`, `Awaiting signatures`, …).
+- **F3 — sticky compact header:** on scroll past 40px a slim sticky bar (`position: sticky; top: 0`) collapses the four counts into single-line chips; the tab row pins below it (`top: 64`) while scrolled.
+- **F4 — global cross-tab search:** single global search input added to the admin repayment header area; writes to the active tab's search state (`fSearch` on Overview, `search` on Pipeline/Schedules) and switches tabs as the user types.
+
+## 5. Phase 5.4 — schedules work (commit `b39caac`)
+
+- **F27 — sort/filter:** added EMI schedule sort control — Overdue first (default), Highest balance, Newest; schedules now render from a sorted `schedLoans` derivation (overdue-first default).
+- **F26 — schedule not generated:** loans with no repayment schedule now render a friendly card ("Schedule not generated" + **Generate schedule** action) instead of a blank area.
+- **F28 — single footer row:** loan card footer reduced to a single row — pending count text + **History Log** link (verify action folds into the pending flow).
+
+## 6. Validation
 
 - `npx tsc --noEmit` → **PASS**
 - `npm run build` → **PASS**
-- Deploy → **READY** (`skssf-main-j72bhato8-luca-glow-s-projects.vercel.app`) · commit `3fa4903`
+- Deploy → **READY** (`skssf-main-anncl2uhi-luca-glow-s-projects.vercel.app`) · commit `b39caac`
 
-## 5. Remaining Phase 5 work (not yet implemented — tracked from PRD)
+## 7. Remaining Phase 5 work (not yet implemented — tracked from PRD)
 
-1. F1: clickable KPI tiles → open pipeline filtered by status.
-2. F2: helper text per KPI tile ("Needs your action").
-3. F3: sticky compact header on scroll with four counts; F4: global cross-tab search.
-4. F14: pipeline group-by-loan cards with progress bars and next action.
-5. F20: bulk verify multi-select.
-6. F24: loan-details expander for long applicant text.
-7. F27: schedules sort/filter (overdue first, highest balance, newest).
+1. F14: pipeline group-by-loan cards with progress bars and next action.
+2. F20: bulk verify multi-select.
+3. F24: loan-details expander for long applicant text.
+4. F25: table status pill with icon (colour + icon).
+5. F21: Timeline/Table toggle "remember last choice per user".
+6. F13: default status filter is Needs action (already effective default).
 
-## 6. Explicitly not performed
+## 8. Explicitly not performed
 
 - Authenticated production E2E — **NOT PERFORMED**.
 - Live network capture — **NOT PERFORMED**.
+
+## 9. Deployed state
+
+- HEAD: `b39caac` · Deploy: **READY** · Production: https://skssf-portal.vercel.app
+- Phase 3 fixes deployed at `33362c6` · Phase 4 report at `e857ab8` · Phase 5 report at `559f789`.
