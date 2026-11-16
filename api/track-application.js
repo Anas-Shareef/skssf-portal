@@ -107,6 +107,47 @@ const phoneMatches = (request, phone) => {
     .some(value => value === normalized);
 };
 
+const trackingModes = new Set(['reference', 'mobile']);
+const resolveMode = body => {
+  const raw = String(body?.mode || '').trim().toLowerCase();
+  if (trackingModes.has(raw)) return raw;
+  // Backwards compatible: older clients posted both fields without a mode.
+  if (body?.reference) return 'reference';
+  if (body?.phone) return 'mobile';
+  return '';
+};
+
+const requestPhones = request => [request?.applicant_phone, request?.requester_phone]
+  .map(normalizePhone)
+  .filter(value => value.length === 10);
+
+const primaryPhone = request => requestPhones(request)[0] || null;
+
+const maskPhone = phone => phone ? `••••••${String(phone).slice(-4)}` : null;
+
+// Unknown references still receive a plausible masked destination so the
+// response shape cannot be used to confirm whether a reference exists.
+const decoyMask = seed => {
+  const digest = crypto.createHash('sha256').update(`mask:${seed}`).digest('hex');
+  const digits = String(parseInt(digest.slice(0, 8), 16)).padStart(10, '0').slice(-4);
+  return `••••••${digits}`;
+};
+
+const findRequestsByPhone = async phone => {
+  const normalized = normalizePhone(phone);
+  if (normalized.length !== 10) return { rows: [], error: null };
+  // `*` is PostgREST's LIKE wildcard alias, which also matches stored numbers
+  // that were saved with a country code prefix (+91 / 91).
+  const { data, error } = await supabase
+    .from('loan_requests')
+    .select('*')
+    .or(`applicant_phone.like.*${normalized}*,requester_phone.like.*${normalized}*`)
+    .order('created_at', { ascending: false })
+    .limit(20);
+  if (error) return { rows: [], error };
+  return { rows: (data || []).filter(row => phoneMatches(row, normalized)), error: null };
+};
+
 const sendSms = async (phone, reference, otp) => {
   const sid = process.env.TWILIO_ACCOUNT_SID;
   const authToken = process.env.TWILIO_AUTH_TOKEN;
@@ -115,7 +156,7 @@ const sendSms = async (phone, reference, otp) => {
   const body = new URLSearchParams({
     To: process.env.TWILIO_DEFAULT_COUNTRY_CODE === '91' ? `+91${phone}` : `+${process.env.TWILIO_DEFAULT_COUNTRY_CODE || '91'}${phone}`,
     From: from,
-    Body: `SKSSF verification code for ${reference}: ${otp}. It expires in 10 minutes. Do not share this code.`
+    Body: `SKSSF verification code for ${reference}: ${otp}. It expires in 5 minutes. Do not share this code.`
   });
   const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(sid)}/Messages.json`, {
     method: 'POST',
@@ -330,69 +371,151 @@ export default async function handler(req, res) {
     }
 
     if (action === 'send') {
+      const mode = resolveMode(req.body);
       const reference = cleanReference(req.body.reference);
-      const phone = normalizePhone(req.body.phone);
-      if (!reference || phone.length !== 10) return res.status(400).json({ error: 'Enter a valid reference and mobile number.' });
+      const typedPhone = normalizePhone(req.body.phone);
+
+      if (!mode) return res.status(400).json({ error: 'Choose how you want to track your application.' });
+      if (mode === 'reference' && !reference) return res.status(400).json({ error: 'Enter your application reference number.' });
+      if (mode === 'mobile' && typedPhone.length !== 10) return res.status(400).json({ error: 'Enter your 10-digit registered mobile number.' });
       if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN || !process.env.TWILIO_FROM_NUMBER) return res.status(503).json({ error: 'Applicant SMS verification is not configured yet.' });
 
       const ipHash = hash(ipAddress(req));
-      const phoneHash = hash(phone);
       const hourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
       const { count: ipCount, error: rateError } = await supabase.from('applicant_tracking_challenges').select('id', { count: 'exact', head: true }).eq('request_ip_hash', ipHash).gte('created_at', hourAgo);
       if (rateError) return res.status(503).json({ error: safeError(rateError) });
       if ((ipCount || 0) >= 5) return res.status(429).json({ error: 'Too many verification requests. Please try again later.' });
+
+      // Resolve which applications this request may unlock. Nothing about the
+      // outcome is revealed to the browser: failures return the same generic
+      // message and a plausible masked destination.
+      let targets = [];
+      if (mode === 'reference') {
+        const { data: request, error: requestError } = await loadRequestByReference(reference);
+        if (requestError) return res.status(503).json({ error: safeError(requestError) });
+        if (request) targets = [request];
+      } else {
+        const { rows, error: lookupError } = await findRequestsByPhone(typedPhone);
+        if (lookupError) return res.status(503).json({ error: safeError(lookupError) });
+        targets = rows;
+      }
+
+      const destination = mode === 'mobile' ? typedPhone : primaryPhone(targets[0]);
+      const masked = mode === 'mobile' ? maskPhone(typedPhone) : (destination ? maskPhone(destination) : decoyMask(reference));
+      if (!targets.length || !destination) return res.status(200).json({ success: true, message: genericMessage, maskedPhone: masked });
+
+      const phoneHash = hash(destination);
       const { count: phoneCount, error: phoneRateError } = await supabase.from('applicant_tracking_challenges').select('id', { count: 'exact', head: true }).eq('phone_hash', phoneHash).gte('created_at', hourAgo);
       if (phoneRateError) return res.status(503).json({ error: safeError(phoneRateError) });
       if ((phoneCount || 0) >= 5) return res.status(429).json({ error: 'Too many verification requests. Please try again later.' });
 
-      const { data: request, error: requestError } = await loadRequestByReference(reference);
-      if (requestError) return res.status(503).json({ error: safeError(requestError) });
-      if (!request || !phoneMatches(request, phone)) return res.status(200).json({ success: true, message: genericMessage });
+      // 60 second resend cooldown per destination number.
+      const cooldownSince = new Date(Date.now() - 60 * 1000).toISOString();
+      const { data: recent, error: cooldownError } = await supabase
+        .from('applicant_tracking_challenges')
+        .select('id')
+        .eq('phone_hash', phoneHash)
+        .gte('created_at', cooldownSince)
+        .limit(1);
+      if (cooldownError) return res.status(503).json({ error: safeError(cooldownError) });
+      if (recent?.length) return res.status(200).json({ success: true, message: genericMessage, maskedPhone: masked, cooldownSeconds: 60 });
 
       const otp = randomOtp();
       const { data: challenge, error: challengeError } = await supabase.from('applicant_tracking_challenges').insert({
-        loan_request_id: request.id,
+        loan_request_id: targets[0].id,
         phone_hash: phoneHash,
         otp_hash: hash(otp),
         request_ip_hash: ipHash,
-        expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString()
+        max_attempts: 5,
+        expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString()
       }).select('id').single();
       if (challengeError || !challenge) return res.status(503).json({ error: safeError(challengeError) });
-      if (!await sendSms(phone, reference, otp)) {
+      if (!await sendSms(destination, targets[0].application_reference || reference || 'your application', otp)) {
         await supabase.from('applicant_tracking_challenges').delete().eq('id', challenge.id);
         return res.status(503).json({ error: 'Applicant SMS verification is temporarily unavailable.' });
       }
-      return res.status(200).json({ success: true, message: genericMessage });
+      return res.status(200).json({ success: true, message: genericMessage, maskedPhone: masked });
     }
 
     if (action === 'verify') {
+      const mode = resolveMode(req.body);
       const reference = cleanReference(req.body.reference);
-      const phone = normalizePhone(req.body.phone);
+      const typedPhone = normalizePhone(req.body.phone);
       const otp = String(req.body.otp || '').trim();
-      if (!reference || phone.length !== 10 || !/^\d{6}$/.test(otp)) return res.status(400).json({ error: 'Invalid verification details.' });
-      const { data: request, error: requestError } = await loadRequestByReference(reference);
-      if (requestError || !request || !phoneMatches(request, phone)) return res.status(401).json({ error: 'Verification failed.' });
-      const { data: challenges, error: challengeError } = await supabase.from('applicant_tracking_challenges').select('id, otp_hash, attempts, max_attempts').eq('loan_request_id', request.id).eq('phone_hash', hash(phone)).is('consumed_at', null).gt('expires_at', new Date().toISOString()).order('created_at', { ascending: false }).limit(1);
-      if (challengeError || !challenges?.[0]) return res.status(401).json({ error: 'Verification failed or expired.' });
-      const challenge = challenges[0];
-      if (challenge.attempts >= challenge.max_attempts) return res.status(429).json({ error: 'Too many incorrect attempts. Request a new code.' });
+      if (!mode || !/^\d{6}$/.test(otp)) return res.status(400).json({ error: 'Invalid verification details.' });
+      if (mode === 'reference' && !reference) return res.status(400).json({ error: 'Invalid verification details.' });
+      if (mode === 'mobile' && typedPhone.length !== 10) return res.status(400).json({ error: 'Invalid verification details.' });
+
+      let request = null;
+      if (mode === 'reference') {
+        const { data, error: requestError } = await loadRequestByReference(reference);
+        if (requestError) return res.status(503).json({ error: safeError(requestError) });
+        request = data;
+        if (!request) return res.status(401).json({ error: 'Verification failed or expired.' });
+      }
+
+      const phoneHash = hash(mode === 'mobile' ? typedPhone : (primaryPhone(request) || ''));
+      let challengeQuery = supabase
+        .from('applicant_tracking_challenges')
+        .select('id, otp_hash, attempts, max_attempts, loan_request_id')
+        .is('consumed_at', null)
+        .gt('expires_at', new Date().toISOString())
+        .order('created_at', { ascending: false })
+        .limit(1);
+      challengeQuery = mode === 'reference'
+        ? challengeQuery.eq('loan_request_id', request.id).eq('phone_hash', phoneHash)
+        : challengeQuery.eq('phone_hash', phoneHash);
+
+      const { data: challenges, error: challengeError } = await challengeQuery;
+      if (challengeError) return res.status(503).json({ error: safeError(challengeError) });
+      const challenge = challenges?.[0];
+      if (!challenge) return res.status(401).json({ error: 'Verification failed or expired.' });
+      if (challenge.attempts >= (challenge.max_attempts || 5)) return res.status(429).json({ error: 'Too many incorrect attempts. Request a new code.' });
       if (hash(otp) !== challenge.otp_hash) {
         await supabase.from('applicant_tracking_challenges').update({ attempts: challenge.attempts + 1 }).eq('id', challenge.id).eq('attempts', challenge.attempts);
         return res.status(401).json({ error: 'Verification failed or expired.' });
       }
       await supabase.from('applicant_tracking_challenges').update({ consumed_at: new Date().toISOString() }).eq('id', challenge.id).is('consumed_at', null);
-      const token = randomToken();
+
+      // Reference mode unlocks exactly one application. Mobile mode unlocks
+      // every application registered to the verified number.
+      let targetRequests = [request];
+      if (mode === 'mobile') {
+        const { rows, error: lookupError } = await findRequestsByPhone(typedPhone);
+        if (lookupError) return res.status(503).json({ error: safeError(lookupError) });
+        targetRequests = rows;
+      }
+      targetRequests = targetRequests.filter(Boolean).slice(0, 10);
+      if (!targetRequests.length) return res.status(401).json({ error: 'Verification failed or expired.' });
+
       const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
-      const { error: sessionError } = await supabase.from('applicant_tracking_sessions').insert({ token_hash: hash(token), loan_request_id: request.id, expires_at: expiresAt });
-      if (sessionError) return res.status(503).json({ error: safeError(sessionError) });
-      return res.status(200).json({ success: true, sessionToken: token, expiresAt });
+      const applications = [];
+      for (const target of targetRequests) {
+        const token = randomToken();
+        const { error: sessionError } = await supabase.from('applicant_tracking_sessions').insert({ token_hash: hash(token), loan_request_id: target.id, expires_at: expiresAt });
+        if (sessionError) return res.status(503).json({ error: safeError(sessionError) });
+        applications.push({
+          sessionToken: token,
+          reference: target.application_reference || null,
+          applicantName: target.applicant_name || target.requester_name || null,
+          submittedAt: target.created_at || null
+        });
+      }
+
+      return res.status(200).json({
+        success: true,
+        sessionToken: applications[0].sessionToken,
+        expiresAt,
+        count: applications.length,
+        applications
+      });
     }
 
     const bearer = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
     const session = await sessionRequest(bearer || req.body.sessionToken);
     if (!session) return res.status(401).json({ error: 'Tracking session expired. Verify again.' });
     const { request } = session;
-    const { data: loan } = await supabase.from('loans').select('workflow_status,status,updated_at,created_at,disbursement_date,source_request_id').eq('source_request_id', request.id).maybeSingle();
+    const { data: loan } = await supabase.from('loans').select('id,workflow_status,status,updated_at,created_at,disbursement_date,source_request_id').eq('source_request_id', request.id).maybeSingle();
 
     if (action === 'details') {
       const { data: versions, error: versionsError } = await supabase.from('loan_application_versions').select('application_version,editor_role,editor_identifier,changed_fields,previous_data,updated_data,edit_reason,created_at').eq('loan_request_id', request.id).order('application_version', { ascending: true });
@@ -405,11 +528,26 @@ export default async function handler(req, res) {
       if (versionsError && versionsError.code !== 'PGRST205') return res.status(503).json({ error: safeError(versionsError) });
       if (eventsError && eventsError.code !== 'PGRST205') return res.status(503).json({ error: safeError(eventsError) });
       const witnessRows = verificationError && !['PGRST205', '42P01'].includes(verificationError.code) ? [] : (verifications || []);
+
+      // Repayment schedule is only exposed for approved/disbursed loans and is
+      // read from the production repayment_installments table.
+      let repayments = [];
+      const approved = loan && (loan.status === 'approved' || loan.workflow_status === 'APPROVED' || loan.workflow_status === 'REPAYMENT_COMPLETE' || loan.disbursement_date);
+      if (approved && loan?.id) {
+        const { data: installments, error: installmentError } = await supabase
+          .from('repayment_installments')
+          .select('installment_number,due_date,amount_due,amount_paid,payment_date,status')
+          .eq('loan_id', loan.id)
+          .order('installment_number', { ascending: true });
+        if (!installmentError) repayments = installments || [];
+      }
+
       return res.status(200).json({
         success: true,
         application: safeApplication(request, loan),
         history: versions || [],
         events: events || [],
+        repayments,
         witnessProgress: witnessProgressFor(request, witnessRows)
       });
     }
