@@ -94,7 +94,7 @@ export const api = {
 
       const { data: profile } = await supabase
         .from('profiles')
-        .select('*')
+        .select('id, name, code, addr, email, role, branch, admin_title, assigned_zone, member_unique_code, is_panel_coordinator, perms, phone, occupation, bio, is_active')
         .eq('id', user.id)
         .maybeSingle();
 
@@ -114,7 +114,7 @@ export const api = {
 
       const { data: activeUser, error: profileError } = await supabase
         .from('profiles')
-        .select('*')
+        .select('id, name, code, addr, email, role, branch, admin_title, assigned_zone, member_unique_code, is_panel_coordinator, perms, phone, occupation, bio, is_active')
         .eq('id', user.id)
         .maybeSingle();
 
@@ -512,7 +512,7 @@ export const api = {
         const user = authData.user;
         const { data: profile } = await supabase
           .from('profiles')
-          .select('*')
+          .select('id, name, code, addr, email, role, branch, admin_title, assigned_zone, member_unique_code, is_panel_coordinator, perms, phone, occupation, bio, is_active')
           .eq('id', user.id)
           .maybeSingle();
 

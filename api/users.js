@@ -88,7 +88,7 @@ export default async function handler(req, res) {
 
       // Super admins see every profile. Admins are scoped to their own branch
       // so one branch never exposes another branch's member data.
-      let profilesQuery = supabase.from('profiles').select('*').order('created_at');
+      let profilesQuery = supabase.from('profiles').select('id, name, code, addr, email, role, branch, admin_title, assigned_zone, member_unique_code, is_panel_coordinator, perms, phone, occupation, bio, is_active').order('created_at');
       if (!isSuper) profilesQuery = profilesQuery.eq('branch', requesterProfile.branch);
 
       const { data: profiles, error: profilesError } = await profilesQuery;
@@ -237,7 +237,7 @@ export default async function handler(req, res) {
 
       const { data: finalProfile } = await supabase
         .from('profiles')
-        .select('*')
+        .select('id, name, code, addr, email, role, branch, admin_title, assigned_zone, member_unique_code, is_panel_coordinator, perms, phone, occupation, bio, is_active')
         .eq('id', newUser.id)
         .maybeSingle();
 
@@ -450,7 +450,7 @@ export default async function handler(req, res) {
       // Get fresh profile
       const { data: finalProfile } = await supabase
         .from('profiles')
-        .select('*')
+        .select('id, name, code, addr, email, role, branch, admin_title, assigned_zone, member_unique_code, is_panel_coordinator, perms, phone, occupation, bio, is_active')
         .eq('id', id)
         .maybeSingle();
 

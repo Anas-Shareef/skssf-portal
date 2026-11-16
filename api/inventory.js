@@ -175,7 +175,7 @@ export default async function handler(req, res) {
 
   const { data: profile, error: profErr } = await supabase
     .from('profiles')
-    .select('*')
+    .select('id, name, code, addr, email, role, branch, admin_title, assigned_zone, member_unique_code, is_panel_coordinator, perms, phone, occupation, bio, is_active')
     .eq('id', user.id)
     .maybeSingle();
 
