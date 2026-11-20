@@ -18,6 +18,28 @@ function statusFor(r: any): 'paid' | 'under_review' | 'partial' | 'rejected' | '
   if (r.due && new Date(r.due) < new Date()) return 'late';
   return 'upcoming';
 }
+
+/** Canonical installment status derived from amounts + due date (PRD §5) */
+function computedInstallmentStatus(i: any): 'Paid' | 'Partial' | 'Overdue' | 'Due' | 'Upcoming' {
+  const amtDue  = Number(i.amount_due ?? 0);
+  const amtPaid = Number(i.amount_paid ?? 0);
+  const balance = amtDue - amtPaid;
+  if (balance <= 0) return 'Paid';
+  if (amtPaid > 0)  return 'Partial';
+  const due = i.due_date ? new Date(i.due_date) : null;
+  const now = new Date();
+  if (!due) return 'Upcoming';
+  if (due < now) return 'Overdue';
+  if ((due.getTime() - now.getTime()) / 86400000 <= 7) return 'Due';
+  return 'Upcoming';
+}
+const INST_STATUS_STYLE: Record<string, { bg: string; text: string; icon: string }> = {
+  Upcoming: { bg: '#f1f5f9', text: '#475569', icon: '○' },
+  Due:      { bg: '#fef3c7', text: '#b45309', icon: '⏰' },
+  Overdue:  { bg: '#fee2e2', text: '#b91c1c', icon: '⚠️' },
+  Partial:  { bg: '#e0e7ff', text: '#4338ca', icon: '◑' },
+  Paid:     { bg: '#dcfce7', text: '#15803d', icon: '✅' },
+};
 const STATUS_BG: Record<string, string> = {
   paid: 'var(--green)', under_review: 'var(--amber)', partial: '#6366f1', rejected: 'var(--red)', late: 'var(--red)', upcoming: '#e2e8f0'
 };
@@ -45,8 +67,19 @@ export default function Repayments() {
   const canVerifyRepayments = repaymentPermissions.canVerify;
   const [loans, setLoans] = useState<any[]>(() => localDb.getLoans());
   const [search, setSearch] = useState('');
-  const [adminTab, setAdminTab] = useState<'overview' | 'queue' | 'schedules'>('overview');
+  const [adminTab, setAdminTab] = useState<'overview' | 'payments' | 'schedules'>('overview');
   const [pipelineFilter, setPipelineFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('pending');
+  const [paymentsFilter, setPaymentsFilter] = useState<'all' | 'pending' | 'verified' | 'rejected'>('pending');
+  const [paymentsSearch, setPaymentsSearch] = useState('');
+  const [branchFilter, setBranchFilter] = useState('');
+  const [expandedHistories, setExpandedHistories] = useState<Set<string>>(new Set());
+  const [rejectReasons, setRejectReasons] = useState<Record<string, string>>({});
+  const [showRecordPayment, setShowRecordPayment] = useState(false);
+  const [recordStep, setRecordStep] = useState<1 | 2 | 3 | 4>(1);
+  const [recordLoanQuery, setRecordLoanQuery] = useState('');
+  const [recordSelectedLoan, setRecordSelectedLoan] = useState<any>(null);
+  const [recordSelectedEmi, setRecordSelectedEmi] = useState<number | null>(null);
+  const [recordForm, setRecordForm] = useState({ amount: '', date: new Date().toISOString().split('T')[0], mode: 'Cash', ref: '', receipt: '', notes: '' });
 
   /* overview & table filters state */
   const [fStatus, setFStatus] = useState('');
@@ -57,7 +90,6 @@ export default function Repayments() {
   const [installments, setInstallments] = useState<any[]>([]);
   const [repaymentsError, setRepaymentsError] = useState<string | null>(null);
   const [overviewDetailsOpen, setOverviewDetailsOpen] = useState(false);
-  const [scrolled, setScrolled] = useState(false);
   const [gSearch, setGSearch] = useState('');
   // Monotonic request id: only the newest repayment refresh may update state.
   const repaymentRefreshSeq = useRef(0);
@@ -76,13 +108,6 @@ export default function Repayments() {
   const [schedView, setSchedView] = useState<'timeline' | 'table'>('timeline');
   // Phase 5 - EMI schedule sort: Overdue first (default), Highest balance, Newest
   const [schedSort, setSchedSort] = useState<'overdue' | 'balance' | 'newest'>('overdue');
-
-  useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 40);
-    window.addEventListener('scroll', onScroll, { passive: true });
-    onScroll();
-    return () => window.removeEventListener('scroll', onScroll);
-  }, []);
 
   useEffect(() => {
     const loadOverviewAndInstallments = async () => {
@@ -1156,78 +1181,104 @@ export default function Repayments() {
       {isAdmin && (
         <div style={{ maxWidth: 1200, margin: '0 auto' }}>
 
-            {/* Phase 5 - Global cross-tab search (F4) */}
-            <div style={{ marginBottom: 24 }}>
-              <div className="fiw" style={{ background: '#fff', border: '1.5px solid #e2e8f0', padding: '12px 18px', borderRadius: 16, boxShadow: '0 4px 12px rgba(0,0,0,0.03)' }}>
-                <span className="fic">🔍</span>
-                <input className="fi" placeholder="Search borrower, member or loan ID..." value={gSearch} onChange={e => { setGSearch(e.target.value); if (adminTab === 'overview') setFSearch(e.target.value); else setSearch(e.target.value); }} />
-              </div>
+          {/* ── PAGE HEADER (always visible) ── */}
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
+            <div>
+              <h1 style={{ fontSize: 22, fontWeight: 900, color: '#0f172a', margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+                💰 Repayments
+              </h1>
+              <p style={{ fontSize: 13, color: '#64748b', margin: '4px 0 0', fontWeight: 600 }}>
+                Collections, verifications and schedules
+              </p>
             </div>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+              {/* Super Admin branch filter */}
+              {role === 'super' && (
+                <select
+                  value={branchFilter}
+                  onChange={e => setBranchFilter(e.target.value)}
+                  style={{ padding: '9px 14px', borderRadius: 10, border: '1.5px solid #e2e8f0', fontSize: 13, fontWeight: 600, background: '#fff', color: '#1e293b' }}
+                >
+                  <option value="">All Branches</option>
+                  {['Poyanad Central', 'Malappuram North', 'Kozhikode East', 'Kannur West', 'Thrissur East'].map(b => (
+                    <option key={b}>{b}</option>
+                  ))}
+                </select>
+              )}
+              <div className="fiw" style={{ background: '#fff', border: '1.5px solid #e2e8f0', padding: '10px 16px', borderRadius: 14, boxShadow: '0 2px 8px rgba(0,0,0,0.04)', minWidth: 220 }}>
+                <span className="fic">🔍</span>
+                <input
+                  className="fi"
+                  placeholder="Member, loan ID, reference…"
+                  value={gSearch}
+                  onChange={e => {
+                    setGSearch(e.target.value);
+                    setFSearch(e.target.value);
+                    setSearch(e.target.value);
+                  }}
+                />
+              </div>
+              <button
+                className="bsm s"
+                style={{ padding: '10px 18px', borderRadius: 12, fontSize: 13, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 6, minHeight: 44 }}
+                onClick={() => { setShowRecordPayment(true); setRecordStep(1); setRecordLoanQuery(''); setRecordSelectedLoan(null); setRecordSelectedEmi(null); setRecordForm({ amount: '', date: new Date().toISOString().split('T')[0], mode: 'Cash', ref: '', receipt: '', notes: '' }); }}
+              >
+                + Record payment
+              </button>
+            </div>
+          </div>
 
-          {/* ═══ CONSOLIDATED REPAYMENT OVERVIEW ═══ */}
-          <div className="repay-metrics" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 16, marginBottom: 28 }}>
+          {/* ── KPI ROW — computed from installments only ── */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginBottom: 28 }}>
             {[
-              { label: 'Total Collected', val: fmt(collectedTotal), color: '#10b981', bg: 'rgba(16,185,129,0.08)', icon: '💰', sub: `${paidInsts.length} verified payment(s)` },
-              { label: 'Pending Verification', val: fmt(pendingVerificationTotal), color: '#f59e0b', bg: 'rgba(245,158,11,0.08)', icon: '⏳', sub: `${allPending.length} request(s) awaiting action` },
-              { label: 'Active Repayment Accounts', val: String(activeRepaymentAccounts), color: '#6366f1', bg: 'rgba(99,102,241,0.08)', icon: '🏦', sub: 'loans with a repayment schedule' },
-              { label: 'Overdue Amount', val: fmt(overdueAmount), color: '#ef4444', bg: 'rgba(239,68,68,0.08)', icon: '⚠️', sub: `${allGlobalRepayments.filter(({ r }: any) => !r.paid && r.due && new Date(r.due) < new Date()).length} overdue EMI(s)` }
-            ].map(stat => (
-              <div key={stat.label} style={{ background: stat.bg, borderRadius: 20, padding: '20px 18px', border: `1px solid ${stat.color}22` }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, fontWeight: 900, color: stat.color, textTransform: 'uppercase', letterSpacing: 0.4 }}>
-                  <span style={{ fontSize: 16 }}>{stat.icon}</span> {stat.label}
+              { label: 'Collected',             val: fmt(confirmedTotal),  color: '#10b981', icon: '💰', sub: `${paidInsts.length} verified payment(s)` },
+              { label: 'Awaiting verification', val: fmt(pendingTotal),    color: '#f59e0b', icon: '⏳', sub: `${installments.filter((i: any) => computedInstallmentStatus(i) !== 'Paid' && i.payment_status === 'pending_verification').length || allPending.length} request(s)` },
+              { label: 'Outstanding',           val: fmt(outstandingTotal),color: '#6366f1', icon: '🏦', sub: 'Across all active loans' },
+              { label: 'Overdue',               val: fmt(overdueTotal),    color: '#ef4444', icon: '⚠️', sub: `${installments.filter((i: any) => computedInstallmentStatus(i) === 'Overdue').length} EMI(s) past due` },
+            ].map(k => (
+              <div key={k.label} style={{ background: k.color + '14', borderRadius: 20, padding: '20px 18px', border: `1px solid ${k.color}22` }}>
+                <div style={{ fontSize: 11, fontWeight: 900, color: k.color, textTransform: 'uppercase', letterSpacing: 0.4, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontSize: 16 }}>{k.icon}</span> {k.label}
                 </div>
-                <div style={{ fontSize: 26, fontWeight: 950, color: '#0f172a', marginTop: 10, lineHeight: 1 }}>{stat.val}</div>
-                <div style={{ fontSize: 11, color: '#64748b', fontWeight: 700, marginTop: 6 }}>{stat.sub}</div>
+                <div style={{ fontSize: 26, fontWeight: 950, color: '#0f172a', marginTop: 10, lineHeight: 1 }}>{k.val}</div>
+                <div style={{ fontSize: 11, color: '#64748b', fontWeight: 700, marginTop: 6 }}>{k.sub}</div>
               </div>
             ))}
           </div>
 
-
-          {/* Phase 5 - Slim sticky header bar with clickable counts (F3) */}
-          {scrolled && (
-            <div style={{ position: 'sticky', top: 0, zIndex: 60, display: 'flex', gap: 10, overflowX: 'auto', background: 'rgba(15,23,42,0.92)', backdropFilter: 'blur(8px)', borderRadius: 16, padding: '10px 14px', marginBottom: 20, boxShadow: '0 10px 30px rgba(0,0,0,0.25)', alignItems: 'center' }}>
-              {[
-                { key: 'pending', label: 'Pending Review', val: allPending.length, color: '#f59e0b', bg: 'rgba(245,158,11,0.08)', icon: '⏳', sub: 'Needs your action', tab: 'pending' as const },
-                { key: 'partial', label: 'Partially Signed', val: allPartial.length, color: '#6366f1', bg: 'rgba(99,102,241,0.08)', icon: '🖊️', sub: 'Awaiting signatures', tab: 'pending' as const },
-                { key: 'approved', label: 'Total Approved', val: totalApproved, color: '#10b981', bg: 'rgba(16,185,129,0.08)', icon: '✅', sub: `+${approvedThisWeek} this week`, tab: 'approved' as const },
-                { key: 'rejected', label: 'Total Rejected', val: totalRejected, color: '#ef4444', bg: 'rgba(239,68,68,0.08)', icon: '❌', sub: `+${rejectedThisWeek} this week`, tab: 'rejected' as const },
-              ].map((stat) => (
-                <div key={stat.key} onClick={() => { setPipelineFilter(stat.tab); setAdminTab('queue'); }} style={{ background: 'rgba(255,255,255,0.06)', borderRadius: 12, padding: '8px 14px', textAlign: 'center', border: `1px solid ${stat.color}44`, cursor: 'pointer', minWidth: 130, flexShrink: 0 }}>
-                  <div style={{ fontSize: 11, color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase', letterSpacing: 0.4 }}>{stat.label}</div>
-                  <div style={{ fontSize: 18, fontWeight: 950, color: stat.color, lineHeight: 1, marginTop: 2 }}>{stat.val}</div>
-                  <div style={{ fontSize: 9, color: '#94a3b8', fontWeight: 700, marginTop: 2 }}>{stat.sub}</div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 30, ...(scrolled ? { position: 'sticky', top: 64, zIndex: 55 } : {}) }}>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              {([
-                { key: 'overview', label: '📊 Repayment Overview', badge: 0 },
-                { key: 'queue', label: '⚡ Transaction Pipeline', badge: allPending.length },
-                { key: 'schedules', label: '📋 Loan Schedules', badge: 0 },
-              ] as const).map(t => (
-                <button 
-                  key={t.key} 
-                  onClick={() => setAdminTab(t.key)}
-                  className={`tab-btn ${adminTab === t.key ? 'active' : ''}`}
-                  style={{
-                    padding: '12px 24px', borderRadius: 14, fontSize: 13, fontWeight: 900,
-                    background: adminTab === t.key ? 'var(--teal)' : 'rgba(20,184,166,0.04)',
-                    color: adminTab === t.key ? '#fff' : 'var(--teal)',
-                    border: '1.5px solid', borderColor: adminTab === t.key ? 'var(--teal)' : 'rgba(20,184,166,0.1)',
-                    transition: 'all .25s cubic-bezier(0.4, 0, 0.2, 1)',
-                    display: 'flex', alignItems: 'center', gap: 10
-                  }}
-                >
-                  {t.label}
-                  {t.badge > 0 && (
-                    <span style={{ background: 'var(--red)', color: '#fff', borderRadius: 99, fontSize: 10, fontWeight: 900, padding: '1px 8px' }}>{t.badge}</span>
-                  )}
-                </button>
-              ))}
-            </div>
+          {/* ── STICKY TAB BAR (always sticky, z-index 50) ── */}
+          <div style={{
+            position: 'sticky', top: 0, zIndex: 50,
+            background: '#f8fafc', borderBottom: '1.5px solid #e2e8f0',
+            display: 'flex', gap: 0, marginBottom: 28,
+            backdropFilter: 'blur(8px)'
+          }}>
+            {([
+              { key: 'overview',  label: 'Overview',  badge: 0 },
+              { key: 'payments',  label: 'Payments',  badge: allPending.length },
+              { key: 'schedules', label: 'Schedules', badge: 0 },
+            ] as const).map(t => (
+              <button
+                key={t.key}
+                onClick={() => setAdminTab(t.key)}
+                style={{
+                  padding: '14px 24px', fontSize: 13, fontWeight: 900,
+                  border: 'none',
+                  borderBottom: adminTab === t.key ? '2.5px solid var(--teal)' : '2.5px solid transparent',
+                  background: 'transparent',
+                  color: adminTab === t.key ? 'var(--teal)' : '#64748b',
+                  cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8,
+                  transition: 'all .2s', minHeight: 44
+                }}
+              >
+                {t.label}
+                {t.badge > 0 && (
+                  <span style={{ background: 'var(--red)', color: '#fff', borderRadius: 99, fontSize: 10, fontWeight: 900, padding: '1px 7px' }}>
+                    {t.badge}
+                  </span>
+                )}
+              </button>
+            ))}
           </div>
 
           {adminTab === 'overview' && (
@@ -1238,54 +1289,14 @@ export default function Repayments() {
                   <button className="bsm g" style={{ padding: '8px 14px', borderRadius: 10, fontSize: 12, fontWeight: 800 }} onClick={refresh}>↻ Retry</button>
                 </div>
               )}
-              {/* Summary Cards */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '20px', marginBottom: '30px' }}>
-                <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '20px', boxShadow: '0 4px 15px rgba(0,0,0,0.03)' }}>
-                  <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.5px' }}>Due This Week</div>
-                  <div style={{ fontSize: '24px', fontWeight: 900, color: 'var(--dark)', marginTop: '8px' }}>
-                    {fmt(overview?.dueThisWeekAmt || 0)}
-                  </div>
-                  <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px' }}>
-                    {overview?.dueThisWeekCount || 0} installment(s) pending
-                  </div>
-                </div>
 
-                <div style={{ background: '#fff', border: '1px solid #fee2e2', borderRadius: '16px', padding: '20px', boxShadow: '0 4px 15px rgba(239,68,68,0.05)' }}>
-                  <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--red)', textTransform: 'uppercase', letterSpacing: '.5px' }}>Overdue Installments</div>
-                  <div style={{ fontSize: '24px', fontWeight: 900, color: 'var(--red)', marginTop: '8px' }}>
-                    {fmt(overview?.overdueAmt || 0)}
-                  </div>
-                  <div style={{ fontSize: '11px', color: 'var(--red)', opacity: 0.8, marginTop: '4px' }}>
-                    {overview?.overdueCount || 0} installment(s) overdue
-                  </div>
-                </div>
-
-                <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '20px', boxShadow: '0 4px 15px rgba(0,0,0,0.03)' }}>
-                  <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.5px' }}>Received This Month</div>
-                  <div style={{ fontSize: '24px', fontWeight: 900, color: '#10b981', marginTop: '8px' }}>
-                    {fmt(overview?.receivedThisMonthAmt || 0)}
-                  </div>
-                  <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px' }}>
-                    Calendar month collection
-                  </div>
-                </div>
-
-                <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '20px', boxShadow: '0 4px 15px rgba(0,0,0,0.03)' }}>
-                  <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.5px' }}>Outstanding Balance</div>
-                  <div style={{ fontSize: '24px', fontWeight: 900, color: 'var(--teal)', marginTop: '8px' }}>
-                    {fmt(overview?.totalOutstanding || 0)}
-                  </div>
-                  <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px' }}>
-                    All active loan balances
-                  </div>
-                </div>
-              </div>
-
-              {/* Phase 5 — Needs Attention list */}
-              <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '20px', marginBottom: '30px', boxShadow: '0 4px 15px rgba(0,0,0,0.03)' }}>
-                <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 14 }}>Needs Attention</div>
+              {/* ── Needs Attention ── */}
+              <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '20px', marginBottom: '24px', boxShadow: '0 4px 15px rgba(0,0,0,0.03)' }}>
+                <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 14 }}>⚡ Needs Attention</div>
                 {needsAttention.length === 0 ? (
-                  <div style={{ fontSize: 13, color: 'var(--muted)', padding: '10px 0' }}>No overdue installments and no payments pending verification. Nice work.</div>
+                  <div style={{ fontSize: 13, color: '#10b981', fontWeight: 700, padding: '10px 0', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span>✅</span> All caught up — no items need your attention.
+                  </div>
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                     {needsAttention.map(({ i, kind }, idx) => {
@@ -1294,9 +1305,9 @@ export default function Repayments() {
                       const borrower = loan?.name || i.loan?.name || 'Unknown';
                       const loanId = loan?.loan_no || i.loan?.loan_no || i.loan_id || '';
                       return (
-                        <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, padding: '12px 14px', background: '#f8fafc', borderRadius: 12, border: '1px solid #e2e8f0', flexWrap: 'wrap' }}>
+                        <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, padding: '12px 14px', background: '#f8fafc', borderRadius: 12, border: `1px solid ${kind === 'overdue' ? '#fecaca' : '#fde68a'}`, flexWrap: 'wrap' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-                            <div style={{ width: 36, height: 36, borderRadius: '50%', background: kind === 'overdue' ? 'var(--red)' : 'var(--amber)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 900, flexShrink: 0 }}>{kind === 'overdue' ? '!' : '⚠'}</div>
+                            <div style={{ width: 36, height: 36, borderRadius: '50%', background: kind === 'overdue' ? 'var(--red)' : 'var(--amber)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 900, flexShrink: 0 }}>{kind === 'overdue' ? '⚠️' : '⏳'}</div>
                             <div style={{ minWidth: 0 }}>
                               <div style={{ fontSize: 13, fontWeight: 900, color: 'var(--dark)' }}>{borrower}</div>
                               <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700 }}>Loan {loanId} · EMI #{Number(i.installment_number || 0)} · {fmt(i.amount_due || 0)}</div>
@@ -1304,10 +1315,10 @@ export default function Repayments() {
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                             <div style={{ textAlign: 'right' }}>
-                              <div style={{ fontSize: 12, fontWeight: 900, color: kind === 'overdue' ? 'var(--red)' : 'var(--amber2)' }}>{kind === 'overdue' ? `${overdueDays} days overdue` : 'Awaiting verification'}</div>
+                              <div style={{ fontSize: 12, fontWeight: 900, color: kind === 'overdue' ? 'var(--red)' : 'var(--amber2)' }}>{kind === 'overdue' ? `${overdueDays} day(s) overdue` : 'Awaiting verification'}</div>
                             </div>
                             {canVerifyRepayments ? (
-                              <button className="bsm s" style={{ padding: '8px 14px', borderRadius: 10, fontSize: 11.5, fontWeight: 800 }} onClick={() => { if (kind === 'overdue') { setRecordPaymentModal({ loan, installment: i }); } else { const li = (loan?.repayments || []).findIndex((r: any) => r.id === i.id || r.installment_number === i.installment_number); if (li > -1) { setSelectedReview({ loan, idx: li }); setActionStatus('approved'); setActionNote(''); setShowReview(true); } } }}>
+                              <button className="bsm s" style={{ padding: '8px 14px', borderRadius: 10, fontSize: 11.5, fontWeight: 800, minHeight: 44 }} onClick={() => { if (kind === 'overdue') { setShowRecordPayment(true); setRecordStep(1); setRecordLoanQuery(borrower); setRecordSelectedLoan(loan); setRecordSelectedEmi(null); setRecordForm({ amount: '', date: new Date().toISOString().split('T')[0], mode: 'Cash', ref: '', receipt: '', notes: '' }); } else { setAdminTab('payments'); setPaymentsFilter('pending'); } }}>
                                 {kind === 'overdue' ? 'Record payment' : 'Verify'}
                               </button>
                             ) : (
@@ -1321,619 +1332,1057 @@ export default function Repayments() {
                 )}
               </div>
 
-              {/* Phase 5 — More details: financial metrics */}
-              {overviewDetailsOpen && (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '20px', marginBottom: '24px' }}>
-                {[
-                  { label: 'Total Confirmed Repayments', val: fmt(confirmedTotal), color: '#10b981', sub: `${paidInsts.length} installment(s) fully paid` },
-                  { label: 'Pending Verification', val: fmt(pendingTotal), color: '#f59e0b', sub: `${installments.filter((i: any) => String(i.status || '').toLowerCase() === 'pending').length} awaiting admin recording` },
-                  { label: 'Partial Payments', val: fmt(partialTotal), color: '#6366f1', sub: 'Accumulated via PARTIALLY_PAID' },
-                  { label: 'Reversed Transactions', val: fmt(reversedTotal), color: '#94a3b8', sub: 'Reversed ledger entries' }
-                ].map((c, i) => (
-                  <div key={i} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '20px', boxShadow: '0 4px 15px rgba(0,0,0,0.03)' }}>
-                    <div style={{ fontSize: '12px', fontWeight: 800, color: c.color, textTransform: 'uppercase', letterSpacing: '.5px' }}>{c.label}</div>
-                    <div style={{ fontSize: '24px', fontWeight: 900, color: 'var(--dark)', marginTop: '8px' }}>{c.val}</div>
-                    <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px' }}>{c.sub}</div>
-                  </div>
-                ))}
-              </div>
-              )}
-
-              {/* Phase 5 — More details toggle */}
-              <div style={{ marginBottom: '24px' }}>
-                <button className="bsm g" onClick={() => setOverviewDetailsOpen((v) => !v)} style={{ padding: '8px 16px', borderRadius: 12, fontSize: 12.5, fontWeight: 800, background: overviewDetailsOpen ? '#f1f5f9' : 'var(--teal)', color: overviewDetailsOpen ? '#475569' : '#fff', border: 'none', cursor: 'pointer' }}>
-                  {overviewDetailsOpen ? 'Hide More Details' : 'More Details'}
-                </button>
-              </div>
-
-              {/* Phase 4 — Recent Activity + Status Distribution */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px', marginBottom: '30px' }}>
-                <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '20px', boxShadow: '0 4px 15px rgba(0,0,0,0.03)' }}>
-                  <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 14 }}>Recent Payment Activity</div>
-                  {recentActivity.length === 0 ? (
-                    <div style={{ fontSize: '13px', color: 'var(--muted)', padding: '12px 0' }}>No recent repayment activity.</div>
-                  ) : (
-                    recentActivity.map((inst: any, idx: number) => (
-                      <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid #f1f5f9' }}>
-                        <div>
-                          <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--dark)' }}>EMI #{Number(inst.installment_number || 0)}</div>
-                          <div style={{ fontSize: '11px', color: 'var(--muted)' }}>Due {inst.due_date || '—'}</div>
-                        </div>
-                        <div style={{ textAlign: 'right' }}>
-                          <div style={{ fontSize: '13px', fontWeight: 900, color: 'var(--teal)' }}>{fmt(inst.amount_due || 0)}</div>
-                          <div style={{ fontSize: '11px', fontWeight: 800, color: String(inst.status || '').toLowerCase() === 'paid' ? '#10b981' : 'var(--amber2)' }}>{String(inst.status || '').toUpperCase()}</div>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-                <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '20px', boxShadow: '0 4px 15px rgba(0,0,0,0.03)' }}>
-                  <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 14 }}>Repayment Status Distribution</div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                    {statusDistribution.map((s: any) => (
-                      <div key={s.status} style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: '10px 14px', textAlign: 'center', minWidth: 96, cursor: 'pointer' }} onClick={() => setFStatus(s.status)}>
-                        <div style={{ fontSize: 18, fontWeight: 950, color: s.status === 'paid' ? '#10b981' : s.status === 'overdue' ? '#ef4444' : s.status === 'pending' ? '#f59e0b' : '#6366f1' }}>{s.count}</div>
-                        <div style={{ fontSize: 10, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', marginTop: 2 }}>{s.status.replace('_', ' ')}</div>
-                        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--dark)', marginTop: 2 }}>{fmt(s.amount)} due</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* Phase 5 — Repayment status filter chips (default: All) */}
-              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '24px' }}>
-                {[
-                  { v: '', label: 'All' },
-                  { v: 'overdue', label: 'Overdue' },
-                  { v: 'pending', label: 'Pending Verification' },
-                  { v: 'partially_paid', label: 'Partial' }
-                ].map((c) => (
-                  <button key={c.v} className="bsm" onClick={() => setFStatus(c.v)} style={{ padding: '8px 16px', borderRadius: 12, fontSize: 12, fontWeight: 800, background: fStatus === c.v ? 'var(--teal)' : '#f1f5f9', color: fStatus === c.v ? '#fff' : '#475569', border: 'none', cursor: 'pointer' }}>
-                    {c.label}
-                  </button>
-                ))}
-              </div>
-
-              {/* Filters Panel */}
-              <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '20px', marginBottom: '24px', boxShadow: '0 4px 15px rgba(0,0,0,0.02)' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
-                  <div>
-                    <label style={{ fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', display: 'block', marginBottom: '6px' }}>Search</label>
-                    <input 
-                      className="fi" 
-                      placeholder="Search requester or Loan ID..." 
-                      value={fSearch} 
-                      onChange={e => setFSearch(e.target.value)} 
-                      style={{ fontSize: '12.5px', background: '#f8fafc', border: '1px solid #e2e8f0', padding: '8px 12px', borderRadius: '10px', width: '100%', outline: 'none' }}
-                    />
-                  </div>
-
-                  <div>
-                    <label style={{ fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', display: 'block', marginBottom: '6px' }}>Status</label>
-                    <select className="sel2" value={fStatus} onChange={e => setFStatus(e.target.value)} style={{ fontSize: '12.5px' }}>
-                      <option value="">All Statuses</option>
-                      <option value="pending">Pending</option>
-                      <option value="paid">Paid</option>
-                      <option value="partially_paid">Partially Paid</option>
-                      <option value="overdue">Overdue</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label style={{ fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', display: 'block', marginBottom: '6px' }}>Date Range</label>
-                    <select className="sel2" value={fDateRange} onChange={e => setFDateRange(e.target.value)} style={{ fontSize: '12.5px' }}>
-                      <option value="all">All Time</option>
-                      <option value="week">Due This Week</option>
-                      <option value="month">Due This Month</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label style={{ fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', display: 'block', marginBottom: '6px' }}>Member / Filer</label>
-                    <input 
-                      className="fi" 
-                      placeholder="Filter by Member Name..." 
-                      value={fMember} 
-                      onChange={e => setFMember(e.target.value)} 
-                      style={{ fontSize: '12.5px', background: '#f8fafc', border: '1px solid #e2e8f0', padding: '8px 12px', borderRadius: '10px', width: '100%', outline: 'none' }}
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {(fStatus || fDateRange !== 'all' || fMember || fSearch) && (
-                <div style={{ marginTop: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                  <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700 }}>{[fStatus, fDateRange !== 'all' ? fDateRange : '', fMember, fSearch].filter(Boolean).length} filter(s) active</div>
-                  <button className="bsm g" style={{ padding: '6px 12px', borderRadius: 8, fontSize: 11, fontWeight: 800 }} onClick={() => { setFStatus(''); setFDateRange('all'); setFMember(''); setFSearch(''); }}>Clear filters</button>
-                </div>
-              )}
-
-              {/* Installments Table */}
-              <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '16px', overflowX: 'auto', overflowY: 'hidden', boxShadow: '0 4px 15px rgba(0,0,0,0.03)', marginBottom: '30px', WebkitOverflowScrolling: 'touch' }}>
-                <table className="tbl" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-                  <thead>
-                    <tr style={{ background: '#f8fafc', borderBottom: '1.5px solid #e2e8f0' }}>
-                      <th style={{ padding: '16px 20px', fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase' }}>Loan ID</th>
-                      <th style={{ padding: '16px 20px', fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase' }}>Requester Name</th>
-                      <th style={{ padding: '16px 20px', fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase' }}>Member Filer</th>
-                      <th style={{ padding: '16px 20px', fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase' }}>Installment #</th>
-                      <th style={{ padding: '16px 20px', fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase' }}>Due Date</th>
-                      <th style={{ padding: '16px 20px', fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase' }}>Amount Due</th>
-                      <th style={{ padding: '16px 20px', fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase' }}>Paid</th>
-                      <th style={{ padding: '16px 20px', fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase' }}>Balance</th>
-                      <th style={{ padding: '16px 20px', fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase' }}>Status</th>
-                      <th style={{ padding: '16px 20px', fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase' }}>Member Notified?</th>
-                      <th style={{ padding: '16px 20px', fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', textAlign: 'right' }}>Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(() => {
-                      const filtered = installments.filter(inst => {
-                        const searchQ = fSearch.toLowerCase();
-                        const matchSearch = !searchQ || 
-                          (inst.loan?.id || '').toLowerCase().includes(searchQ) ||
-                          (inst.loan?.loan_no || '').toLowerCase().includes(searchQ) ||
-                          (inst.loan?.name || '').toLowerCase().includes(searchQ);
-
-                        const matchStatus = !fStatus || inst.status === fStatus;
-
-                        let matchDate = true;
-                        if (fDateRange === 'week') {
-                          const today = new Date();
-                          const nextWeek = new Date();
-                          nextWeek.setDate(today.getDate() + 7);
-                          const dueDate = new Date(inst.due_date);
-                          matchDate = dueDate >= today && dueDate <= nextWeek;
-                        } else if (fDateRange === 'month') {
-                          const today = new Date();
-                          const dueDate = new Date(inst.due_date);
-                          matchDate = dueDate.getFullYear() === today.getFullYear() && dueDate.getMonth() === today.getMonth();
-                        }
-
-                        const loanObj = loans.find(l => l.id === inst.loan?.id || l.loan_no === inst.loan?.loan_no);
-                        const memberName = loanObj?.name || '';
-                        const matchMember = !fMember || memberName.toLowerCase().includes(fMember.toLowerCase());
-
-                        return matchSearch && matchStatus && matchDate && matchMember;
-                      });
-
-                      if (filtered.length === 0) {
+              {/* ── Due This Week ── */}
+              {(() => {
+                const nextWeek = new Date(); nextWeek.setDate(nextWeek.getDate() + 7);
+                const dueThisWeek = installments
+                  .filter((i: any) => {
+                    const d = new Date(i.due_date);
+                    return computedInstallmentStatus(i) !== 'Paid' && d >= new Date() && d <= nextWeek;
+                  })
+                  .sort((a: any, b: any) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime());
+                if (dueThisWeek.length === 0) return null;
+                return (
+                  <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '20px', marginBottom: '24px', boxShadow: '0 4px 15px rgba(0,0,0,0.03)' }}>
+                    <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 14 }}>📅 Due This Week ({dueThisWeek.length})</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {dueThisWeek.slice(0, 6).map((i: any, idx: number) => {
+                        const loan: any = loans.find((l: any) => l.id === i.loan_id || l.loan_no === i.loan?.loan_no) || i.loan || null;
+                        const st = computedInstallmentStatus(i);
+                        const style = INST_STATUS_STYLE[st];
                         return (
-                          <tr>
-                            <td colSpan={11} style={{ padding: '40px', textAlign: 'center', color: 'var(--muted)', fontSize: '13px' }}>
-                              No installments found matching the selected filters.
-                            </td>
-                          </tr>
+                          <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', background: '#f8fafc', borderRadius: 10, flexWrap: 'wrap', gap: 8 }}>
+                            <div>
+                              <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--dark)' }}>{loan?.name || 'Unknown'}</span>
+                              <span style={{ fontSize: 11, color: 'var(--muted)', marginLeft: 8 }}>{loan?.loan_no || loan?.id} · EMI #{i.installment_number}</span>
+                            </div>
+                            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                              <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--dark)' }}>{fmt(i.amount_due)}</span>
+                              <span style={{ background: style.bg, color: style.text, padding: '3px 8px', borderRadius: 8, fontSize: 10, fontWeight: 800 }}>{style.icon} {st}</span>
+                              <span style={{ fontSize: 11, color: '#64748b' }}>{fmtDate(i.due_date)}</span>
+                            </div>
+                          </div>
                         );
-                      }
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
 
-                      return filtered.map((inst, i) => {
-                        const loanObj = loans.find(l => l.id === inst.loan_id || l.loan_no === inst.loan?.loan_no || l.id === inst.loan?.id);
-                        
-                        const statusColors: Record<string, { bg: string, text: string }> = {
-                          paid: { bg: '#dcfce7', text: '#15803d' },
-                          partially_paid: { bg: '#e0e7ff', text: '#4338ca' },
-                          pending: { bg: '#e0f2fe', text: '#0369a1' },
-                          overdue: { bg: '#fee2e2', text: '#b91c1c' }
-                        };
-                        const style = statusColors[inst.status] || statusColors.pending;
+              {/* ── Status Distribution (stacked bar) ── */}
+              <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '20px', marginBottom: '24px', boxShadow: '0 4px 15px rgba(0,0,0,0.03)' }}>
+                <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 14 }}>📊 Status Distribution</div>
+                {(() => {
+                  const dist = (['Paid','Partial','Overdue','Due','Upcoming'] as const).map(s => ({
+                    s, count: installments.filter((i: any) => computedInstallmentStatus(i) === s).length,
+                    amount: installments.filter((i: any) => computedInstallmentStatus(i) === s).reduce((acc: number, i: any) => acc + Math.max(0, Number(i.amount_due || 0) - Number(i.amount_paid || 0)), 0)
+                  }));
+                  const total = dist.reduce((s, d) => s + d.count, 0) || 1;
+                  return (
+                    <>
+                      <div style={{ display: 'flex', borderRadius: 10, overflow: 'hidden', height: 20, marginBottom: 12 }}>
+                        {dist.map(d => d.count > 0 && (
+                          <div key={d.s} style={{ width: `${(d.count / total) * 100}%`, background: INST_STATUS_STYLE[d.s].bg, borderRight: '1px solid #fff' }} title={`${d.s}: ${d.count}`} />
+                        ))}
+                      </div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                        {dist.map(d => (
+                          <div key={d.s} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700 }}>
+                            <span style={{ background: INST_STATUS_STYLE[d.s].bg, color: INST_STATUS_STYLE[d.s].text, padding: '2px 8px', borderRadius: 6, fontSize: 11 }}>{INST_STATUS_STYLE[d.s].icon} {d.s}</span>
+                            <span style={{ color: '#1e293b' }}>{d.count}</span>
+                            <span style={{ color: '#94a3b8' }}>· {fmt(d.amount)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
 
-                        return (
-                          <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                            <td style={{ padding: '16px 20px', fontSize: '13px', fontWeight: 800, color: 'var(--teal)' }}>
-                              {inst.loan?.loan_no || inst.loan?.id || loanObj?.loan_no || loanObj?.id}
-                            </td>
-                            <td style={{ padding: '16px 20px', fontSize: '13px', fontWeight: 700, color: 'var(--dark)' }}>
-                              {inst.loan?.name || loanObj?.name}
-                            </td>
-                            <td style={{ padding: '16px 20px', fontSize: '13px', color: 'var(--muted)' }}>
-                              {loanObj?.name || 'Unknown'}
-                            </td>
-                            <td style={{ padding: '16px 20px', fontSize: '13px', color: 'var(--dark)' }}>
-                              {inst.installment_number}
-                            </td>
-                            <td style={{ padding: '16px 20px', fontSize: '13px', color: 'var(--dark)' }}>
-                              {fmtDate(inst.due_date)}
-                            </td>
-                            <td style={{ padding: '16px 20px', fontSize: '13px', fontWeight: 700, color: 'var(--dark)' }}>
-                              {fmt(inst.amount_due)}
-                            </td>
-                            <td style={{ padding: '16px 20px', fontSize: '13px', fontWeight: 700, color: 'var(--dark)' }}>
-                              {fmt(inst.status === 'paid' ? inst.amount_due : Number(inst.amount_paid || 0))}
-                            </td>
-                            <td style={{ padding: '16px 20px', fontSize: '13px', fontWeight: 700, color: 'var(--dark)' }}>
-                              {fmt(Math.max(0, Number(inst.amount_due || 0) - Number(inst.amount_paid || 0)))}
-                            </td>
-                            <td style={{ padding: '16px 20px' }}>
-                              <span style={{ display: 'inline-block', padding: '4px 10px', borderRadius: '12px', fontSize: '11px', fontWeight: 800, background: style.bg, color: style.text, textTransform: 'capitalize' }}>
-                                {inst.status}
-                              </span>
-                            </td>
-                            <td style={{ padding: '16px 20px', fontSize: '12px', color: 'var(--dark)' }}>
-                              {inst.member_notified_requester_at ? (
-                                <span style={{ color: '#15803d', fontWeight: 700 }}>
-                                  ✅ Notified ({new Date(inst.member_notified_requester_at).toLocaleDateString('en-GB')})
-                                </span>
-                              ) : (
-                                <span style={{ color: 'var(--muted)' }}>❌ No</span>
-                              )}
-                            </td>
-                            <td style={{ padding: '16px 20px', textAlign: 'right' }}>
-                              {inst.status !== 'paid' && loanObj && canVerifyRepayments && (
-                                <button 
-                                  onClick={() => setRecordPaymentModal({ loan: loanObj, installment: inst })}
-                                  className="bsm s"
-                                  style={{ padding: '6px 12px', fontSize: '11.5px', borderRadius: '8px' }}
-                                >
-                                  Record Payment
-                                </button>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      });
-                    })()}
-                  </tbody>
-                </table>
+              {/* ── Recent Activity (last 8) ── */}
+              <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '20px', marginBottom: '30px', boxShadow: '0 4px 15px rgba(0,0,0,0.03)' }}>
+                <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 14 }}>🕐 Recent Activity</div>
+                {recentActivity.length === 0 ? (
+                  <div style={{ fontSize: '13px', color: 'var(--muted)', padding: '12px 0' }}>No recent repayment activity.</div>
+                ) : (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                      <thead>
+                        <tr style={{ borderBottom: '1.5px solid #f1f5f9' }}>
+                          {['Member', 'Loan ID', 'EMI #', 'Amount', 'Status', 'Date'].map(h => (
+                            <th key={h} style={{ padding: '8px 12px', fontSize: 10, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase' }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {recentActivity.slice(0, 8).map((inst: any, idx: number) => {
+                          const loan: any = loans.find((l: any) => l.id === inst.loan_id || l.loan_no === inst.loan?.loan_no) || inst.loan || null;
+                          const st = computedInstallmentStatus(inst);
+                          const style = INST_STATUS_STYLE[st];
+                          return (
+                            <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                              <td style={{ padding: '10px 12px', fontSize: 13, fontWeight: 700, color: 'var(--dark)' }}>{loan?.name || '—'}</td>
+                              <td style={{ padding: '10px 12px', fontSize: 12, color: 'var(--teal)', fontWeight: 700 }}>{loan?.loan_no || loan?.id || '—'}</td>
+                              <td style={{ padding: '10px 12px', fontSize: 13, color: 'var(--dark)' }}>#{inst.installment_number || '—'}</td>
+                              <td style={{ padding: '10px 12px', fontSize: 13, fontWeight: 700, color: 'var(--dark)' }}>{fmt(inst.amount_due || 0)}</td>
+                              <td style={{ padding: '10px 12px' }}>
+                                <span style={{ background: style.bg, color: style.text, padding: '3px 8px', borderRadius: 8, fontSize: 10, fontWeight: 800 }}>{style.icon} {st}</span>
+                              </td>
+                              <td style={{ padding: '10px 12px', fontSize: 12, color: 'var(--muted)' }}>{inst.payment_date ? fmtDate(inst.payment_date) : (inst.due_date ? fmtDate(inst.due_date) : '—')}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             </div>
           )}
 
-          {adminTab === 'queue' && (
-            <div>
-              {/* My Queue Summary Banner */}
-              {(() => {
-                const myPending = allPending.filter(({ r }) => {
-                  const assigned = r.request?.assignedReviewers || [];
-                  const inPool = config.authorizedReviewers?.includes(profile?.id);
-                  const hasActed = (r.request?.approvals || []).some((a: any) => a.id === profile?.id || a.by === profile?.name);
-                  return inPool && (assigned.length === 0 || assigned.includes(profile?.id)) && !hasActed;
-                });
-                const partialMine = allPending.filter(({ r }) => r.request?.status === 'partially_approved').length;
-                if (myPending.length === 0 && partialMine === 0) return null;
+          {/* ═══════════════ INLINE RECORD PAYMENT FLOW ═══════════════ */}
+          {showRecordPayment ? (
+            <div style={{ background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: 20, padding: '28px 32px', marginBottom: 32, boxShadow: '0 8px 30px rgba(0,0,0,0.04)' }}>
+              {/* Header with back navigation */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24, borderBottom: '1px solid #f1f5f9', paddingBottom: 16 }}>
+                <div>
+                  <button
+                    onClick={() => { setShowRecordPayment(false); setRecordStep(1); setRecordSelectedLoan(null); }}
+                    style={{ background: 'none', border: 'none', color: 'var(--teal)', fontWeight: 800, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, padding: 0, marginBottom: 6 }}
+                  >
+                    ← Back to Repayments Dashboard
+                  </button>
+                  <h2 style={{ fontSize: 20, fontWeight: 950, color: '#0f172a', margin: 0 }}>
+                    {recordStep === 1 && 'Record Payment — Step 1: Select Loan'}
+                    {recordStep === 2 && `Record Payment — Step 2: Select Installment (${recordSelectedLoan?.name})`}
+                    {recordStep === 3 && `Record Payment — Step 3: Enter Payment Details`}
+                    {recordStep === 4 && 'Payment Recorded Successfully!'}
+                  </h2>
+                </div>
+                {/* Step indicator */}
+                <div style={{ display: 'flex', gap: 8 }}>
+                  {[1, 2, 3, 4].map(s => (
+                    <div
+                      key={s}
+                      style={{
+                        width: 28, height: 28, borderRadius: '50%',
+                        background: recordStep === s ? 'var(--teal)' : recordStep > s ? '#10b981' : '#f1f5f9',
+                        color: recordStep >= s ? '#fff' : '#94a3b8',
+                        fontSize: 12, fontWeight: 900, display: 'flex', alignItems: 'center', justifyContent: 'center'
+                      }}
+                    >
+                      {recordStep > s ? '✓' : s}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* STEP 1: FIND LOAN */}
+              {recordStep === 1 && (
+                <div>
+                  <div style={{ marginBottom: 20 }}>
+                    <label style={{ fontSize: 12, fontWeight: 800, color: 'var(--dark)', display: 'block', marginBottom: 8 }}>
+                      Search Borrower, Member, or Loan ID
+                    </label>
+                    <div className="fiw" style={{ background: '#f8fafc', border: '1.5px solid #e2e8f0', padding: '12px 18px', borderRadius: 14 }}>
+                      <span className="fic">🔍</span>
+                      <input
+                        className="fi"
+                        autoFocus
+                        placeholder="Type borrower name, reference ID, or phone number..."
+                        value={recordLoanQuery}
+                        onChange={e => setRecordLoanQuery(e.target.value)}
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 14, maxHeight: 420, overflowY: 'auto' }}>
+                    {activeLoan
+                      .filter(l => {
+                        const q = recordLoanQuery.toLowerCase();
+                        if (!q) return true;
+                        return (l.name || '').toLowerCase().includes(q) ||
+                               (l.id || '').toLowerCase().includes(q) ||
+                               (l.loan_no || '').toLowerCase().includes(q) ||
+                               (l.mobile || '').includes(q);
+                      })
+                      .map(l => {
+                        const reps: any[] = l.repayments || [];
+                        const paidAmt = l.total_paid ?? reps.reduce((s, r) => s + ((r.paid || r.request?.status === 'approved') ? (Number(r.paid_amount || r.request?.amt) || r.amt) : 0), 0);
+                        const remaining = l.remaining_balance ?? (l.amt - paidAmt);
+                        const nextUnpaidIdx = reps.findIndex(r => !r.paid && r.request?.status !== 'approved');
+                        const nextEmi = nextUnpaidIdx > -1 ? reps[nextUnpaidIdx] : null;
+
+                        return (
+                          <div
+                            key={l.id}
+                            onClick={() => {
+                              setRecordSelectedLoan(l);
+                              setRecordStep(2);
+                              if (nextUnpaidIdx > -1) {
+                                setRecordSelectedEmi(nextUnpaidIdx);
+                                const emiBal = Math.max(0, Number(nextEmi.amt || 0) - Number(nextEmi.paid_amount || 0));
+                                setRecordForm(f => ({ ...f, amount: String(emiBal || nextEmi.amt || '') }));
+                              }
+                            }}
+                            style={{
+                              background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 16, padding: '16px 20px',
+                              cursor: 'pointer', transition: 'all 0.2s', display: 'flex', flexDirection: 'column', gap: 10
+                            }}
+                            onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--teal)')}
+                            onMouseLeave={e => (e.currentTarget.style.borderColor = '#e2e8f0')}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                              <div>
+                                <div style={{ fontWeight: 950, fontSize: 15, color: '#0f172a' }}>{l.name}</div>
+                                <div style={{ fontSize: 11, color: '#64748b', fontWeight: 700 }}>{l.loan_no || l.id} · {l.branch}</div>
+                              </div>
+                              <span style={{ fontSize: 11, fontWeight: 900, color: 'var(--teal)', background: 'rgba(20,184,166,0.1)', padding: '4px 10px', borderRadius: 20 }}>
+                                Select →
+                              </span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, borderTop: '1px solid #e2e8f0', paddingTop: 8 }}>
+                              <div><span style={{ color: '#64748b' }}>Balance: </span><b>{fmt(remaining)}</b></div>
+                              <div>
+                                <span style={{ color: '#64748b' }}>Next: </span>
+                                <b>{nextEmi ? `EMI #${nextUnpaidIdx + 1} (${fmtDateShort(nextEmi.due || nextEmi.due_date)})` : 'Settled'}</b>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
+                </div>
+              )}
+
+              {/* STEP 2: REVIEW SCHEDULE & PICK EMI */}
+              {recordStep === 2 && recordSelectedLoan && (
+                <div>
+                  <div style={{ background: 'rgba(20,184,166,0.06)', borderRadius: 14, padding: '14px 20px', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--teal)', textTransform: 'uppercase' }}>Selected Loan</div>
+                      <div style={{ fontSize: 16, fontWeight: 950, color: '#0f172a' }}>{recordSelectedLoan.name} ({recordSelectedLoan.loan_no || recordSelectedLoan.id})</div>
+                    </div>
+                    <button
+                      className="bsm g"
+                      onClick={() => setRecordStep(1)}
+                      style={{ padding: '6px 14px', borderRadius: 8, fontSize: 12, fontWeight: 800 }}
+                    >
+                      Change Loan
+                    </button>
+                  </div>
+
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ fontSize: 13, fontWeight: 900, color: '#1e293b', marginBottom: 10 }}>Select Installment to Credit</div>
+                    <div style={{ border: '1px solid #e2e8f0', borderRadius: 14, overflow: 'hidden' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                        <thead>
+                          <tr style={{ background: '#f8fafc', borderBottom: '1.5px solid #e2e8f0' }}>
+                            <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 800, color: '#64748b' }}>SELECT</th>
+                            <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 800, color: '#64748b' }}>EMI #</th>
+                            <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 800, color: '#64748b' }}>DUE DATE</th>
+                            <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 800, color: '#64748b' }}>SCHEDULED</th>
+                            <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 800, color: '#64748b' }}>PAID</th>
+                            <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 800, color: '#64748b' }}>BALANCE</th>
+                            <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 800, color: '#64748b' }}>STATUS</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(recordSelectedLoan.repayments || []).map((r: any, idx: number) => {
+                            const isPaid = r.paid || r.request?.status === 'approved';
+                            const paidVal = Number(r.paid_amount || (isPaid ? r.amt : 0));
+                            const balVal = Math.max(0, Number(r.amt || 0) - paidVal);
+                            const st = isPaid ? 'Paid' : balVal < r.amt ? 'Partial' : (r.due && new Date(r.due) < new Date()) ? 'Overdue' : 'Due';
+                            const isSelected = recordSelectedEmi === idx;
+
+                            return (
+                              <tr
+                                key={idx}
+                                onClick={() => {
+                                  if (!isPaid) {
+                                    setRecordSelectedEmi(idx);
+                                    setRecordForm(f => ({ ...f, amount: String(balVal || r.amt) }));
+                                  }
+                                }}
+                                style={{
+                                  borderBottom: '1px solid #f1f5f9',
+                                  background: isSelected ? 'rgba(20,184,166,0.06)' : isPaid ? '#f8fafc' : '#fff',
+                                  cursor: isPaid ? 'not-allowed' : 'pointer'
+                                }}
+                              >
+                                <td style={{ padding: '12px 14px' }}>
+                                  {isPaid ? (
+                                    <span style={{ color: '#10b981', fontWeight: 900 }}>✓ Locked</span>
+                                  ) : (
+                                    <input
+                                      type="radio"
+                                      name="selected_emi"
+                                      checked={isSelected}
+                                      onChange={() => {
+                                        setRecordSelectedEmi(idx);
+                                        setRecordForm(f => ({ ...f, amount: String(balVal || r.amt) }));
+                                      }}
+                                      style={{ width: 16, height: 16 }}
+                                    />
+                                  )}
+                                </td>
+                                <td style={{ padding: '12px 14px', fontSize: 13, fontWeight: 800 }}>EMI #{idx + 1}</td>
+                                <td style={{ padding: '12px 14px', fontSize: 12 }}>{fmtDate(r.due || r.due_date)}</td>
+                                <td style={{ padding: '12px 14px', fontSize: 13, fontWeight: 700 }}>{fmt(r.amt)}</td>
+                                <td style={{ padding: '12px 14px', fontSize: 13, color: '#10b981', fontWeight: 700 }}>{fmt(paidVal)}</td>
+                                <td style={{ padding: '12px 14px', fontSize: 13, fontWeight: 900, color: balVal > 0 ? 'var(--amber2)' : '#10b981' }}>{fmt(balVal)}</td>
+                                <td style={{ padding: '12px 14px' }}>
+                                  <span style={{
+                                    fontSize: 10, fontWeight: 800, padding: '3px 8px', borderRadius: 8,
+                                    background: isPaid ? '#dcfce7' : st === 'Overdue' ? '#fee2e2' : '#fef3c7',
+                                    color: isPaid ? '#15803d' : st === 'Overdue' ? '#b91c1c' : '#b45309'
+                                  }}>
+                                    {st.toUpperCase()}
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
+                    <button className="bsm g" onClick={() => setRecordStep(1)}>Back</button>
+                    <button
+                      className="bsm s"
+                      disabled={recordSelectedEmi === null}
+                      onClick={() => setRecordStep(3)}
+                    >
+                      Next: Payment Details →
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* STEP 3: PAYMENT FORM WITH LIVE PREVIEW */}
+              {recordStep === 3 && recordSelectedLoan && recordSelectedEmi !== null && (() => {
+                const targetEmi = recordSelectedLoan.repayments[recordSelectedEmi];
+                const amtNum = Number(recordForm.amount || 0);
+                const emiAmt = Number(targetEmi.amt || 0);
+                const emiPaid = Number(targetEmi.paid_amount || (targetEmi.paid ? emiAmt : 0));
+                const emiBal = Math.max(0, emiAmt - emiPaid);
+                const totalPaid = (recordSelectedLoan.repayments || []).reduce((s: number, r: any) => s + (r.paid ? Number(r.paid_amount || r.amt) : 0), 0);
+                const currentLoanBal = Math.max(0, recordSelectedLoan.amt - totalPaid);
+                const newLoanBal = Math.max(0, currentLoanBal - amtNum);
+
+                const isFutureDate = new Date(recordForm.date) > new Date();
+                const isOverpaid = amtNum > emiBal;
+                const isDuplicateRef = recordForm.ref && (recordSelectedLoan.repayments || []).some((r: any) => r.request?.ref === recordForm.ref || r.payment_reference === recordForm.ref);
+
                 return (
-                  <div style={{
-                    display: 'flex', gap: 12, marginBottom: 20, padding: '14px 18px',
-                    background: 'linear-gradient(135deg, rgba(99,102,241,0.08), rgba(59,130,246,0.06))',
-                    borderRadius: 14, border: '1.5px solid rgba(99,102,241,0.15)'
-                  }}>
-                    <div style={{ fontSize: 22 }}>🔔</div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontWeight: 800, fontSize: 13, color: '#3730a3' }}>Your Review Queue</div>
-                      <div style={{ fontSize: 11, color: '#4338ca', marginTop: 2 }}>
-                        {myPending.length > 0 && <span style={{ marginRight: 10 }}><b>{myPending.length}</b> waiting for your signature</span>}
-                        {partialMine > 0 && <span><b>{partialMine}</b> partially signed</span>}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: 24 }}>
+                    {/* Left side: Form */}
+                    <div>
+                      <div className="fgrid" style={{ marginBottom: 16 }}>
+                        <div className="fg2">
+                          <label className="fl2">Amount to Credit (₹) *</label>
+                          <input
+                            className="fi2"
+                            type="number"
+                            value={recordForm.amount}
+                            onChange={e => setRecordForm({ ...recordForm, amount: e.target.value })}
+                            placeholder="Enter amount..."
+                          />
+                        </div>
+                        <div className="fg2">
+                          <label className="fl2">Payment Date *</label>
+                          <input
+                            className="fi2"
+                            type="date"
+                            max={new Date().toISOString().split('T')[0]}
+                            value={recordForm.date}
+                            onChange={e => setRecordForm({ ...recordForm, date: e.target.value })}
+                          />
+                        </div>
+                        <div className="fg2">
+                          <label className="fl2">Payment Method *</label>
+                          <select
+                            className="sel2"
+                            value={recordForm.mode}
+                            onChange={e => setRecordForm({ ...recordForm, mode: e.target.value })}
+                          >
+                            <option value="Cash">💵 Handover (Cash)</option>
+                            <option value="UPI">📱 UPI / PhonePe / GPay</option>
+                            <option value="Bank">🏦 Bank Transfer</option>
+                            <option value="Other">🌀 Other</option>
+                          </select>
+                        </div>
+                        <div className="fg2">
+                          <label className="fl2">
+                            {recordForm.mode === 'Cash' ? 'Receiver / Agent Name' : 'Transaction Ref / UTR *'}
+                          </label>
+                          <input
+                            className="fi2"
+                            placeholder={recordForm.mode === 'Cash' ? 'Collected by...' : 'UTR / Ref ID...'}
+                            value={recordForm.ref}
+                            onChange={e => setRecordForm({ ...recordForm, ref: e.target.value })}
+                          />
+                        </div>
+                        <div className="fg2 full">
+                          <label className="fl2">Internal Administrative Notes</label>
+                          <input
+                            className="fi2"
+                            placeholder="Optional notes or receipt tracking remarks..."
+                            value={recordForm.notes}
+                            onChange={e => setRecordForm({ ...recordForm, notes: e.target.value })}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Warnings */}
+                      {isFutureDate && (
+                        <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 10, padding: '10px 14px', fontSize: 12, color: '#991b1b', marginBottom: 12 }}>
+                          ⚠️ Future dates are blocked. Please select today or an earlier date.
+                        </div>
+                      )}
+                      {isOverpaid && (
+                        <div style={{ background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 10, padding: '10px 14px', fontSize: 12, color: '#92400e', marginBottom: 12 }}>
+                          ⚠️ Amount entered (₹{amtNum.toLocaleString()}) exceeds the EMI balance (₹{emiBal.toLocaleString()}).
+                        </div>
+                      )}
+                      {isDuplicateRef && (
+                        <div style={{ background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 10, padding: '10px 14px', fontSize: 12, color: '#92400e', marginBottom: 12 }}>
+                          ⚠️ Warning: This reference ID has already been recorded on this loan.
+                        </div>
+                      )}
+
+                      <div style={{ display: 'flex', gap: 12, marginTop: 20 }}>
+                        <button className="bsm g" onClick={() => setRecordStep(2)}>Back to Schedule</button>
+                        <button
+                          className="bsm s"
+                          disabled={!amtNum || isFutureDate || (recordForm.mode !== 'Cash' && !recordForm.ref) || isRecordingPayment}
+                          onClick={async () => {
+                            if (!canVerifyRepayments) {
+                              setToast({ m: 'You need Repayment Verification rights to record payments.', t: 'r' });
+                              return;
+                            }
+                            setIsRecordingPayment(true);
+                            try {
+                              const instId = targetEmi.id || `inst-${recordSelectedLoan.id}-${recordSelectedEmi}`;
+                              await localDb.recordInstallmentPayment(recordSelectedLoan.loan_no || recordSelectedLoan.id, instId, {
+                                paid_amount: amtNum,
+                                paid_date: recordForm.date,
+                                payment_method: recordForm.mode,
+                                payment_reference: recordForm.ref,
+                                notes: recordForm.notes || `Direct branch entry: ${recordForm.mode}`,
+                                marked_by: profile?.id,
+                                due_date: targetEmi.due || targetEmi.due_date || '',
+                                amount_due: emiAmt,
+                                installment_number: recordSelectedEmi + 1
+                              });
+                              refresh();
+                              setRepaymentReloadNonce(n => n + 1);
+                              setRecordStep(4);
+                              setToast({ m: `Payment of ₹${amtNum.toLocaleString()} credited successfully!`, t: 's' });
+                            } catch (err: any) {
+                              setToast({ m: err?.message || 'Failed to record payment.', t: 'r' });
+                            } finally {
+                              setIsRecordingPayment(false);
+                            }
+                          }}
+                        >
+                          {isRecordingPayment ? 'Recording...' : 'Credit Now'}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Right side: Live Preview */}
+                    <div style={{ background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 16, padding: '20px 24px' }}>
+                      <div style={{ fontSize: 11, fontWeight: 900, color: 'var(--teal)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 12 }}>
+                        Live Payment Preview
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                        <div>
+                          <div style={{ fontSize: 11, color: '#64748b' }}>Target Installment</div>
+                          <div style={{ fontSize: 16, fontWeight: 950, color: '#0f172a' }}>EMI #{recordSelectedEmi + 1} ({fmt(emiAmt)})</div>
+                        </div>
+                        <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: 10 }}>
+                          <div style={{ fontSize: 11, color: '#64748b' }}>Crediting Amount</div>
+                          <div style={{ fontSize: 22, fontWeight: 950, color: '#10b981' }}>{fmt(amtNum)}</div>
+                        </div>
+                        <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: 12 }}>
+                          <div style={{ fontSize: 12, fontWeight: 800, color: '#1e293b' }}>
+                            {amtNum >= emiBal ? '✅ This payment clears EMI #' + (recordSelectedEmi + 1) + ' fully.' : '◑ This payment partially covers EMI #' + (recordSelectedEmi + 1) + '.'}
+                          </div>
+                          <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>
+                            New loan balance becomes <b>{fmt(newLoanBal)}</b>.
+                          </div>
+                        </div>
+                        <div style={{ fontSize: 11, color: '#94a3b8' }}>
+                          Verified immediately · Tagged as "Recorded by admin ({profile?.name || 'Admin'})"
+                        </div>
                       </div>
                     </div>
                   </div>
                 );
               })()}
-    
-                        {/* UNIFIED PIPELINE HEADER */}
-              <div className="card inv-ctrls" style={{ padding: '24px 30px', marginBottom: 24, background: '#fff', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 20 }}>
-                 <div className="inv-actions-group" style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', flex: 1 }}>
-                   <div className="fiw" style={{ background: '#f8fafc', height: 44, padding: '0 16px', borderRadius: 14, width: 280, border: '1.5px solid #f1f5f9', display: 'flex', alignItems: 'center' }}>
-                     <span className="fic">🔍</span>
-                     <input className="fi" placeholder="Search pipeline..." value={search} onChange={e => setSearch(e.target.value)} style={{ border: 'none', background: 'transparent', width: '100%' }} />
-                   </div>
-                   
-                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                     <span style={{ fontSize: 10, fontWeight: 900, color: '#94a3b8' }}>STATUS:</span>
-                     <select 
-                       className="sel2" 
-                       value={pipelineFilter} 
-                       onChange={(e: any) => setPipelineFilter(e.target.value)}
-                       style={{ height: 44, padding: '0 14px', borderRadius: 12, fontSize: 11, fontWeight: 800, background: '#f1f5f9', border: 'none' }}
-                     >
-                       <option value="all">ALL TRANSACTIONS</option>
-                       <option value="pending">⏳ PENDING</option>
-                       <option value="approved">✅ APPROVED</option>
-                       <option value="rejected">❌ REJECTED</option>
-                       <option value="manual">📝 MANUAL ONLY</option>
-                       <option value="digital">📱 DIGITAL ONLY</option>
-                     </select>
-                   </div>
 
-                   <button className="bsm g" style={{ height: 44, padding: '0 20px', borderRadius: 12 }} onClick={() => {
-                      const rows = [['Loan ID', 'Member', 'EMI #', 'Amount', 'Date', 'Source', 'Status']];
-                      const data: any[] = [...unifiedPipeline];
-                      loans.forEach((loan: any) => (loan.repayments || []).forEach((r: any, idx: number) => { if (r.paid && !r.request) data.push({ loan, r, idx }); }));
-                      
-                      data.filter(item => {
-                        const status = item.r.request?.status || (item.r.paid ? 'approved' : 'pending');
-                        const isManual = !item.r.request;
-                        if (pipelineFilter === 'manual' && !isManual) return false;
-                        if (pipelineFilter === 'digital' && isManual) return false;
-                        if (pipelineFilter !== 'all' && pipelineFilter !== 'manual' && pipelineFilter !== 'digital' && status !== pipelineFilter) return false;
-                        return true;
-                      }).forEach(({ loan, r, idx }) => {
-                        rows.push([loan.id, loan.name, `${idx+1}`, `${r.paid_amount || r.request?.amt || 0}`, r.paid_date || r.request?.payDate || '', r.request ? 'Digital' : 'Manual', r.request?.status || 'Paid']);
-                      });
-
-                      const csv = rows.map(r => r.map(c => `"${c}"`).join(',')).join('\n');
-                      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); a.download = `skssf_pipeline_export.csv`; a.click();
-                    }}>⬇ Export</button>
-                    
-                    <button className="bsm s" style={{ height: 44, padding: '0 20px', background: 'var(--teal)', color: '#fff', borderRadius: 12, fontWeight: 900, marginLeft: 'auto' }} onClick={() => { 
-                      setMfInst(''); setMfAmt(''); setMfDate(new Date().toISOString().split('T')[0]); setMfMode('Cash'); setMfRef(''); setMfProof('');
-                      setShowManualSearch(true); 
-                    }}>
-                      ➕ New Manual Entry
+              {/* STEP 4: CONFIRMATION */}
+              {recordStep === 4 && recordSelectedLoan && (
+                <div style={{ textAlign: 'center', padding: '30px 20px' }}>
+                  <div style={{ width: 64, height: 64, borderRadius: '50%', background: '#dcfce7', color: '#166534', fontSize: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+                    ✓
+                  </div>
+                  <h3 style={{ fontSize: 20, fontWeight: 950, color: '#0f172a', margin: 0 }}>Payment Successfully Recorded!</h3>
+                  <p style={{ fontSize: 13, color: '#64748b', marginTop: 6, marginBottom: 24 }}>
+                    Installment balance updated and reflected in the ledger.
+                  </p>
+                  <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
+                    <button
+                      className="bsm s"
+                      onClick={() => { setRecordStep(1); setRecordLoanQuery(''); setRecordSelectedLoan(null); setRecordSelectedEmi(null); }}
+                    >
+                      Record Another Payment
                     </button>
-                 </div>
-              </div>
-
-              {/* MANUAL SEARCH OVERLAY */}
-              {showManualSearch && (
-                <div className="rp-modal" style={{ zIndex: 1100 }}>
-                  <div className="rp-modal-inner" style={{ maxWidth: 550, padding: 30 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-                      <div style={{ fontWeight: 950, fontSize: 18 }}>Record Branch Payment</div>
-                      <button onClick={() => { setShowManualSearch(false); setSearch(''); }} className="cls-btn">×</button>
-                    </div>
-                    <div className="fiw" style={{ background: '#f1f5f9', border: '1.5px solid #e2e8f0', padding: '10px 16px', borderRadius: 16, marginBottom: 20 }}>
-                      <span className="fic">🔍</span>
-                      <input className="fi" autoFocus placeholder="Start typing member name or loan id..." value={search} onChange={e => setSearch(e.target.value)} />
-                    </div>
-                    <div style={{ maxHeight: 350, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
-                       {activeLoan.filter(l => (l.repayments || []).some(r => !r.paid && !r.request)).slice(0, 8).map(l => (
-                         <div key={l.id} className="rp-card-mini" 
-                           onClick={() => {
-                             setShowManualSearch(false);
-                             setRecordPaymentModal({ loan: l });
-                             const next = (l.repayments || []).findIndex((r: any) => !r.paid && !r.request);
-                             if(next > -1) { 
-                               const r = l.repayments[next];
-                               setMfInst(String(next)); 
-                               setMfAmt(String(r.request?.amt || r.amt)); 
-                               setMfProof(r.request?.proof || ''); 
-                               setMfDate(r.request?.payDate || new Date().toISOString().split('T')[0]); 
-                             }
-                           }}
-                           style={{ padding: 16, background: '#fff', border: '1.5px solid #f1f5f9', borderRadius: 14, cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', transition: 'all .2s' }}
-                         >
-                           <div><div style={{ fontWeight: 900, fontSize: 14 }}>{l.name}</div><div style={{ fontSize: 11, color: '#64748b' }}>{l.id} · {l.branch}</div></div>
-                           <div style={{ fontSize: 11, fontWeight: 900, color: 'var(--teal)' }}>SELECT →</div>
-                         </div>
-                       ))}
-                       {search && activeLoan.length === 0 && <div style={{ textAlign: 'center', padding: 20, color: '#94a3b8' }}>No matches found.</div>}
-                    </div>
+                    <button
+                      className="bsm g"
+                      onClick={() => { setShowRecordPayment(false); setAdminTab('schedules'); }}
+                    >
+                      View Loan Schedules
+                    </button>
+                    <button
+                      className="bsm g"
+                      onClick={() => { setShowRecordPayment(false); setAdminTab('overview'); }}
+                    >
+                      Back to Overview
+                    </button>
                   </div>
                 </div>
               )}
+            </div>
+          ) : null}
 
+          {/* ═══════════════ PAYMENTS TAB (REPLACES PIPELINE) ═══════════════ */}
+          {adminTab === 'payments' && !showRecordPayment && (
+            <div>
+              {/* Filter chips & Search */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 14, marginBottom: 20 }}>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {(['all', 'pending', 'verified', 'rejected'] as const).map(chip => (
+                    <button
+                      key={chip}
+                      onClick={() => setPaymentsFilter(chip)}
+                      style={{
+                        padding: '8px 16px', borderRadius: 12, fontSize: 12, fontWeight: 800,
+                        border: 'none', cursor: 'pointer', textTransform: 'capitalize',
+                        background: paymentsFilter === chip ? 'var(--teal)' : '#f1f5f9',
+                        color: paymentsFilter === chip ? '#fff' : '#475569',
+                        transition: 'all 0.2s'
+                      }}
+                    >
+                      {chip === 'all' ? 'All Payments' : chip}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="fiw" style={{ background: '#fff', border: '1.5px solid #e2e8f0', padding: '8px 16px', borderRadius: 12, minWidth: 260 }}>
+                  <span className="fic">🔍</span>
+                  <input
+                    className="fi"
+                    placeholder="Search member, loan ID, reference..."
+                    value={paymentsSearch}
+                    onChange={e => setPaymentsSearch(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              {/* Payments List */}
               {(() => {
-                // Combined Pipeline Logic
-                let items: any[] = [...unifiedPipeline];
-                
-                // Mix in manual logs for a unified history
-                if (pipelineFilter === 'all' || pipelineFilter === 'approved' || pipelineFilter === 'manual') {
-                  loans.forEach((loan: any) => (loan.repayments || []).forEach((r: any, idx: number) => { 
-                    if (r.paid && !r.request) {
-                      const q = search.toLowerCase();
-                      if (!q || loan.name.toLowerCase().includes(q) || loan.id.toLowerCase().includes(q)) {
-                        items.push({ loan, r, idx });
-                      }
-                    }
-                  }));
+                const filteredItems = loans.flatMap((loan: any) =>
+                  (loan.repayments || []).map((r: any, idx: number) => ({ loan, r, idx }))
+                ).filter(({ loan, r }) => {
+                  const reqStatus = r.request?.status;
+                  const isVerified = r.paid || reqStatus === 'approved';
+                  const isPending = reqStatus === 'pending' || reqStatus === 'partially_approved';
+                  const isRejected = reqStatus === 'rejected';
+
+                  if (paymentsFilter === 'pending' && !isPending) return false;
+                  if (paymentsFilter === 'verified' && !isVerified) return false;
+                  if (paymentsFilter === 'rejected' && !isRejected) return false;
+                  if (paymentsFilter === 'all' && !isVerified && !isPending && !isRejected) return false;
+
+                  const q = paymentsSearch.toLowerCase();
+                  if (!q) return true;
+                  return (loan.name || '').toLowerCase().includes(q) ||
+                         (loan.id || '').toLowerCase().includes(q) ||
+                         (loan.loan_no || '').toLowerCase().includes(q) ||
+                         (r.request?.ref || '').toLowerCase().includes(q) ||
+                         (r.payment_reference || '').toLowerCase().includes(q);
+                }).sort((a, b) => {
+                  const tA = new Date(a.r.request?.submittedAt || a.r.paid_date || a.r.due || 0).getTime();
+                  const tB = new Date(b.r.request?.submittedAt || b.r.paid_date || b.r.due || 0).getTime();
+                  return tB - tA;
+                });
+
+                if (filteredItems.length === 0) {
+                  return (
+                    <div style={{ textAlign: 'center', padding: '60px 20px', background: '#fff', borderRadius: 20, border: '1.5px dashed #e2e8f0', color: '#64748b' }}>
+                      <div style={{ fontSize: 36, marginBottom: 10 }}>⚡</div>
+                      <div style={{ fontWeight: 800, fontSize: 15 }}>No {paymentsFilter} payments found.</div>
+                      <div style={{ fontSize: 12, marginTop: 4 }}>Try clearing search or changing the filter chip.</div>
+                    </div>
+                  );
                 }
 
-                // Apply Dropdown Filter
-                if (pipelineFilter === 'manual') items = items.filter(i => !i.r.request);
-                else if (pipelineFilter === 'digital') items = items.filter(i => !!i.r.request);
-                else if (pipelineFilter !== 'all') items = items.filter(i => (i.r.request?.status || (i.r.paid ? 'approved' : 'pending')) === pipelineFilter);
-
-                if (items.length === 0) return (
-                  <div style={{ textAlign: 'center', padding: '60px 20px', color: '#94a3b8', background: '#fff', borderRadius: 24, border: '2px dashed #f1f5f9' }}>
-                    <div style={{ fontSize: 40, marginBottom: 12 }}>⚡</div>
-                    <div style={{ fontSize: 15, fontWeight: 900 }}>Pipeline Clear</div>
-                    <div style={{ fontSize: 12, opacity: 0.7, marginTop: 4 }}>No {pipelineFilter} transactions found matching your criteria.</div>
-                  </div>
-                );
-
                 return (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    {items.sort((a,b) => {
-                      const tA = new Date(a.r.request?.submittedAt || a.r.paid || a.r.paid_date || 0).getTime();
-                      const tB = new Date(b.r.request?.submittedAt || b.r.paid || b.r.paid_date || 0).getTime();
-                      return tB - tA;
-                    }).slice(0, 40).map(({ loan, r, idx }) => (
-                      <div key={`${loan.id}-${idx}`} style={{ position: 'relative' }}>
-                        {!r.request && (
-                          <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, background: 'var(--amber)', borderRadius: '4px 0 0 4px', zIndex: 5 }} />
-                        )}
-                        <QueueItem loan={loan} r={r} idx={idx} reviewed={r.paid || r.request?.status === 'approved' || r.request?.status === 'rejected'} />
-                      </div>
-                    ))}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {filteredItems.map(({ loan, r, idx }) => {
+                      const req = r.request;
+                      const isPending = req?.status === 'pending' || req?.status === 'partially_approved';
+                      const isVerified = r.paid || req?.status === 'approved';
+                      const isRejected = req?.status === 'rejected';
+                      const amt = Number(req?.amt || r.paid_amount || r.amt || 0);
+                      const key = `${loan.id}-${idx}`;
+
+                      return (
+                        <div
+                          key={key}
+                          style={{
+                            background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: 16, padding: '18px 24px',
+                            display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                            <div style={{ width: 42, height: 42, borderRadius: 12, background: 'rgba(20,184,166,0.1)', color: 'var(--teal)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 950, fontSize: 16 }}>
+                              {loan.name?.charAt(0) || '?'}
+                            </div>
+                            <div>
+                              <div style={{ fontWeight: 950, fontSize: 15, color: '#0f172a' }}>{loan.name}</div>
+                              <div style={{ fontSize: 12, color: '#64748b', fontWeight: 700 }}>
+                                {loan.loan_no || loan.id} · EMI #{idx + 1} · {fmtDate(req?.payDate || r.paid_date || r.due)}
+                              </div>
+                              {req?.ref && <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>Ref: {req.ref}</div>}
+                            </div>
+                          </div>
+
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
+                            <div style={{ textAlign: 'right' }}>
+                              <div style={{ fontSize: 18, fontWeight: 950, color: '#0f172a' }}>{fmt(amt)}</div>
+                              <span style={{
+                                fontSize: 10, fontWeight: 900, padding: '3px 8px', borderRadius: 6,
+                                background: isVerified ? '#dcfce7' : isPending ? '#fef3c7' : '#fee2e2',
+                                color: isVerified ? '#15803d' : isPending ? '#b45309' : '#b91c1c'
+                              }}>
+                                {isVerified ? 'VERIFIED' : isPending ? 'PENDING VERIFICATION' : 'REJECTED'}
+                              </span>
+                            </div>
+
+                            {/* Inline Approval & Rejection */}
+                            {isPending && canVerifyRepayments && (
+                              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                                <button
+                                  className="bsm s"
+                                  style={{ padding: '8px 16px', borderRadius: 10, fontSize: 12, fontWeight: 900 }}
+                                  onClick={async () => {
+                                    localDb.verifyRepaymentRequest(loan.id, idx, 'approved', 'Verified by admin', profile?.name, profile?.role, profile?.id);
+                                    refresh();
+                                    setRepaymentReloadNonce(n => n + 1);
+                                    setToast({ m: `Payment for ${loan.name} verified and credited!`, t: 's' });
+                                  }}
+                                >
+                                  Approve
+                                </button>
+                                {rejectReasons[key] !== undefined ? (
+                                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                                    <input
+                                      placeholder="Reason..."
+                                      value={rejectReasons[key]}
+                                      onChange={e => setRejectReasons({ ...rejectReasons, [key]: e.target.value })}
+                                      style={{ padding: '6px 10px', fontSize: 12, borderRadius: 8, border: '1px solid #fecaca', width: 140 }}
+                                    />
+                                    <button
+                                      className="bsm r"
+                                      style={{ padding: '6px 12px', fontSize: 11, fontWeight: 800 }}
+                                      onClick={() => {
+                                        const reason = rejectReasons[key];
+                                        if (!reason.trim()) {
+                                          setToast({ m: 'Rejection reason is required.', t: 'r' });
+                                          return;
+                                        }
+                                        localDb.verifyRepaymentRequest(loan.id, idx, 'rejected', reason, profile?.name, profile?.role, profile?.id);
+                                        refresh();
+                                        setRepaymentReloadNonce(n => n + 1);
+                                        const copy = { ...rejectReasons };
+                                        delete copy[key];
+                                        setRejectReasons(copy);
+                                        setToast({ m: 'Payment rejected with audit reason logged.', t: 's' });
+                                      }}
+                                    >
+                                      Confirm
+                                    </button>
+                                    <button
+                                      className="bsm g"
+                                      style={{ padding: '6px 10px', fontSize: 11 }}
+                                      onClick={() => {
+                                        const copy = { ...rejectReasons };
+                                        delete copy[key];
+                                        setRejectReasons(copy);
+                                      }}
+                                    >
+                                      ✕
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    className="bsm r"
+                                    style={{ padding: '8px 16px', borderRadius: 10, fontSize: 12, fontWeight: 900 }}
+                                    onClick={() => setRejectReasons({ ...rejectReasons, [key]: '' })}
+                                  >
+                                    Reject
+                                  </button>
+                                )}
+                              </div>
+                            )}
+
+                            {/* View Proof Thumbnail */}
+                            {req?.proof && (
+                              <button
+                                onClick={() => setLightbox(req.proof)}
+                                style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: '6px 10px', fontSize: 11, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
+                              >
+                                🖼️ Proof
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 );
               })()}
             </div>
           )}
 
-          {adminTab === 'schedules' && (
+          {/* ═══════════════ SCHEDULES TAB ═══════════════ */}
+          {adminTab === 'schedules' && !showRecordPayment && (
             <div>
-              {/* Phase 5 - EMI schedule sort/filter (F27) */}
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 20, maxWidth: 900 }}>
-                {(['overdue', 'balance', 'newest'] as const).map((v) => (
-                  <button key={v} className="bsm" onClick={() => setSchedSort(v)} style={{ padding: '8px 14px', borderRadius: 10, fontSize: 12, fontWeight: 800, background: schedSort === v ? 'var(--teal)' : '#f1f5f9', color: schedSort === v ? '#fff' : '#475569', border: 'none', cursor: 'pointer' }}>
-                    {v === 'overdue' ? 'Overdue first' : v === 'balance' ? 'Highest balance' : 'Newest'}
-                  </button>
-                ))}
-              </div>
-              {/* Phase 4 - Timeline / Table view toggle */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, marginBottom: 24, maxWidth: 900, flexWrap: 'wrap' }}>
-                <div style={{ fontSize: 18, fontWeight: 900, color: 'var(--dark)' }}>EMI Schedules</div>
-                <div style={{ display: 'flex', background: '#f1f5f9', borderRadius: 12, padding: 4, gap: 4 }}>
-                  <button className="bsm" onClick={() => setSchedView('timeline')} style={{ border: 'none', borderRadius: 9, padding: '8px 16px', fontSize: 12, fontWeight: 800, background: schedView === 'timeline' ? 'var(--teal)' : 'transparent', color: schedView === 'timeline' ? '#fff' : '#475569', cursor: 'pointer', border: 'none' }}>
+              {/* Unified Toolbar Row: Search, Sort, Status Filter, View Toggle */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 14, marginBottom: 24 }}>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <div className="fiw" style={{ background: '#fff', border: '1.5px solid #e2e8f0', padding: '8px 14px', borderRadius: 12, minWidth: 220 }}>
+                    <span className="fic">🔍</span>
+                    <input className="fi" placeholder="Search member or loan ID..." value={schedSearch} onChange={e => setSchedSearch(e.target.value)} />
+                  </div>
+
+                  <select
+                    className="sel2"
+                    value={schedSort}
+                    onChange={(e: any) => setSchedSort(e.target.value)}
+                    style={{ padding: '8px 14px', borderRadius: 10, fontSize: 12, fontWeight: 800, border: '1.5px solid #e2e8f0' }}
+                  >
+                    <option value="overdue">Sort: Overdue First</option>
+                    <option value="balance">Sort: Highest Balance</option>
+                    <option value="newest">Sort: Newest First</option>
+                  </select>
+
+                  <select
+                    className="sel2"
+                    value={schedStatusFilter}
+                    onChange={e => setSchedStatusFilter(e.target.value)}
+                    style={{ padding: '8px 14px', borderRadius: 10, fontSize: 12, fontWeight: 800, border: '1.5px solid #e2e8f0' }}
+                  >
+                    <option value="all">All Loans</option>
+                    <option value="overdue">Has Overdue</option>
+                    <option value="active">Active Only</option>
+                    <option value="completed">Fully Paid</option>
+                  </select>
+                </div>
+
+                {/* Timeline / Table view toggle aligned to right */}
+                <div style={{ display: 'flex', background: '#f1f5f9', borderRadius: 10, padding: 3, gap: 2 }}>
+                  <button
+                    onClick={() => setSchedView('timeline')}
+                    style={{
+                      border: 'none', borderRadius: 8, padding: '7px 14px', fontSize: 12, fontWeight: 800,
+                      background: schedView === 'timeline' ? 'var(--teal)' : 'transparent',
+                      color: schedView === 'timeline' ? '#fff' : '#64748b', cursor: 'pointer'
+                    }}
+                  >
                     📊 Timeline
                   </button>
-                  <button className="bsm" onClick={() => setSchedView('table')} style={{ border: 'none', borderRadius: 9, padding: '8px 16px', fontSize: 12, fontWeight: 800, background: schedView === 'table' ? 'var(--teal)' : 'transparent', color: schedView === 'table' ? '#fff' : '#475569', cursor: 'pointer', border: 'none' }}>
+                  <button
+                    onClick={() => setSchedView('table')}
+                    style={{
+                      border: 'none', borderRadius: 8, padding: '7px 14px', fontSize: 12, fontWeight: 800,
+                      background: schedView === 'table' ? 'var(--teal)' : 'transparent',
+                      color: schedView === 'table' ? '#fff' : '#64748b', cursor: 'pointer'
+                    }}
+                  >
                     📋 Table
                   </button>
                 </div>
               </div>
-              <div style={{ marginBottom: 24, maxWidth: 450 }}>
-                <div className="fiw" style={{ background: '#fff', border: '1.5px solid #e2e8f0', padding: '6px 16px', borderRadius: 16, boxShadow: '0 4px 12px rgba(0,0,0,0.03)' }}>
-                  <span className="fic">🔍</span>
-                  <input className="fi" placeholder="Search Member or Loan ID..." value={search} onChange={e => setSearch(e.target.value)} />
-                </div>
-              </div>
-              {schedLoans.length === 0 ? (
-                <div className="card" style={{ textAlign: 'center', padding: '70px', color: 'var(--muted)' }}>
-                  <div style={{ fontSize: 48, marginBottom: 12 }}>🌱</div>
-                  <div style={{ fontWeight: 600 }}>No active loans found{search ? ' matching your search' : ''}.</div>
-                </div>
-              ) : (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(450px, 1fr))', gap: 20 }}>
-                  {schedLoans.map(loan => {
-                    const reps: any[] = loan.repayments || [];
-                    const paidAmt = loan.total_paid ?? reps.reduce((s, r) => s + ((r.paid || r.request?.status === 'approved') ? (Number(r.paid_amount || r.request?.amt) || r.amt) : 0), 0);
-                    const prog = loan.amt > 0 ? Math.min((paidAmt / loan.amt) * 100, 100) : 0;
-                    const remaining = loan.remaining_balance ?? (loan.amt - paidAmt);
-                    const pendingReqsHere = reps.filter((r: any) => r.request?.status === 'pending');
-                    if (!reps || reps.length === 0) {
-                      return (
-                        <div key={loan.id} className="rp-card" style={{ marginBottom: 24, overflow: 'hidden', border: '1px solid #e2e8f0', borderRadius: '16px', background: '#fff' }}>
-                          <div style={{ padding: '24px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-                            <div>
-                              <div style={{ fontWeight: 900, fontSize: 16, color: 'var(--teal)' }}>💰 {loan.id}</div>
-                              <div style={{ fontSize: 18, fontWeight: 900, color: '#0f172a', marginTop: 4 }}>{loan.name}</div>
-                            </div>
-                            <div style={{ textAlign: 'right' }}>
-                              <div style={{ fontSize: 24, fontWeight: 950, color: '#0f172a' }}>{fmt(loan.amt)}</div>
-                              <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--amber2)', marginTop: 4 }}>{fmt(remaining)} Remaining</div>
-                            </div>
-                          </div>
-                          <div style={{ padding: '20px 24px', background: '#f8fafc', borderTop: '1px solid #f1f5f9' }}>
-                            <div style={{ fontSize: 13, fontWeight: 800, color: 'var(--amber2)' }}>Schedule not generated</div>
-                            <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>No EMI schedule has been generated for this loan yet.</div>
-                            <button className="bsm g" style={{ marginTop: 12, padding: '10px 18px', borderRadius: 10, fontSize: 12, fontWeight: 800 }} onClick={() => setToast({ m: 'EMI schedule generation is not available in this build yet.', t: 's' })}>Generate schedule</button>
-                          </div>
-                        </div>
-                      );
-                    }
-                    return (
-                      <div key={loan.id} className="rp-card" style={{ 
-                        marginBottom: 24, overflow: 'hidden', position: 'relative',
-                        border: '1px solid #e2e8f0',
-                        boxShadow: '0 4px 15px rgba(0,0,0,0.04)',
-                        borderRadius: '16px', background: '#fff'
-                      }}>
-                        {/* ROW 1: HEADER & STATS */}
-                        <div style={{ padding: '24px 24px 20px', borderBottom: '1px solid #f1f5f9' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                            <div>
-                              <div style={{ fontWeight: 900, fontSize: 16, color: 'var(--teal)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                                <span>💰</span> {loan.id}
-                              </div>
-                              <div style={{ fontSize: 18, fontWeight: 900, color: '#0f172a', marginTop: 4 }}>{loan.name}</div>
-                              <div style={{ fontSize: 12, color: '#64748b', marginTop: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
-                                <span>📍 {loan.branch}</span>
-                                <span style={{ opacity: 0.3 }}>|</span>
-                                <span>🔖 {loan.purpose}</span>
-                              </div>
-                            </div>
-                            <div style={{ textAlign: 'right' }}>
-                              <div style={{ fontSize: 28, fontWeight: 950, color: '#0f172a', letterSpacing: '-0.5px' }}>{fmt(loan.amt)}</div>
-                              <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--green)', marginTop: 4 }}>{Math.round(prog)}% Repaid</div>
-                              <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--amber2)', marginTop: 2 }}>{fmt(remaining)} Remaining</div>
-                            </div>
-                          </div>
-                          
-                          {/* PROGRESS BAR */}
-                          <div style={{ marginTop: 20, height: 8, background: '#f1f5f9', borderRadius: 10, overflow: 'hidden' }}>
-                            <div style={{ width: `${prog}%`, height: '100%', background: 'var(--teal)', borderRadius: 10, transition: 'width 1s ease-in-out' }} />
-                          </div>
-                        </div>
 
-                        {/* ROW 2: INSTALLMENT ROADMAP */}
-                        <div style={{ background: '#f8fafc', padding: '20px 24px', borderBottom: '1px solid #f1f5f9' }}>
-                          <div style={{ fontSize: 11, fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 14 }}>
-                            EMI Lifecycle Status
-                          </div>
-                          {schedView === 'timeline' ? (
-                          <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 6 }}>
-                            {reps.map((r, i) => {
-                              const s = statusFor(r);
-                              const actual = Number(r.request?.amt) || r.amt;
-                              const isPartial = r.paid && actual < r.amt;
+              {/* Loans list / cards */}
+              {(() => {
+                const filteredSchedLoans = [...activeLoan]
+                  .filter(l => {
+                    const q = schedSearch.toLowerCase();
+                    const matchQ = !q || (l.name || '').toLowerCase().includes(q) || (l.id || '').toLowerCase().includes(q) || (l.loan_no || '').toLowerCase().includes(q);
+                    if (!matchQ) return false;
+
+                    const reps = l.repayments || [];
+                    const hasOverdue = reps.some((r: any) => !r.paid && r.due && new Date(r.due) < new Date());
+                    const isAllPaid = reps.length > 0 && reps.every((r: any) => r.paid || r.request?.status === 'approved');
+
+                    if (schedStatusFilter === 'overdue' && !hasOverdue) return false;
+                    if (schedStatusFilter === 'active' && isAllPaid) return false;
+                    if (schedStatusFilter === 'completed' && !isAllPaid) return false;
+                    return true;
+                  })
+                  .sort((a, b) => {
+                    const ovA = (a.repayments || []).filter((r: any) => !r.paid && r.due && new Date(r.due) < new Date()).length;
+                    const ovB = (b.repayments || []).filter((r: any) => !r.paid && r.due && new Date(r.due) < new Date()).length;
+                    const remA = a.remaining_balance ?? (a.amt - (a.total_paid ?? 0));
+                    const remB = b.remaining_balance ?? (b.amt - (b.total_paid ?? 0));
+                    if (schedSort === 'balance') return remB - remA;
+                    if (schedSort === 'newest') return String(b.id || '').localeCompare(String(a.id || ''));
+                    if (ovA !== ovB) return ovB - ovA;
+                    return remB - remA;
+                  });
+
+                if (filteredSchedLoans.length === 0) {
+                  return (
+                    <div style={{ textAlign: 'center', padding: '60px 20px', background: '#fff', borderRadius: 20, border: '1.5px dashed #e2e8f0', color: '#64748b' }}>
+                      <div style={{ fontSize: 36, marginBottom: 10 }}>🌱</div>
+                      <div style={{ fontWeight: 800, fontSize: 15 }}>No loan schedules match your filters.</div>
+                    </div>
+                  );
+                }
+
+                if (schedView === 'table') {
+                  return (
+                    <div style={{ background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: 16, overflowX: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                        <thead>
+                          <tr style={{ background: '#f8fafc', borderBottom: '1.5px solid #e2e8f0' }}>
+                            <th style={{ padding: '12px 16px', fontSize: 11, fontWeight: 800, color: '#64748b' }}>LOAN ID</th>
+                            <th style={{ padding: '12px 16px', fontSize: 11, fontWeight: 800, color: '#64748b' }}>MEMBER</th>
+                            <th style={{ padding: '12px 16px', fontSize: 11, fontWeight: 800, color: '#64748b' }}>EMI #</th>
+                            <th style={{ padding: '12px 16px', fontSize: 11, fontWeight: 800, color: '#64748b' }}>DUE DATE</th>
+                            <th style={{ padding: '12px 16px', fontSize: 11, fontWeight: 800, color: '#64748b' }}>AMOUNT</th>
+                            <th style={{ padding: '12px 16px', fontSize: 11, fontWeight: 800, color: '#64748b' }}>PAID</th>
+                            <th style={{ padding: '12px 16px', fontSize: 11, fontWeight: 800, color: '#64748b' }}>BALANCE</th>
+                            <th style={{ padding: '12px 16px', fontSize: 11, fontWeight: 800, color: '#64748b' }}>STATUS</th>
+                            <th style={{ padding: '12px 16px', fontSize: 11, fontWeight: 800, color: '#64748b', textAlign: 'right' }}>ACTION</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredSchedLoans.flatMap(loan =>
+                            (loan.repayments || []).map((r: any, idx: number) => {
+                              const isPaid = r.paid || r.request?.status === 'approved';
+                              const paidVal = Number(r.paid_amount || (isPaid ? r.amt : 0));
+                              const balVal = Math.max(0, Number(r.amt || 0) - paidVal);
+                              const st = isPaid ? 'Paid' : balVal < r.amt ? 'Partial' : (r.due && new Date(r.due) < new Date()) ? 'Overdue' : 'Due';
+
                               return (
-                                <div key={i} style={{ flexShrink: 0, textAlign: 'center' }}>
-                                  <div style={{
-                                    width: 32, height: 32, borderRadius: 10, 
-                                    background: s === 'paid' ? 'var(--green)' : s === 'upcoming' ? '#e2e8f0' : 'var(--amber)',
-                                    color: s === 'upcoming' ? '#64748b' : '#fff',
-                                    fontSize: 11, fontWeight: 900, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                    boxShadow: s === 'paid' ? '0 4px 12px rgba(16, 185, 129, 0.25)' : 'none',
-                                    border: isPartial ? '2.5px solid #f59e0b' : 'none'
-                                  }}>
-                                    {s === 'paid' ? '✓' : i + 1}
-                                  </div>
-                                  <div style={{ fontSize: 10, fontWeight: 800, color: '#64748b', marginTop: 8 }}>
-                                    {isPartial ? <span style={{ color: '#d97706' }}>₹{actual}</span> : `EMI ${i+1}`}
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                          ) : (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                              {reps.map((r: any, i: number) => (
-                                <tr key={i} onClick={() => setEmiDetail({ loan, idx: i })} style={{ cursor: 'pointer', borderBottom: '1px solid #f1f5f9' }}>
-                                  <td style={{ padding: '12px 14px', fontSize: 13, fontWeight: 800, color: 'var(--teal)' }}>EMI #{i + 1}</td>
-                                  <td style={{ padding: '12px 14px', fontSize: 13 }}>{fmtDate(r.due_date)}</td>
-                                  <td style={{ padding: '12px 14px', fontSize: 13, fontWeight: 700 }}>{fmt(r.amt)}</td>
-                                  <td style={{ padding: '12px 14px', fontSize: 13, fontWeight: 700 }}>{fmt(r.paid ? Number(r.paid_amount || r.amt || 0) : 0)}</td>
-                                  <td style={{ padding: '12px 14px', fontSize: 13, fontWeight: 700 }}>{fmt(Math.max(0, Number(r.amt || 0) - Number(r.paid ? r.paid_amount || r.amt || 0 : 0)))}</td>
-                                  <td style={{ padding: '12px 14px', fontSize: 13, fontWeight: 800, color: statusFor(r) === 'paid' ? '#15803d' : statusFor(r) === 'overdue' ? '#b91c1c' : statusFor(r) === 'partially_paid' ? '#4338ca' : '#0369a1' }}>{String(r.status || statusFor(r))}</td>
+                                <tr key={`${loan.id}-${idx}`} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                  <td style={{ padding: '12px 16px', fontSize: 13, fontWeight: 800, color: 'var(--teal)' }}>{loan.loan_no || loan.id}</td>
+                                  <td style={{ padding: '12px 16px', fontSize: 13, fontWeight: 700, color: '#0f172a' }}>{loan.name}</td>
+                                  <td style={{ padding: '12px 16px', fontSize: 12 }}>EMI #{idx + 1}</td>
+                                  <td style={{ padding: '12px 16px', fontSize: 12 }}>{fmtDate(r.due || r.due_date)}</td>
+                                  <td style={{ padding: '12px 16px', fontSize: 13, fontWeight: 700 }}>{fmt(r.amt)}</td>
+                                  <td style={{ padding: '12px 16px', fontSize: 13, color: '#10b981', fontWeight: 700 }}>{fmt(paidVal)}</td>
+                                  <td style={{ padding: '12px 16px', fontSize: 13, fontWeight: 900, color: balVal > 0 ? 'var(--amber2)' : '#10b981' }}>{fmt(balVal)}</td>
+                                  <td style={{ padding: '12px 16px' }}>
+                                    <span style={{
+                                      fontSize: 10, fontWeight: 800, padding: '3px 8px', borderRadius: 8,
+                                      background: isPaid ? '#dcfce7' : st === 'Overdue' ? '#fee2e2' : '#fef3c7',
+                                      color: isPaid ? '#15803d' : st === 'Overdue' ? '#b91c1c' : '#b45309'
+                                    }}>
+                                      {st.toUpperCase()}
+                                    </span>
+                                  </td>
+                                  <td style={{ padding: '12px 16px', textAlign: 'right' }}>
+                                    {!isPaid && (
+                                      <button
+                                        className="bsm s"
+                                        style={{ padding: '6px 12px', fontSize: 11, fontWeight: 800 }}
+                                        onClick={() => {
+                                          setRecordSelectedLoan(loan);
+                                          setRecordSelectedEmi(idx);
+                                          setRecordForm({ amount: String(balVal || r.amt), date: new Date().toISOString().split('T')[0], mode: 'Cash', ref: '', receipt: '', notes: '' });
+                                          setShowRecordPayment(true);
+                                          setRecordStep(3);
+                                        }}
+                                      >
+                                        Record
+                                      </button>
+                                    )}
+                                  </td>
                                 </tr>
-                              ))}
+                              );
+                            })
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                }
+
+                {/* Timeline Responsive Grid */}
+                return (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: 20 }}>
+                    {filteredSchedLoans.map(loan => {
+                      const reps: any[] = loan.repayments || [];
+                      const paidAmt = loan.total_paid ?? reps.reduce((s, r) => s + ((r.paid || r.request?.status === 'approved') ? (Number(r.paid_amount || r.request?.amt) || r.amt) : 0), 0);
+                      const prog = loan.amt > 0 ? Math.min((paidAmt / loan.amt) * 100, 100) : 0;
+                      const remaining = Math.max(0, loan.amt - paidAmt);
+                      const nextUnpaidIdx = reps.findIndex(r => !r.paid && r.request?.status !== 'approved');
+                      const nextEmi = nextUnpaidIdx > -1 ? reps[nextUnpaidIdx] : null;
+                      const isHistoryExpanded = expandedHistories.has(loan.id);
+
+                      return (
+                        <div
+                          key={loan.id}
+                          style={{
+                            background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: 20,
+                            overflow: 'hidden', boxShadow: '0 4px 16px rgba(0,0,0,0.03)'
+                          }}
+                        >
+                          {/* Card Header */}
+                          <div style={{ padding: '20px 22px 16px', borderBottom: '1px solid #f1f5f9' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                              <div>
+                                <div style={{ fontWeight: 950, fontSize: 16, color: '#0f172a' }}>{loan.name}</div>
+                                <div style={{ fontSize: 12, color: '#64748b', marginTop: 2, display: 'flex', gap: 6, alignItems: 'center' }}>
+                                  <span style={{ fontWeight: 800, color: 'var(--teal)' }}>{loan.loan_no || loan.id}</span>
+                                  <span>·</span>
+                                  <span>{loan.branch}</span>
+                                </div>
+                              </div>
+                              <span style={{ fontSize: 10, fontWeight: 900, background: '#f1f5f9', color: '#475569', padding: '4px 8px', borderRadius: 6 }}>
+                                {loan.purpose}
+                              </span>
+                            </div>
+
+                            {/* Progress */}
+                            <div style={{ marginTop: 16 }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, fontWeight: 800, marginBottom: 6 }}>
+                                <span style={{ color: '#10b981' }}>{fmt(paidAmt)} Repaid ({Math.round(prog)}%)</span>
+                                <span style={{ color: remaining > 0 ? 'var(--amber2)' : '#10b981' }}>{fmt(remaining)} Left</span>
+                              </div>
+                              <div style={{ height: 6, background: '#f1f5f9', borderRadius: 10, overflow: 'hidden' }}>
+                                <div style={{ width: `${prog}%`, height: '100%', background: 'var(--teal)', borderRadius: 10, transition: 'width 0.6s' }} />
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Next Due Chip */}
+                          <div style={{ background: '#f8fafc', padding: '10px 22px', borderBottom: '1px solid #f1f5f9', fontSize: 11, fontWeight: 800, color: '#475569', display: 'flex', alignItems: 'center', gap: 6 }}>
+                            {nextEmi ? (
+                              <>
+                                <span>⏰ Next due:</span>
+                                <b>EMI #{nextUnpaidIdx + 1} · {fmt(nextEmi.amt)}</b>
+                                <span>· {fmtDate(nextEmi.due || nextEmi.due_date)}</span>
+                              </>
+                            ) : (
+                              <span style={{ color: '#10b981' }}>✅ All installments fully settled</span>
+                            )}
+                          </div>
+
+                          {/* EMI Strip */}
+                          <div style={{ padding: '16px 22px', borderBottom: '1px solid #f1f5f9' }}>
+                            <div style={{ fontSize: 10, fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 }}>
+                              Installment Roadmap
+                            </div>
+                            <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 6 }}>
+                              {reps.map((r: any, idx: number) => {
+                                const isPaid = r.paid || r.request?.status === 'approved';
+                                const isOverdue = !isPaid && r.due && new Date(r.due) < new Date();
+                                const icon = isPaid ? '✅' : isOverdue ? '⚠️' : '○';
+                                const bg = isPaid ? '#dcfce7' : isOverdue ? '#fee2e2' : '#f1f5f9';
+                                const textCol = isPaid ? '#15803d' : isOverdue ? '#b91c1c' : '#475569';
+
+                                return (
+                                  <div
+                                    key={idx}
+                                    style={{
+                                      flexShrink: 0, textAlign: 'center', background: bg, borderRadius: 10,
+                                      padding: '6px 10px', minWidth: 64, border: `1px solid ${textCol}22`
+                                    }}
+                                  >
+                                    <div style={{ fontSize: 11, fontWeight: 900, color: textCol }}>{icon} #{idx + 1}</div>
+                                    <div style={{ fontSize: 10, fontWeight: 800, color: '#0f172a', marginTop: 2 }}>{fmt(r.amt)}</div>
+                                    <div style={{ fontSize: 9, color: '#64748b', marginTop: 1 }}>{fmtDateShort(r.due || r.due_date)}</div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          {/* Card Actions */}
+                          <div style={{ padding: '14px 22px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <button
+                              onClick={() => {
+                                const newSet = new Set(expandedHistories);
+                                if (newSet.has(loan.id)) newSet.delete(loan.id);
+                                else newSet.add(loan.id);
+                                setExpandedHistories(newSet);
+                              }}
+                              style={{ background: 'none', border: 'none', color: '#64748b', fontSize: 12, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, padding: 0 }}
+                            >
+                              {isHistoryExpanded ? '▲ Hide History' : '▼ Payment History'}
+                            </button>
+
+                            {nextEmi && (
+                              <button
+                                className="bsm s"
+                                style={{ padding: '8px 16px', borderRadius: 10, fontSize: 12, fontWeight: 900 }}
+                                onClick={() => {
+                                  setRecordSelectedLoan(loan);
+                                  setRecordSelectedEmi(nextUnpaidIdx);
+                                  setRecordForm({ amount: String(nextEmi.amt), date: new Date().toISOString().split('T')[0], mode: 'Cash', ref: '', receipt: '', notes: '' });
+                                  setShowRecordPayment(true);
+                                  setRecordStep(3);
+                                }}
+                              >
+                                Record payment
+                              </button>
+                            )}
+                          </div>
+
+                          {/* History Accordion (Expands right inside the card!) */}
+                          {isHistoryExpanded && (
+                            <div style={{ background: '#f8fafc', borderTop: '1px solid #e2e8f0', padding: '16px 22px' }}>
+                              <div style={{ fontSize: 11, fontWeight: 900, color: '#475569', textTransform: 'uppercase', marginBottom: 10 }}>
+                                Verified Ledger Entries
+                              </div>
+                              {reps.filter(r => r.paid || r.request).length === 0 ? (
+                                <div style={{ fontSize: 12, color: '#94a3b8' }}>No recorded payment events yet.</div>
+                              ) : (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                  {reps.map((r: any, idx: number) => {
+                                    if (!r.paid && !r.request) return null;
+                                    return (
+                                      <div key={idx} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 12px', fontSize: 12 }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800 }}>
+                                          <span>EMI #{idx + 1} — {fmt(Number(r.paid_amount || r.request?.amt || r.amt))}</span>
+                                          <span style={{ color: '#10b981' }}>✅ {r.paid ? 'Credited' : r.request?.status}</span>
+                                        </div>
+                                        <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+                                          {fmtDate(r.paid_date || r.request?.payDate)} · {r.payment_method || r.request?.mode || 'Cash'} {r.payment_reference || r.request?.ref ? `· Ref: ${r.payment_reference || r.request?.ref}` : ''}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>
-
-                        {/* ROW 3: FOOTER - NEXT ACTION + HISTORY (Phase 5 F28) */}
-                        <div style={{ padding: '20px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 14, flexWrap: 'wrap', background: '#fff' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                            <span style={{ fontSize: 18 }}>🧾</span>
-                            <div style={{ fontSize: 13, fontWeight: 800, color: 'var(--dark)' }}>
-                              {pendingReqsHere.length > 0 ? `${pendingReqsHere.length} repayment request(s) awaiting verification` : 'No pending repayment requests'}
-                            </div>
-                          </div>
-                          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                            {pendingReqsHere.length > 0 && canVerifyRepayments && (
-                              <button 
-                                className="bsm s"
-                                style={{ padding: '12px 20px', borderRadius: 12, fontSize: 13, fontWeight: 900 }}
-                                onClick={() => {
-                                  const pendingIdx = reps.findIndex((x: any) => x.request?.status === 'pending');
-                                  const r = reps[pendingIdx];
-                                  setRecordPaymentModal({ loan });
-                                  setMfInst(String(pendingIdx));
-                                  setMfAmt(String(r?.request?.amt || r?.amt));
-                                  setMfDate(r?.request?.payDate || new Date().toISOString().split('T')[0]);
-                                  setMfRef(r?.request?.ref || '');
-                                  setMfProof(r?.request?.proof || '');
-                                }}
-                              >
-                                <span style={{ fontSize: 18 }}>📥</span> Verify Repayment
-                              </button>
-                            )}
-                            <button 
-                              style={{ padding: '12px 20px', borderRadius: 12, fontSize: 13, fontWeight: 900 }}
-                              onClick={() => setHistoryModal({ loan })}
-                            >
-                              <span style={{ fontSize: 18 }}>📜</span> History Log
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+                      );
+                    })}
+                  </div>
+                );
+              })()}
             </div>
           )}
         </div>
